@@ -1,80 +1,110 @@
 # VerifyStack
 
-Operational verification workbench for India's BEE-administered compliance schemes — CCTS (Accredited Carbon Verification Agencies) and ADEETIE (empanelled energy auditors).
+Operational verification workbench for India's BEE-administered compliance schemes — **CCTS** (Accredited Carbon Verification Agencies) and **ADEETIE** (empanelled energy auditors).
 
-Built for the **verifier's** side of the workflow. VerifyStack is never sold to the audited entity.
-
-## Table of contents
-
-- [Status](#status)
-- [Quickstart](#quickstart)
-- [Design rules](#design-rules)
-- [Layout](#layout)
-- [Reference data must be verified before use](#reference-data-must-be-verified-before-use)
-- [What is deliberately not built yet](#what-is-deliberately-not-built-yet)
-- [Contributing](#contributing)
-- [License & Contact](#license--contact)
+Sold only to **verifiers**. Never to the audited entity.
 
 ## Status
 
-Prototype. The deterministic core (units, factors, calculation engine, reconciliation rules) is implemented and tested. The extraction layer is scaffolded against Gemini. UI is not built yet.
+Production build in progress. The deterministic core (units, factors, calculation engine, reconciliation rules) is tested. App Router shells, methodology packs, hashed document intake, review workbench, hash-chained calculation runs, findings, and named sign-off are in the tree. Live Supabase / Inngest / Gemini are optional: the app boots without keys.
 
 ## Quickstart
 
 ```bash
 npm install
-npm test          # 38 tests across units, engine, rules
-npm run dev       # Next.js dev server
-npx tsc --noEmit  # typecheck
+cp .env.example frontend/.env.local   # optional; marketing + /workbench work without keys
+npm test
+npm run typecheck
+npm run dev
 ```
 
-Copy `.env.example` to `.env.local` and add a Gemini API key to use extraction.
+- Open `/` for marketing.
+- Open `/workbench` for the public Aravalli Cement facsimile demo (no keys).
+- Open `/login` — if Supabase env is missing you will see a configure empty state.
+- Pack catalogue at `/packs` (all 9 CCTS sectors and all 14 ADEETIE Phase 1 sectors are runnable; factors stay unverified until cited).
+
+### With Supabase
+
+Apply `backend/supabase/migrations/0001_init.sql` and `backend/supabase/seed/packs.sql` to a project. Set:
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE` (server only — hashed uploads and signed storage)
+
+Env vars are read by Next, so they belong in `frontend/.env.local` (or the deployment
+environment), not the repo root.
+
+Then create an organisation + membership and start a **CCTS-CEMENT-v1** engagement. See `backend/supabase/seed/aravalli.md`.
+
+Gemini (`GEMINI_API_KEY`) enables live classify/extract. Inngest (`INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY`) runs intake and extraction jobs. Without those keys, upload still hashes and stores; extraction jobs fail with a clear error.
 
 ## Design rules
 
-These are not style preferences. They are the reason a verifier can defend an output.
-
-1. **Code computes, models never do.** The calculation engine is pure, versioned, and deterministic. A language model may help decide which method applies; it never performs arithmetic.
-2. **No value without provenance.** Every extracted fact carries a document, page, bounding box, and the verbatim source text. Values lacking provenance are rejected at the boundary, which is what makes "click any number to see its source" an invariant rather than a feature.
-3. **AI proposes, humans decide.** Every model output enters in a `suggested` state and requires a named human to accept or reject. Nothing is auto-approved.
-4. **Reproducible forever.** Every calculation records engine version, factor set version, and a stable hash of its inputs. A number computed today must be reproducible during a technical review years later.
-5. **Unverified factors are refused.** Reference factors carry a `verified` flag. The engine will not run with unverified factors unless explicitly in draft mode.
+1. **Code computes, models never do.** The calculation engine is pure and versioned. Models never perform arithmetic.
+2. **No value without provenance.** Document, page, bounding box, source text — or the value is dropped to the audit log.
+3. **AI proposes, humans decide.** High-materiality fields always require a named reviewer.
+4. **Reproducible forever.** Every run records engine version, pack version, and input hash, and is hash-chained.
+5. **Unverified factors are refused** unless the engagement is in draft mode.
 
 ## Layout
 
+Two npm workspaces, `backend/` and `frontend/`. The frontend imports the backend
+directly as a workspace package — there is no HTTP hop between them.
+
 ```
-src/domain/
-  units.ts              Dimension-checked quantities. Cross-dimension conversion throws.
-  factors.ts            Emission factors, CV defaults, plausibility ranges, sampling mandates.
-  calc/engine.ts        Deterministic emissions + GEI calculation with derivation trails.
-  rules/types.ts        Reconciliation context and finding shapes.
-  rules/rules.ts        Eight reconciliation checks (MB001, CV001/002, LB001, TS001,
-                        EF001, SM001, MT001).
-  extraction/schemas.ts Zod schemas with mandatory provenance + confidence triage.
-  extraction/provider.ts Provider-agnostic interface and cross-check helper.
-  extraction/gemini.ts  Gemini adapter with prompt-injection isolation and JSON validation.
+backend/domain/            units, factors, engine, rules, packs, extraction, calc/run.ts
+backend/lib/supabase/      clients, Database types, session
+backend/lib/auth/          getSession, requireRole, auditEvent
+backend/lib/data/          engagement queries
+backend/inngest/           intake + extract functions
+backend/demo/              Aravalli cement seed + pipeline
+backend/supabase/          Postgres migrations + RLS + evidence bucket, seed data
+frontend/app/(marketing)   landing + privacy / DPDP
+frontend/app/(auth)        login + invite
+frontend/app/(app)         engagements, review queue, packs, factors, audit, team
+frontend/app/workbench     public cement demo (HTML facsimiles)
+frontend/app/api/          route handlers
+frontend/components/       UI kit, app shell, workbench viewer
+frontend/lib/              cn, format, route-handler error mapping
+frontend/proxy.ts          Next 16 session gate
 ```
 
-## Reference data must be verified before use
+`frontend/` is the Next.js project root; run every npm script from the repo root.
+Backend modules are imported as `@verifystack/backend/<path>`; frontend-internal
+imports keep the `@/` alias.
 
-`src/domain/factors.ts` currently ships **placeholder** values marked `verified: false` — CEA grid factors and IPCC fuel factors included. These exist so the engine runs during development. Before any output is shown to a verifier, each value must be read from its published source and the flag flipped.
+Process 3.0 and 5.0 load a **Methodology Pack**. They do not contain sector `if` branches.
 
-This is deliberate: shipping an unchecked emission factor is precisely the class of error this product exists to catch.
+## Privacy / DPDP
 
-Clause references in `rules.ts` marked `TO VERIFY` need checking line-by-line against the gazetted CCTS Detailed Procedure.
+Evidence files may be sent to Google Gemini for classification and extraction when a Gemini key is configured. See `/privacy`.
 
-## What is deliberately not built yet
+## Tests
 
-Multi-scheme config engine, workflow state machine, management dashboards, ICM portal integration, e-signature, notifications, admin config UI, maker-checker sign-off, and the offline field-capture app. All are real requirements; none belong in the prototype.
+```bash
+npm test          # units, engine, rules, pack loader, hash/dedupe, RLS helpers, run hashing, sign-off guards
+npm run typecheck
+npm run lint
+```
 
-## Contributing
+CI: `.github/workflows/ci.yml` (lint, tsc, vitest).
 
-- Run the tests and ensure new code includes unit tests where appropriate.
-- Keep reference data verification separate from feature work: change `src/domain/factors.ts` only when you have a primary source for a factor and flip `verified: true` with a commit message that cites that source.
-- For extraction prompts and adapters, avoid sending sensitive documents to external services without explicit consent and review.
+## Deploy on Vercel
 
-If you'd like help preparing a PR to verify factors or add CI badges, open an issue describing the data source and the intended change.
+This is **one Next.js app**, not a split frontend/backend. Vercel runs `frontend/`; that app imports `backend/` from source. Host Postgres/Auth/Storage on [Supabase](https://supabase.com). Optional: [Inngest Cloud](https://www.inngest.com) for long extracts, Gemini for document extraction.
 
-## License & Contact
+1. Push this repo to GitHub (already the default remote).
+2. [Import the project](https://vercel.com/new) from `shahmehul2005/verifystack`.
+3. Framework Preset: **Next.js**. Root Directory: **`frontend`**. Enable *Include source files outside of the Root Directory in the Build Step*.
+4. Leave Install / Build as the values in `frontend/vercel.json` (`npm install --prefix ..` then `npm run build`).
+5. Add env vars from `.env.example` (never put `SUPABASE_SERVICE_ROLE` or `GEMINI_API_KEY` on a `NEXT_PUBLIC_` name).
+6. Apply every file in `backend/supabase/migrations/` on the Supabase project, then `backend/supabase/seed/packs.sql`.
+7. Hobby functions time out at 10s; multi-page extract sets `maxDuration = 300` and needs **Pro** (or run extracts via Inngest).
 
-This repository is maintained by the VerifyStack authors. See LICENSE for license terms. For questions or to report issues, open an issue or contact the maintainers.
+## Out of scope
+
+ICM portal, vendor e-sign (DocuSign etc.), verifying CEA/IPCC numbers, extractors for production_log/weighbridge beyond Cement, offline app, second LLM cross-check.
+
+## License & contact
+
+This repository is maintained by the VerifyStack authors. See LICENSE for terms.

@@ -1,0 +1,29 @@
+{
+  "name": "@verifystack/backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": null,
+    "./package.json": "./package.json",
+    "./*": [
+      "./*.ts",
+      "./*.tsx",
+      "./*/index.ts"
+    ]
+  },
+  "dependencies": {
+    "@google/genai": "^2.18.0",
+    "@react-pdf/renderer": "^4.9.0",
+    "@supabase/ssr": "^0.12.5",
+    "@supabase/supabase-js": "^2.109.0",
+    "inngest": "^4.18.1",
+    "pdf-lib": "^1.17.1",
+    "server-only": "^0.0.1",
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "next": "16.3.2",
+    "react": "19.2.8"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "pack_id": "CCTS-CEMENT-v1",
+  "scheme": "CCTS",
+  "sector_or_cluster": "Cement",
+  "status": "runnable",
+  "version": "1.0.0",
+  "calculation_method": "GEI",
+  "source": "backend/domain/packs/cement.ts"
+}
