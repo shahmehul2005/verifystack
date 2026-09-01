@@ -1,7 +1,10 @@
 import { renderToBuffer } from "@react-pdf/renderer";
 import type { DocumentProps } from "@react-pdf/renderer";
-import type { ReactElement } from "react";
-import { requireSession, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
+import { createElement, type ReactElement } from "react";
+import {
+  requireCapability,
+  assertOrgId,
+} from "@verifystack/backend/lib/auth/requireRole";
 import { jsonError } from "@/lib/api";
 import { getEngagement } from "@verifystack/backend/lib/data/engagements";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
