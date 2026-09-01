@@ -1,7 +1,7 @@
 import { renderToBuffer } from "@react-pdf/renderer";
 import type { DocumentProps } from "@react-pdf/renderer";
 import type { ReactElement } from "react";
-import { requireCapability, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
+import { requireSession, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
 import { jsonError } from "@/lib/api";
 import { getEngagement } from "@verifystack/backend/lib/data/engagements";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
@@ -87,17 +87,17 @@ export async function GET(req: Request) {
         .maybeSingle();
       const result = run?.result as CalcResult | undefined;
       return renderPdf(
-        <VerificationReportPdf
-          clientName={engagement.client_name}
-          plantName={engagement.plant_name}
-          complianceYear={engagement.compliance_year}
-          packId={engagement.pack_id}
-          packVersion={engagement.pack_version}
-          engineVersion={run?.engine_version ?? "n/a"}
-          inputHash={run?.input_hash ?? "no-run"}
-          draftMode={engagement.draft_mode}
-          gei={result?.gei}
-        />,
+        createElement(VerificationReportPdf, {
+          clientName: engagement.client_name,
+          plantName: engagement.plant_name,
+          complianceYear: engagement.compliance_year,
+          packId: engagement.pack_id,
+          packVersion: engagement.pack_version,
+          engineVersion: run?.engine_version ?? "n/a",
+          inputHash: run?.input_hash ?? "no-run",
+          draftMode: engagement.draft_mode,
+          gei: result?.gei,
+        }),
         `verifystack-${filenameId}.pdf`
       );
     }
@@ -173,20 +173,20 @@ export async function GET(req: Request) {
 
     if (kind === "igea") {
       return renderPdf(
-        <AdeetieIgeaReportPdf
-          enterpriseName={engagement.client_name}
-          plantName={engagement.plant_name}
-          sector={sector}
-          cluster={cluster}
-          baseline={baseline}
-          measures={measures}
-          packId={engagement.pack_id}
-          packVersion={engagement.pack_version}
-          secEngineVersion={secEngineVersion}
-          factorSetVersion={factorSetVersion}
-          draftMode={engagement.draft_mode}
-          attestation={attestation}
-        />,
+        createElement(AdeetieIgeaReportPdf, {
+          enterpriseName: engagement.client_name,
+          plantName: engagement.plant_name,
+          sector,
+          cluster,
+          baseline,
+          measures,
+          packId: engagement.pack_id,
+          packVersion: engagement.pack_version,
+          secEngineVersion,
+          factorSetVersion,
+          draftMode: engagement.draft_mode,
+          attestation,
+        }),
         `verifystack-adeetie-igea-${filenameId}.pdf`
       );
     }
@@ -212,37 +212,37 @@ export async function GET(req: Request) {
       }
 
       return renderPdf(
-        <AdeetieDprReportPdf
-          enterpriseName={engagement.client_name}
-          plantName={engagement.plant_name}
-          sector={sector}
-          cluster={cluster}
-          state={engagement.adeetie_state ?? ""}
-          clusterIsNotified={clusterIsNotified}
-          clusterListVerified={CLUSTERS_VERIFIED}
-          category={category}
-          udyamRegistrationNo={engagement.udyam_registration_no}
-          baseline={baseline}
-          measures={measures}
-          projectedPostSec={projectedPostSec}
-          projectedSavingsPct={projectedSavingsPct}
-          minSavingsPct={MIN_ENERGY_SAVINGS_PCT}
-          projectCostINR={projectCostINR}
-          loanAmountINR={loanAmountINR}
-          subvention={computeSubvention({
+        createElement(AdeetieDprReportPdf, {
+          enterpriseName: engagement.client_name,
+          plantName: engagement.plant_name,
+          sector,
+          cluster,
+          state: engagement.adeetie_state ?? "",
+          clusterIsNotified,
+          clusterListVerified: CLUSTERS_VERIFIED,
+          category,
+          udyamRegistrationNo: engagement.udyam_registration_no,
+          baseline,
+          measures,
+          projectedPostSec,
+          projectedSavingsPct,
+          minSavingsPct: MIN_ENERGY_SAVINGS_PCT,
+          projectCostINR,
+          loanAmountINR,
+          subvention: computeSubvention({
             category,
             sanctionedRatePct: Number(
               engagement.sanctioned_interest_rate_pct ?? 0
             ),
             principalINR: loanAmountINR,
-          })}
-          packId={engagement.pack_id}
-          packVersion={engagement.pack_version}
-          secEngineVersion={secEngineVersion}
-          factorSetVersion={factorSetVersion}
-          draftMode={engagement.draft_mode}
-          attestation={attestation}
-        />,
+          }),
+          packId: engagement.pack_id,
+          packVersion: engagement.pack_version,
+          secEngineVersion,
+          factorSetVersion,
+          draftMode: engagement.draft_mode,
+          attestation,
+        }),
         `verifystack-adeetie-dpr-${filenameId}.pdf`
       );
     }
@@ -260,31 +260,29 @@ export async function GET(req: Request) {
     }
 
     return renderPdf(
-      <AdeetieMvReportPdf
-        enterpriseName={engagement.client_name}
-        plantName={engagement.plant_name}
-        sector={sector}
-        cluster={cluster}
-        baseline={baseline}
-        post={post}
-        savings={assessSavings(baseline, post)}
-        commissionedOn={null}
-        sustainedPeriodsObserved={
-          rows.filter((r) => {
-            const col = (r as { sec_phase?: string }).sec_phase;
-            return (
-              col === "post_implementation" ||
-              (r.result as Partial<SecResult> | null)?.phase === "post_implementation"
-            );
-          }).length
-        }
-        packId={engagement.pack_id}
-        packVersion={engagement.pack_version}
-        secEngineVersion={secEngineVersion}
-        factorSetVersion={factorSetVersion}
-        draftMode={engagement.draft_mode}
-        attestation={attestation}
-      />,
+      createElement(AdeetieMvReportPdf, {
+        enterpriseName: engagement.client_name,
+        plantName: engagement.plant_name,
+        sector,
+        cluster,
+        baseline,
+        post,
+        savings: assessSavings(baseline, post),
+        commissionedOn: null,
+        sustainedPeriodsObserved: rows.filter((r) => {
+          const col = (r as { sec_phase?: string }).sec_phase;
+          return (
+            col === "post_implementation" ||
+            (r.result as Partial<SecResult> | null)?.phase === "post_implementation"
+          );
+        }).length,
+        packId: engagement.pack_id,
+        packVersion: engagement.pack_version,
+        secEngineVersion,
+        factorSetVersion,
+        draftMode: engagement.draft_mode,
+        attestation,
+      }),
       `verifystack-adeetie-mv-${filenameId}.pdf`
     );
   } catch (e) {
@@ -292,11 +290,8 @@ export async function GET(req: Request) {
   }
 }
 
-async function renderPdf(
-  doc: ReactElement<DocumentProps>,
-  filename: string
-): Promise<Response> {
-  const buf = await renderToBuffer(doc);
+async function renderPdf(doc: ReactElement, filename: string): Promise<Response> {
+  const buf = await renderToBuffer(doc as ReactElement<DocumentProps>);
   return new Response(new Uint8Array(buf), {
     headers: {
       "Content-Type": "application/pdf",
