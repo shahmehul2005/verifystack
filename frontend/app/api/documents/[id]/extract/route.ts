@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireSession, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
+import { requireCapability, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
 import { jsonError } from "@/lib/api";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { runDocumentExtraction } from "@verifystack/backend/domain/extraction/runDocument";
@@ -13,7 +13,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await requireSession();
+    const session = await requireCapability("documents.extract");
     const organizationId = assertOrgId(session.organizationId);
     const { id } = await params;
     const admin = createServiceClient();

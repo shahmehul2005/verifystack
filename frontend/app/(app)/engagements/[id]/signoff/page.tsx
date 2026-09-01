@@ -9,6 +9,7 @@ import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { canSubmit } from "@verifystack/backend/domain/signoff/guards";
 import { ROLE_LABEL } from "@verifystack/backend/lib/auth/roles";
+import { hasCapability } from "@verifystack/backend/lib/auth/capabilities";
 import { formatIst } from "@/lib/format";
 import { AdeetieReportLinks } from "@/components/adeetie/report-links";
 import { ReportDisclaimer } from "@/components/adeetie/notices";
@@ -26,6 +27,14 @@ export default async function SignoffPage({ params }: { params: Promise<{ id: st
   const { id } = await params;
   const session = await getSession();
   if (!session?.organizationId) return <ForbiddenState />;
+  if (
+    !hasCapability(session.role, "signoff.lead") &&
+    !hasCapability(session.role, "signoff.reviewer")
+  ) {
+    return (
+      <ForbiddenState body="Sign-off (P7) is the lead verifier, then a different independent reviewer." />
+    );
+  }
   const engagement = await getEngagement(id, session.organizationId);
   if (!engagement) notFound();
   const supabase = createServiceClient() ?? (await createServerSupabase());
@@ -60,8 +69,8 @@ export default async function SignoffPage({ params }: { params: Promise<{ id: st
     : [];
   const ready = canSubmit(passSignoffs);
   const role = session.role as MembershipRole | null;
-  const canLead = role === "lead_verifier" || role === "firm_admin";
-  const canReviewer = role === "independent_reviewer" || role === "firm_admin";
+  const canLead = hasCapability(role, "signoff.lead");
+  const canReviewer = hasCapability(role, "signoff.reviewer");
 
   return (
     <>
@@ -74,12 +83,20 @@ export default async function SignoffPage({ params }: { params: Promise<{ id: st
             : "Maker-checker: lead verifier, then a different independent reviewer. Named attestation is not a Digital Signature under the IT Act. P7 filing (Form A/B, ICM, BEE) is still a download-and-submit step."
         }
         actions={
-          <a
-            href={`/api/reports?engagementId=${id}`}
-            className="inline-flex h-9 items-center bg-white px-3 text-sm ring-1 ring-stone-300"
-          >
-            Download PDF (includes input hash)
-          </a>
+          /**
+           * The unqualified report endpoint renders the GEI verification
+           * working paper. On an SEC engagement that is the wrong document, so
+           * ADEETIE gets its per-pass links below instead of a button that
+           * would download a report for a calculation this engagement never ran.
+           */
+          isAdeetie ? undefined : (
+            <a
+              href={`/api/reports?engagementId=${id}`}
+              className="inline-flex h-9 items-center bg-white px-3 text-sm ring-1 ring-stone-300"
+            >
+              Download PDF (includes input hash)
+            </a>
+          )
         }
       />
       <ReportDisclaimer />
@@ -156,7 +173,7 @@ export default async function SignoffPage({ params }: { params: Promise<{ id: st
           <p className="mb-4 text-sm text-stone-600">
             None yet for this pass. Your role is {role ? ROLE_LABEL[role] : "unset"}.
             {!canLead && !canReviewer
-              ? " Only a lead verifier or firm admin can record the first attestation."
+              ? " Only the lead verifier can record the first attestation, and only a different independent reviewer can counter-sign it."
               : null}
           </p>
         ) : (

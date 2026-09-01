@@ -3,6 +3,7 @@ import { ConfigureSupabase, EmptyState, ForbiddenState } from "@/components/stat
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { getSession } from "@verifystack/backend/lib/auth/getSession";
+import { hasCapability } from "@verifystack/backend/lib/auth/capabilities";
 import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
@@ -12,6 +13,10 @@ export default async function ReviewQueuePage() {
   if (!isSupabaseConfigured()) return <ConfigureSupabase />;
   const session = await getSession();
   if (!session?.organizationId) return <ForbiddenState />;
+  if (!hasCapability(session.role, "nav.reviewQueue")) {
+    return <ForbiddenState body="The review gate (P4) is for verifiers and reviewers." />;
+  }
+  const canDecide = hasCapability(session.role, "review.decide");
   const supabase = createServiceClient() ?? (await createServerSupabase());
   const { data } = await supabase!
     .from("extracted_fields")
@@ -46,7 +51,7 @@ export default async function ReviewQueuePage() {
                 {JSON.stringify(f.value_json)} {f.unit}
               </p>
               <p className="mt-1 text-[12px] text-stone-500">{f.source_text}</p>
-              <QueueActions fieldId={f.id} engagementId={f.engagement_id} />
+              {canDecide ? <QueueActions fieldId={f.id} engagementId={f.engagement_id} /> : null}
               <Link
                 href={`/engagements/${f.engagement_id}/workbench`}
                 className="mt-2 inline-block text-[12px] underline"

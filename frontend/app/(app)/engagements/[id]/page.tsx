@@ -17,6 +17,7 @@ import {
   type RunRow,
 } from "@/components/adeetie/sec";
 import { getSession } from "@verifystack/backend/lib/auth/getSession";
+import { hasCapability, engagementLinksForRole } from "@verifystack/backend/lib/auth/capabilities";
 import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
 import { getEngagement } from "@verifystack/backend/lib/data/engagements";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
@@ -36,15 +37,6 @@ import {
 import { MIN_ENERGY_SAVINGS_PCT } from "@verifystack/backend/domain/packs/adeetie";
 import { openBlockFindings } from "@verifystack/backend/domain/signoff/guards";
 import { formatIst } from "@/lib/format";
-
-const LINKS = [
-  ["documents", "Documents"],
-  ["workbench", "Workbench"],
-  ["facts", "Facts ledger"],
-  ["runs", "Calculation"],
-  ["findings", "Findings"],
-  ["signoff", "Sign-off"],
-] as const;
 
 function readPhase(engagement: unknown): AdeetiePhase {
   const value = (engagement as { adeetie_phase?: unknown }).adeetie_phase;
@@ -68,11 +60,19 @@ export default async function EngagementHome({
   const phase = readPhase(engagement);
   const position = { status: engagement.status as Status, phase };
 
+  /**
+   * The lifecycle panels expose calculation results, costed measures and loan
+   * figures — P5 to P7 material. Firm administration does not carry those
+   * capabilities, so the queries behind them are skipped rather than rendered
+   * and hidden.
+   */
+  const canViewAdeetie = isAdeetie && hasCapability(session.role, "adeetie.view");
+
   let secSet = pickSecRuns([]);
   let measures: MeasureRow[] = [];
   let blockers: string[] = [];
   let missingLifecycleTable = false;
-  if (isAdeetie) {
+  if (canViewAdeetie) {
     const supabase = createServiceClient() ?? (await createServerSupabase());
     const [{ data: runs }, measuresRes, { data: findings }] = await Promise.all([
       supabase!
@@ -131,7 +131,9 @@ export default async function EngagementHome({
   );
   const nextPhase = isAdeetie ? nextAdeetiePhase(phase) : null;
   const savingUnit = pack.sec_config?.reportingEnergyUnit ?? "GJ";
-  const financeLocked = phase === "MV";
+  const financeLocked = phase === "MV" || !hasCapability(session.role, "adeetie.operate");
+  const canOperateAdeetie = hasCapability(session.role, "adeetie.operate");
+  const tiles = engagementLinksForRole(session.role);
 
   return (
     <>
@@ -140,19 +142,21 @@ export default async function EngagementHome({
         title={engagement.client_name}
         description={`${engagement.plant_name ?? "—"} · ${engagement.compliance_year} · pack ${engagement.pack_id} v${engagement.pack_version}`}
         actions={
-          runnable ? (
+          runnable && hasCapability(session.role, "documents.upload") ? (
             <Link href={`/engagements/${id}/documents`}>
               <Button>Open intake</Button>
             </Link>
-          ) : (
+          ) : !runnable ? (
             <Badge tone="draft">Scaffold — start work disabled</Badge>
-          )
+          ) : undefined
         }
       />
       <DraftBanner show={engagement.draft_mode} />
-      <div className="mb-4">
-        <DraftModeToggle engagementId={id} draftMode={engagement.draft_mode} />
-      </div>
+      {hasCapability(session.role, "engagements.draftMode") ? (
+        <div className="mb-4">
+          <DraftModeToggle engagementId={id} draftMode={engagement.draft_mode} />
+        </div>
+      ) : null}
       {missingLifecycleTable ? (
         <p className="mb-4 border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] text-amber-950">
           Run <span className="font-mono">backend/supabase/migrations/0008_adeetie_lifecycle.sql</span>{" "}
@@ -185,13 +189,13 @@ export default async function EngagementHome({
         ))}
       </ol>
 
-      {isAdeetie ? (
+      {canViewAdeetie ? (
         <AdeetiePhasePanel
           position={position}
           savings={savings}
           thresholdPct={pack.sec_config?.minSavingsPct ?? ADEETIE_MIN_SAVINGS_PCT}
           actions={
-            nextPhase ? (
+            nextPhase && canOperateAdeetie ? (
               <AdvancePhaseButton
                 engagementId={id}
                 nextPhase={nextPhase}
@@ -202,7 +206,7 @@ export default async function EngagementHome({
         />
       ) : null}
 
-      {isAdeetie ? (
+      {canViewAdeetie ? (
         <>
           <MeasuresPanel
             engagementId={id}
@@ -221,18 +225,18 @@ export default async function EngagementHome({
       ) : null}
 
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        {LINKS.map(([slug, label]) => (
+        {tiles.map((item) => (
           <Link
-            key={slug}
-            href={`/engagements/${id}/${slug}`}
+            key={item.slug}
+            href={`/engagements/${id}/${item.slug}`}
             className="border border-stone-200 bg-white px-4 py-3 text-sm hover:border-stone-400"
           >
-            {label}
+            {item.label}
           </Link>
         ))}
       </div>
 
-      {isAdeetie ? (
+      {canViewAdeetie && hasCapability(session.role, "reports.download") ? (
         <section className="mt-8">
           <h2 className="mb-2 text-[11px] uppercase tracking-wide text-stone-500">Reports</h2>
           <AdeetieReportLinks engagementId={id} />

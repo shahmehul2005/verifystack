@@ -3,6 +3,7 @@ import { ConfigureSupabase, EmptyState, ForbiddenState } from "@/components/stat
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { getSession } from "@verifystack/backend/lib/auth/getSession";
+import { hasCapability } from "@verifystack/backend/lib/auth/capabilities";
 import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
 import { getEngagement } from "@verifystack/backend/lib/data/engagements";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
@@ -14,6 +15,9 @@ export default async function FindingsPage({ params }: { params: Promise<{ id: s
   const { id } = await params;
   const session = await getSession();
   if (!session?.organizationId) return <ForbiddenState />;
+  if (!hasCapability(session.role, "findings.decide")) {
+    return <ForbiddenState body="Findings (P6) are for verifiers and reviewers." />;
+  }
   const engagement = await getEngagement(id, session.organizationId);
   if (!engagement) notFound();
   const supabase = createServiceClient() ?? (await createServerSupabase());

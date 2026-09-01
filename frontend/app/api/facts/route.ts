@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireSession, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
+import { requireCapability, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
 import { jsonError } from "@/lib/api";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
@@ -18,7 +18,7 @@ const Body = z.object({
 
 export async function POST(req: Request) {
   try {
-    const session = await requireSession();
+    const session = await requireCapability("review.decide");
     const organizationId = assertOrgId(session.organizationId);
     const parsed = Body.safeParse(await req.json());
     if (!parsed.success) {

@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/page-header";
 import { Table, Td, Th } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { getSession } from "@verifystack/backend/lib/auth/getSession";
+import { hasCapability } from "@verifystack/backend/lib/auth/capabilities";
 import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
 import { getEngagement } from "@verifystack/backend/lib/data/engagements";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
@@ -22,6 +23,11 @@ export default async function DocumentsPage({
   const { id } = await params;
   const session = await getSession();
   if (!session?.organizationId) return <ForbiddenState />;
+  if (!hasCapability(session.role, "documents.view")) {
+    return <ForbiddenState body="Document intake (P2) is not part of this role." />;
+  }
+  const canUpload = hasCapability(session.role, "documents.upload");
+  const canExtract = hasCapability(session.role, "documents.extract");
   const engagement = await getEngagement(id, session.organizationId);
   if (!engagement) notFound();
   const pack = loadPack(engagement.pack_id);
@@ -44,7 +50,7 @@ export default async function DocumentsPage({
             : "Upload stores the file. Extract splits every PDF page, reads fields with page and bounding-box provenance, then they appear on the workbench."
         }
         actions={
-          <UploadForm engagementId={id} disabled={!canStartWork(pack)} />
+          canUpload ? <UploadForm engagementId={id} disabled={!canStartWork(pack)} /> : undefined
         }
       />
       {!docs?.length ? (
@@ -81,7 +87,7 @@ export default async function DocumentsPage({
                 <Td className="tabular">{formatIn(d.byte_size, { maximumFractionDigits: 0 })} B</Td>
                 <Td className="text-[12px]">{formatIst(d.created_at)}</Td>
                 <Td>
-                  <ExtractButton documentId={d.id} engagementId={id} />
+                  {canExtract ? <ExtractButton documentId={d.id} engagementId={id} /> : null}
                 </Td>
               </tr>
             ))}

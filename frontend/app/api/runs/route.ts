@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireSession, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
+import { requireCapability, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
 import { jsonError } from "@/lib/api";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
@@ -37,7 +37,7 @@ const Body = z.object({
 
 export async function POST(req: Request) {
   try {
-    const session = await requireSession();
+    const session = await requireCapability("runs.execute");
     const organizationId = assertOrgId(session.organizationId);
     const parsed = Body.safeParse(await req.json());
     if (!parsed.success) {
@@ -333,10 +333,14 @@ function isSecResult(value: unknown): value is SecResult {
 /**
  * ADEETIE rules over what this engagement actually holds.
  *
- * The energy-balance and calibration rules need a monthly series and meter
- * certificates that intake does not yet capture, so they are given empty inputs
- * and stay silent rather than being fed invented data. Eligibility is evaluated
- * only when the enterprise category was recorded at setup.
+ * The energy-balance, baseline-completeness and calibration rules need a monthly
+ * series and meter certificates that intake does not yet capture, so they are
+ * given empty inputs and stay silent rather than being fed invented data. That
+ * silence is a known gap, not a pass: AD-EB001, AD-TS001 and AD-CAL001 cannot
+ * fire until intake carries monthly readings and calibration certificates.
+ *
+ * Eligibility is evaluated only when the enterprise category was recorded at
+ * setup, because without it there is no scheme category to test against.
  */
 function adeetieFindings({
   engagement,
@@ -386,6 +390,12 @@ function adeetieFindings({
         : {}),
       ...(e.sanctioned_interest_rate_pct != null
         ? { sanctionedRatePct: Number(e.sanctioned_interest_rate_pct) }
+        : {}),
+      // Migration 0009. A unit outside a notified cluster may still qualify on
+      // a 200 km proximity claim, so AD-ELG002 needs the claimed distance to
+      // judge it rather than blocking every non-cluster address outright.
+      ...(e.claimed_distance_to_cluster_km != null
+        ? { claimedDistanceToClusterKm: Number(e.claimed_distance_to_cluster_km) }
         : {}),
     };
   }

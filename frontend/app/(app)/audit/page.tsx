@@ -2,6 +2,7 @@ import { ConfigureSupabase, EmptyState, ForbiddenState } from "@/components/stat
 import { PageHeader } from "@/components/page-header";
 import { Table, Td, Th } from "@/components/ui/table";
 import { getSession } from "@verifystack/backend/lib/auth/getSession";
+import { hasCapability } from "@verifystack/backend/lib/auth/capabilities";
 import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { formatIst } from "@/lib/format";
@@ -10,6 +11,9 @@ export default async function AuditPage() {
   if (!isSupabaseConfigured()) return <ConfigureSupabase />;
   const session = await getSession();
   if (!session?.organizationId) return <ForbiddenState />;
+  if (!hasCapability(session.role, "nav.audit")) {
+    return <ForbiddenState body="The audit log (D7) is restricted to the firm admin." />;
+  }
   const supabase = await createServerSupabase();
   const { data } = await supabase!
     .from("audit_events")

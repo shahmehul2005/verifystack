@@ -13,27 +13,32 @@ import {
 import { cn } from "@/lib/cn";
 import { Badge } from "@/components/ui/badge";
 import { ROLE_LABEL } from "@verifystack/backend/lib/auth/roles";
+import { navForRole } from "@verifystack/backend/lib/auth/capabilities";
 import type { MembershipRole } from "@verifystack/backend/lib/supabase/types";
+import { SignOutButton } from "./sign-out-button";
 
-const NAV = [
-  { href: "/engagements", label: "Engagements", icon: ClipboardList },
-  { href: "/review-queue", label: "Review queue", icon: Files },
-  { href: "/packs", label: "Packs", icon: Library },
-  { href: "/factors", label: "Factors", icon: Scale },
-  { href: "/audit", label: "Audit log", icon: Shield },
-  { href: "/team", label: "Team", icon: Users },
-];
+const NAV_ICONS = {
+  "/engagements": ClipboardList,
+  "/review-queue": Files,
+  "/packs": Library,
+  "/factors": Scale,
+  "/audit": Shield,
+  "/team": Users,
+} as const;
 
 export function AppShell({
   children,
   orgName,
   role,
+  userEmail,
 }: {
   children: React.ReactNode;
   orgName?: string | null;
   role?: MembershipRole | null;
+  userEmail?: string | null;
 }) {
   const pathname = usePathname();
+  const nav = navForRole(role);
   return (
     <div className="flex min-h-screen bg-stone-100 text-stone-900">
       <aside className="hidden w-56 shrink-0 border-r border-stone-300 bg-stone-900 text-stone-100 md:flex md:flex-col">
@@ -42,9 +47,9 @@ export function AppShell({
           <p className="mt-1 text-sm font-semibold">Verifier workbench</p>
         </div>
         <nav className="flex-1 p-2">
-          {NAV.map((item) => {
+          {nav.map((item) => {
             const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-            const Icon = item.icon;
+            const Icon = NAV_ICONS[item.href as keyof typeof NAV_ICONS];
             return (
               <Link
                 key={item.href}
@@ -71,12 +76,31 @@ export function AppShell({
             </span>
             {role ? <Badge tone="ink">{ROLE_LABEL[role]}</Badge> : <Badge>No role</Badge>}
           </div>
-          <Link href="/workbench" className="text-[12px] text-stone-500 hover:text-stone-800">
-            Public demo
-          </Link>
+          <div className="flex min-w-0 items-center gap-2">
+            {userEmail ? (
+              <>
+                <span
+                  className="hidden max-w-[12rem] truncate text-[12px] text-stone-600 sm:inline"
+                  title={userEmail}
+                >
+                  {userEmail}
+                </span>
+                <Link
+                  href="/update-password"
+                  className="hidden text-[12px] text-stone-500 hover:text-stone-800 sm:inline"
+                >
+                  Password
+                </Link>
+                <SignOutButton />
+              </>
+            ) : null}
+            <Link href="/workbench" className="text-[12px] text-stone-500 hover:text-stone-800">
+              Public demo
+            </Link>
+          </div>
         </header>
         <nav className="flex gap-1 overflow-x-auto border-b border-stone-200 bg-white px-2 py-1 md:hidden">
-          {NAV.map((item) => (
+          {nav.map((item) => (
             <Link
               key={item.href}
               href={item.href}

@@ -13,7 +13,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <AppShell orgName={configured ? orgName ?? "Your firm" : "Not configured"} role={session?.role}>
+    <AppShell
+      orgName={configured ? orgName ?? "Your firm" : "Not configured"}
+      role={session?.role}
+      userEmail={session?.user.email}
+    >
       {children}
     </AppShell>
   );

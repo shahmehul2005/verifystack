@@ -1,24 +1,41 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createBrowserSupabase } from "@verifystack/backend/lib/supabase/client";
+import { MIN_PASSWORD_LENGTH, passwordIssue } from "@verifystack/backend/lib/auth/redirect";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
-import { ConfigureSupabase, ErrorState } from "@/components/states";
+import { ConfigureSupabase } from "@/components/states";
 
 export default function InvitePage() {
   const router = useRouter();
   const supabase = createBrowserSupabase();
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [hasSession, setHasSession] = useState(false);
+  const [ready, setReady] = useState(false);
   const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    if (!supabase) return;
+    void supabase.auth.getSession().then(({ data }) => {
+      setHasSession(Boolean(data.session));
+      setReady(true);
+    });
+  }, [supabase]);
 
   if (!supabase) return <ConfigureSupabase />;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const issue = passwordIssue(password, confirm);
+    if (issue) {
+      setError(issue);
+      return;
+    }
     setPending(true);
     const { error: err } = await supabase!.auth.updateUser({ password });
     setPending(false);
@@ -37,26 +54,47 @@ export default function InvitePage() {
         Open this page from the invite email so the recovery session is present.
       </p>
       {error ? (
-        <div className="mt-4">
-          <ErrorState body={error} />
-        </div>
+        <p className="mt-4 border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">{error}</p>
       ) : null}
-      <form onSubmit={onSubmit} className="mt-6 space-y-3">
-        <div>
-          <Label htmlFor="password">New password</Label>
-          <Input
-            id="password"
-            type="password"
-            minLength={10}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-        </div>
-        <Button type="submit" className="w-full" disabled={pending}>
-          Accept invite
-        </Button>
-      </form>
+      {ready && !hasSession ? (
+        <p className="mt-4 border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-700">
+          No invite session on this browser. Open the link in the email, or{" "}
+          <Link href="/login" className="underline">
+            sign in
+          </Link>
+          .
+        </p>
+      ) : (
+        <form onSubmit={onSubmit} className="mt-6 space-y-3">
+          <div>
+            <Label htmlFor="password">New password</Label>
+            <Input
+              id="password"
+              type="password"
+              autoComplete="new-password"
+              minLength={MIN_PASSWORD_LENGTH}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </div>
+          <div>
+            <Label htmlFor="confirm">Confirm password</Label>
+            <Input
+              id="confirm"
+              type="password"
+              autoComplete="new-password"
+              minLength={MIN_PASSWORD_LENGTH}
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              required
+            />
+          </div>
+          <Button type="submit" className="w-full" disabled={pending || !hasSession}>
+            Accept invite
+          </Button>
+        </form>
+      )}
       <p className="mt-6 text-center text-[12px] text-stone-500">
         <Link href="/login" className="underline">
           Back to sign in

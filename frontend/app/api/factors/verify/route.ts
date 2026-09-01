@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireRole, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
+import { requireCapability, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
 import { jsonError } from "@/lib/api";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
+import {
+  isPlatformSteward,
+  STEWARD_ONLY_VALUE_CHANGE,
+} from "@verifystack/backend/lib/auth/steward";
 import {
   applyVerifications,
   buildFactorSet,
@@ -43,7 +47,7 @@ const Body = z.object({
 
 export async function POST(req: Request) {
   try {
-    const session = await requireRole(["lead_verifier", "firm_admin"], undefined);
+    const session = await requireCapability("factors.verify");
     const organizationId = assertOrgId(session.organizationId);
     const parsed = Body.safeParse(await req.json());
     if (!parsed.success) {
@@ -54,6 +58,23 @@ export async function POST(req: Request) {
     const existing = [...baseSet.records.values()].find(
       (r) => r.id === parsed.data.factorId && r.vintage === parsed.data.vintage
     );
+
+    /**
+     * A verifier attests the shipped value against the publication they read.
+     * Replacing the value is a change to reference data every customer shares,
+     * so it is reserved to a platform steward — otherwise the engine's refusal
+     * of unverified factors could be satisfied by typing in a convenient number.
+     */
+    const steward = isPlatformSteward(session.user.email);
+    const changesValue =
+      parsed.data.correctedValue != null &&
+      (existing == null || parsed.data.correctedValue !== existing.value);
+    if (changesValue && !steward) {
+      return NextResponse.json(
+        { ok: false, error: STEWARD_ONLY_VALUE_CHANGE },
+        { status: 403 }
+      );
+    }
 
     const verifiedAt = new Date().toISOString();
     const nextVersion = `${baseSet.version}+${parsed.data.factorId}@${parsed.data.vintage}`;
@@ -138,6 +159,8 @@ export async function POST(req: Request) {
         previous_value: existing?.value ?? null,
         current_value: updated?.value ?? null,
         factor_set_version: nextVersion,
+        value_changed: changesValue,
+        by_platform_steward: steward,
       },
     });
 

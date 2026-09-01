@@ -6,6 +6,8 @@ import { ALL_FACTOR_RECORDS } from "@verifystack/backend/domain/factors";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
 import { getSession } from "@verifystack/backend/lib/auth/getSession";
+import { hasCapability } from "@verifystack/backend/lib/auth/capabilities";
+import { isPlatformSteward } from "@verifystack/backend/lib/auth/steward";
 import { formatIst } from "@/lib/format";
 import { FactorVerifyPanel } from "./verify-form";
 
@@ -36,10 +38,11 @@ interface LooseDb {
   };
 }
 
-const CAN_VERIFY = ["lead_verifier", "firm_admin"];
-
 export default async function FactorsPage() {
   const session = isSupabaseConfigured() ? await getSession() : null;
+  if (!hasCapability(session?.role, "nav.factors")) {
+    return <ForbiddenState body="Citing reference factors (D8) is restricted to the lead verifier." />;
+  }
   const organizationId = session?.organizationId ?? null;
 
   let state: VerificationStateRow[] = [];
@@ -70,7 +73,8 @@ export default async function FactorsPage() {
   });
 
   const unverified = rows.filter((r) => !r.verified);
-  const canVerify = session?.role ? CAN_VERIFY.includes(session.role) : false;
+  const canVerify = hasCapability(session?.role, "factors.verify");
+  const steward = isPlatformSteward(session?.user.email);
 
   return (
     <>
@@ -79,6 +83,20 @@ export default async function FactorsPage() {
         title="Factor register"
         description="Every emission factor, calorific value and process factor the engines can reach. A factor becomes verified only when a human records the publication they read it from. After that, turn draft mode off on the engagement and re-run — the engine loads this organisation's verified set."
       />
+
+      <div className="mb-4 border border-stone-300 bg-stone-50 px-3 py-2.5 text-[12px] text-stone-700">
+        <Badge>Who owns what</Badge>
+        <p className="mt-1.5 max-w-3xl leading-relaxed">
+          The <span className="font-medium">value</span> is reference data. CEA publishes one grid
+          emission factor and IPCC publishes one calorific value per fuel, and they are the same
+          number for every firm on this platform, so keeping the catalogue current is the platform
+          team&rsquo;s standing job — not work each firm repeats. The{" "}
+          <span className="font-medium">attestation</span> below is yours: you record the
+          publication you read, for this engagement&rsquo;s compliance year, under your name. If a
+          shipped value looks wrong, say so — the correction belongs in the catalogue for everyone,
+          not in one firm&rsquo;s override.
+        </p>
+      </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Badge tone="ink">{rows.length} factors</Badge>
@@ -157,18 +175,19 @@ export default async function FactorsPage() {
 
       <section className="mt-8">
         <h2 className="mb-2 text-[11px] uppercase tracking-wide text-stone-500">
-          Promote a factor to verified
+          Attest a factor for this organisation
         </h2>
         {!organizationId ? (
-          <ForbiddenState body="Sign in to an organisation to record a factor verification. The catalogue above is readable without one." />
+          <ForbiddenState body="Sign in to an organisation to record a factor attestation. The catalogue above is readable without one." />
         ) : !canVerify ? (
-          <ForbiddenState body="Recording a factor verification is restricted to the lead verifier and the firm admin. A verification changes calculation output for the whole organisation." />
+          <ForbiddenState body="Attesting a factor is restricted to the lead verifier. It changes calculation output for every engagement in this organisation, so it is a P5 judgement, not firm administration." />
         ) : unverified.length === 0 ? (
           <p className="border border-dashed border-stone-300 bg-white px-3 py-4 text-[12px] text-stone-600">
             Every factor in the register carries a citation. Nothing is waiting for promotion.
           </p>
         ) : (
           <FactorVerifyPanel
+            canChangeValue={steward}
             factors={unverified.map((r) => ({
               id: r.record.id,
               vintage: r.record.vintage,

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireSession, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
+import { requireCapability, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
 import { jsonError } from "@/lib/api";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
@@ -15,7 +15,7 @@ export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   try {
-    const session = await requireSession();
+    const session = await requireCapability("documents.upload");
     const organizationId = assertOrgId(session.organizationId);
     const engagementId = req.headers.get("x-engagement-id");
     const filename = decodeURIComponent(req.headers.get("x-filename") ?? "upload.bin");

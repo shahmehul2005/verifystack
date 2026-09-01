@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
+import { signupGate } from "@verifystack/backend/lib/auth/signupPolicy";
 
 const Body = z.object({
   email: z.string().email(),
@@ -8,13 +9,28 @@ const Body = z.object({
 });
 
 /**
- * Creates (or confirms) a user without sending mail. The hosted Auth
- * confirmation path hits Supabase's email rate limit on new projects.
+ * Creates a user without sending mail (hosted Auth hits the mail cap on new
+ * projects). Refuses to change the password of an existing account.
+ *
+ * This is a service-role call reachable without a session, so who may use it is
+ * decided by `signupPolicy`. Leaving it wide open is right for a pilot and wrong
+ * for a firm with real engagements — set AUTH_SIGNUP_ALLOWED_DOMAINS or
+ * AUTH_OPEN_SIGNUP=false before onboarding a customer.
  */
 export async function POST(req: Request) {
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
-    return NextResponse.json({ ok: false, error: "Email and a password of at least 8 characters are required." }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "Email and a password of at least 8 characters are required." },
+      { status: 400 }
+    );
+  }
+
+  const { email, password } = parsed.data;
+
+  const gate = signupGate(email);
+  if (!gate.allowed) {
+    return NextResponse.json({ ok: false, error: gate.reason }, { status: 403 });
   }
 
   const admin = createServiceClient();
@@ -24,8 +40,6 @@ export async function POST(req: Request) {
       { status: 503 }
     );
   }
-
-  const { email, password } = parsed.data;
 
   const created = await admin.auth.admin.createUser({
     email,
@@ -41,35 +55,12 @@ export async function POST(req: Request) {
     /already|registered|exists/i.test(created.error.message) ||
     created.error.status === 422;
 
-  if (!already) {
-    return NextResponse.json({ ok: false, error: created.error.message }, { status: 400 });
-  }
-
-  const { data: listed, error: listError } = await admin.auth.admin.listUsers({
-    page: 1,
-    perPage: 200,
-  });
-  if (listError) {
-    return NextResponse.json({ ok: false, error: listError.message }, { status: 400 });
-  }
-
-  const existing = listed.users.find(
-    (u) => u.email?.toLowerCase() === email.toLowerCase()
-  );
-  if (!existing) {
+  if (already) {
     return NextResponse.json(
-      { ok: false, error: "That email is already registered. Sign in instead." },
+      { ok: false, error: "Could not create the account. Sign in or reset your password." },
       { status: 409 }
     );
   }
 
-  const updated = await admin.auth.admin.updateUserById(existing.id, {
-    password,
-    email_confirm: true,
-  });
-  if (updated.error) {
-    return NextResponse.json({ ok: false, error: updated.error.message }, { status: 400 });
-  }
-
-  return NextResponse.json({ ok: true, recovered: true });
+  return NextResponse.json({ ok: false, error: created.error.message }, { status: 400 });
 }

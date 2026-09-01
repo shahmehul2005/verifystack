@@ -11,6 +11,7 @@ const APP_PREFIXES = [
   "/audit",
   "/team",
   "/home",
+  "/forbidden",
 ];
 
 function isAppPath(pathname: string) {
@@ -60,9 +61,11 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if ((pathname === "/login" || pathname === "/invite") && user) {
+  // Recovery / invite / password-change screens need the session present.
+  if ((pathname === "/login" || pathname === "/signup" || pathname === "/forgot-password") && user) {
     const url = request.nextUrl.clone();
     url.pathname = "/engagements";
+    url.search = "";
     return NextResponse.redirect(url);
   }
 

@@ -15,6 +15,9 @@ export default function MarketingPage() {
             <Link href="/login" className="text-stone-300 hover:text-white">
               Sign in
             </Link>
+            <Link href="/signup" className="text-stone-300 hover:text-white">
+              Create account
+            </Link>
             <Link href="/workbench" className="bg-white px-3 py-1.5 text-stone-900">
               Public demo
             </Link>

@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, Td, Th } from "@/components/ui/table";
 import { getSession } from "@verifystack/backend/lib/auth/getSession";
+import { hasCapability } from "@verifystack/backend/lib/auth/capabilities";
 import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
 import { listEngagements } from "@verifystack/backend/lib/data/engagements";
 import { STATUS_LABEL } from "@verifystack/backend/domain/engagements/status";
@@ -48,16 +49,26 @@ export default async function EngagementsPage() {
         title="Engagements"
         description="Pack is bound at creation and cannot be changed."
         actions={
-          <Link href="/engagements/new">
-            <Button>New engagement</Button>
-          </Link>
+          hasCapability(session.role, "engagements.create") ? (
+            <Link href="/engagements/new">
+              <Button>New engagement</Button>
+            </Link>
+          ) : undefined
         }
       />
       {rows.length === 0 ? (
         <EmptyState
           title="No engagements yet"
-          body="Start a CCTS or ADEETIE engagement. All nine CCTS sectors and all fourteen ADEETIE Phase 1 sectors are runnable."
-          action={{ href: "/engagements/new", label: "New engagement" }}
+          body={
+            hasCapability(session.role, "engagements.create")
+              ? "Start a CCTS or ADEETIE engagement. All nine CCTS sectors and all fourteen ADEETIE Phase 1 sectors are runnable."
+              : "No engagements in this firm yet. A lead verifier opens them (P1)."
+          }
+          action={
+            hasCapability(session.role, "engagements.create")
+              ? { href: "/engagements/new", label: "New engagement" }
+              : undefined
+          }
         />
       ) : (
         <Table>

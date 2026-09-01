@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireSession, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
+import { requireCapability, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
 import { jsonError } from "@/lib/api";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
@@ -24,7 +24,9 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await requireSession();
+    // Reading the DPR measure list is verification work, not firm
+    // administration: the measures are the work product under review.
+    const session = await requireCapability("adeetie.view");
     const organizationId = assertOrgId(session.organizationId);
     const { id } = await params;
     const engagement = await getEngagement(id, organizationId);
@@ -53,7 +55,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await requireSession();
+    const session = await requireCapability("adeetie.operate");
     const organizationId = assertOrgId(session.organizationId);
     const { id } = await params;
     const engagement = await getEngagement(id, organizationId);
@@ -114,7 +116,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await requireSession();
+    const session = await requireCapability("adeetie.operate");
     const organizationId = assertOrgId(session.organizationId);
     const { id } = await params;
     const engagement = await getEngagement(id, organizationId);

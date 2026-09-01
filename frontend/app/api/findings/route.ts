@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireSession, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
+import { requireCapability, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
 import { jsonError } from "@/lib/api";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { getEngagement, ensureEngagementStatus } from "@verifystack/backend/lib/data/engagements";
 import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
+import { polishCarDraft } from "@verifystack/backend/domain/ai/polishCar";
 import type { RuleFinding } from "@verifystack/backend/domain/rules/types";
 
 const PatchBody = z.object({
@@ -25,7 +26,7 @@ export async function POST(req: Request) {
 
 async function handle(req: Request) {
   try {
-    const session = await requireSession();
+    const session = await requireCapability("findings.decide");
     const organizationId = assertOrgId(session.organizationId);
     const parsed = PatchBody.safeParse(await req.json());
     if (!parsed.success) {
@@ -65,22 +66,11 @@ async function handle(req: Request) {
         evidenceRefs: (finding.evidence_refs as string[]) ?? [],
         magnitude: finding.magnitude as RuleFinding["magnitude"],
       };
-      const draftRes = await fetch(new URL("/api/draft-finding", req.url), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(ruleFinding),
-      });
-      const draftJson = (await draftRes.json()) as {
-        ok?: boolean;
-        polished?: boolean;
-        draft?: { body: string; heading: string; generator: string };
-      };
-      if (draftJson.ok && draftJson.draft) {
-        updates.body = draftJson.draft.body;
-        updates.heading = draftJson.draft.heading;
-        updates.generator = draftJson.draft.generator;
-        polished = Boolean(draftJson.polished);
-      }
+      const drafted = await polishCarDraft(ruleFinding);
+      updates.body = drafted.draft.body;
+      updates.heading = drafted.draft.heading;
+      updates.generator = drafted.draft.generator;
+      polished = drafted.polished;
     }
 
     if (parsed.data.state) updates.state = parsed.data.state;

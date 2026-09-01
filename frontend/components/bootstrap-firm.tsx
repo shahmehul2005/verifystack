@@ -1,10 +1,32 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
+import { homePathFor } from "@verifystack/backend/lib/auth/capabilities";
+import type { MembershipRole } from "@verifystack/backend/lib/supabase/types";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { ErrorState } from "@/components/states";
+import { RoleSelect } from "@/components/auth/role-select";
+import { readIntendedRole, takeIntendedRole } from "@/components/auth/intended-role";
+
+const NO_STORE_CHANGES = () => () => {};
+
+/**
+ * The role chosen on the login or signup screen, parked in sessionStorage
+ * across the OAuth round trip.
+ *
+ * Read through `useSyncExternalStore` rather than in an effect: sessionStorage
+ * is unreadable while rendering on the server, so the server snapshot is null
+ * and React re-reads after hydration without a cascading render.
+ */
+function useIntendedRole(): MembershipRole | null {
+  return useSyncExternalStore(
+    NO_STORE_CHANGES,
+    readIntendedRole,
+    () => null
+  );
+}
 
 export function BootstrapFirm() {
   const router = useRouter();
@@ -12,14 +34,19 @@ export function BootstrapFirm() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
+  const intendedRole = useIntendedRole();
+  const [chosenRole, setChosenRole] = useState<MembershipRole | null>(null);
+  const role = chosenRole ?? intendedRole ?? "lead_verifier";
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setPending(true);
     setError(null);
+    takeIntendedRole();
     const res = await fetch("/api/bootstrap", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ firmName: firmName.trim() || undefined }),
+      body: JSON.stringify({ firmName: firmName.trim() || undefined, role }),
     });
     const json = (await res.json()) as { ok?: boolean; error?: string };
     setPending(false);
@@ -28,7 +55,7 @@ export function BootstrapFirm() {
       return;
     }
     router.refresh();
-    window.location.assign("/engagements");
+    window.location.assign(homePathFor(role));
   }
 
   return (
@@ -43,6 +70,7 @@ export function BootstrapFirm() {
           placeholder="e.g. Aravalli Verification LLP"
         />
       </div>
+      <RoleSelect value={role} onChange={setChosenRole} disabled={pending} />
       <Button type="submit" disabled={pending} className="w-full">
         {pending ? "Creating…" : "Create my firm"}
       </Button>

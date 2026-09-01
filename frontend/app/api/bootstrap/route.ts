@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSession } from "@verifystack/backend/lib/auth/requireRole";
+import { parseMembershipRole } from "@verifystack/backend/lib/auth/roles";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { jsonError } from "@/lib/api";
+import type { MembershipRole } from "@verifystack/backend/lib/supabase/types";
 
 const Body = z.object({
   firmName: z.string().min(2).max(120).optional(),
   kind: z.enum(["acva", "energy_auditor_firm"]).optional(),
+  role: z.enum(["firm_admin", "lead_verifier", "verifier", "independent_reviewer"]).optional(),
 });
 
 /**
@@ -22,6 +25,7 @@ export async function POST(req: Request) {
         ok: true,
         organizationId: session.organizationId,
         alreadyMember: true,
+        role: session.role,
       });
     }
 
@@ -40,7 +44,7 @@ export async function POST(req: Request) {
 
     const { data: existing } = await admin
       .from("memberships")
-      .select("organization_id")
+      .select("organization_id, role")
       .eq("user_id", session.user.id)
       .limit(1);
     if (existing?.[0]) {
@@ -48,10 +52,20 @@ export async function POST(req: Request) {
         ok: true,
         organizationId: existing[0].organization_id,
         alreadyMember: true,
+        role: existing[0].role,
       });
     }
 
     const email = session.user.email ?? "verifier";
+    const meta = session.user.user_metadata ?? {};
+    const displayName =
+      (typeof meta.full_name === "string" && meta.full_name) ||
+      (typeof meta.name === "string" && meta.name) ||
+      email;
+    const role: MembershipRole =
+      parsed.data.role ??
+      parseMembershipRole(meta.intended_role) ??
+      "lead_verifier";
     const defaultName =
       parsed.data.firmName ??
       `${email.split("@")[0]} verification firm`;
@@ -74,8 +88,8 @@ export async function POST(req: Request) {
     const { error: memError } = await admin.from("memberships").insert({
       organization_id: org.id,
       user_id: session.user.id,
-      role: "firm_admin",
-      display_name: session.user.email ?? null,
+      role,
+      display_name: displayName,
     });
     if (memError) {
       return NextResponse.json({ ok: false, error: memError.message }, { status: 500 });
@@ -86,10 +100,10 @@ export async function POST(req: Request) {
       p_action: "org.bootstrap",
       p_entity_type: "organization",
       p_entity_id: org.id,
-      p_payload: { created_by: session.user.id },
+      p_payload: { created_by: session.user.id, role },
     });
 
-    return NextResponse.json({ ok: true, organizationId: org.id, alreadyMember: false });
+    return NextResponse.json({ ok: true, organizationId: org.id, alreadyMember: false, role });
   } catch (error) {
     return jsonError(error);
   }

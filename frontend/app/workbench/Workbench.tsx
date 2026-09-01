@@ -72,6 +72,11 @@ export function Workbench() {
       }),
     });
     const json = await res.json();
+    if (res.status === 401 || res.status === 403) {
+      setExtractStatus("Sign in as a verifier to run live extraction");
+      setExtractJson("");
+      return;
+    }
     setExtractStatus(res.ok && json.ok ? "Done (human review still required)" : "Failed or unavailable");
     setExtractJson(JSON.stringify(json, null, 2));
   }

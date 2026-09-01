@@ -3,10 +3,13 @@ import { ConfigureSupabase, EmptyState, ForbiddenState } from "@/components/stat
 import { PageHeader } from "@/components/page-header";
 import { Table, Td, Th } from "@/components/ui/table";
 import { getSession } from "@verifystack/backend/lib/auth/getSession";
+import { hasCapability } from "@verifystack/backend/lib/auth/capabilities";
 import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
 import { getEngagement } from "@verifystack/backend/lib/data/engagements";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
+import { loadPack } from "@verifystack/backend/domain/packs";
+import { canSeedAdeetiePack } from "@verifystack/backend/demo/adeetieFacts";
 import { formatIst } from "@/lib/format";
 import { SeedDemoFactsButton } from "./seed-demo-button";
 
@@ -15,8 +18,14 @@ export default async function FactsPage({ params }: { params: Promise<{ id: stri
   const { id } = await params;
   const session = await getSession();
   if (!session?.organizationId) return <ForbiddenState />;
+  if (!hasCapability(session.role, "review.decide")) {
+    return <ForbiddenState body="The facts ledger (D4) is for verifiers and reviewers." />;
+  }
   const engagement = await getEngagement(id, session.organizationId);
   if (!engagement) notFound();
+  const pack = loadPack(engagement.pack_id);
+  const seedableAdeetie = canSeedAdeetiePack(pack);
+  const seedable = engagement.pack_id === "CCTS-CEMENT-v1" || seedableAdeetie;
   const supabase = createServiceClient() ?? (await createServerSupabase());
   const { data: facts } = await supabase!
     .from("facts")
@@ -32,15 +41,28 @@ export default async function FactsPage({ params }: { params: Promise<{ id: stri
         title="Facts ledger"
         description="Accepted facts only. Each row carries document, page, bbox, and source text."
         actions={
-          engagement.draft_mode && engagement.pack_id === "CCTS-CEMENT-v1" ? (
-            <SeedDemoFactsButton engagementId={id} />
+          hasCapability(session.role, "engagements.create") &&
+          engagement.draft_mode &&
+          seedable ? (
+            <SeedDemoFactsButton
+              engagementId={id}
+              label={
+                seedableAdeetie
+                  ? "Load synthetic ADEETIE facts"
+                  : "Load Aravalli synthetic facts"
+              }
+            />
           ) : undefined
         }
       />
       {!facts?.length ? (
         <EmptyState
           title="No committed facts"
-          body="Accept fields on the review workbench, or load the Aravalli synthetic set (coal 18,247 t, GCV 4,200 kcal/kg, HT 22,166.64 MWh, production 1,850,000 t) and run calculation."
+          body={
+            seedableAdeetie
+              ? "Accept fields on the review workbench, or load the synthetic ADEETIE set for this sector — an electricity bill, a fuel record with a lab calorific value, and a production log — then run the baseline SEC."
+              : "Accept fields on the review workbench, or load the Aravalli synthetic set (coal 18,247 t, GCV 4,200 kcal/kg, HT 22,166.64 MWh, production 1,850,000 t) and run calculation."
+          }
         />
       ) : (
         <Table>

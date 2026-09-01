@@ -1,7 +1,7 @@
 import { renderToBuffer } from "@react-pdf/renderer";
 import type { DocumentProps } from "@react-pdf/renderer";
 import type { ReactElement } from "react";
-import { requireSession, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
+import { requireCapability, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
 import { jsonError } from "@/lib/api";
 import { getEngagement } from "@verifystack/backend/lib/data/engagements";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
@@ -49,7 +49,7 @@ function parseKind(raw: string | null): ReportKind {
 
 export async function GET(req: Request) {
   try {
-    const session = await requireSession();
+    const session = await requireCapability("reports.download");
     const organizationId = assertOrgId(session.organizationId);
     const url = new URL(req.url);
     const engagementId = url.searchParams.get("engagementId");

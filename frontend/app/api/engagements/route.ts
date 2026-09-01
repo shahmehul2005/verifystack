@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireSession } from "@verifystack/backend/lib/auth/requireRole";
+import { requireCapability, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
 import { jsonError } from "@/lib/api";
 import { loadPack, canStartWork } from "@verifystack/backend/domain/packs";
 import { ENTERPRISE_CATEGORIES } from "@verifystack/backend/domain/packs/adeetie";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
-import { assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
 import type { Database } from "@verifystack/backend/lib/supabase/types";
 
 type EngagementInsert = Database["public"]["Tables"]["engagements"]["Insert"];
@@ -38,7 +37,7 @@ const Body = z.object({
 
 export async function POST(req: Request) {
   try {
-    const session = await requireSession();
+    const session = await requireCapability("engagements.create");
     const organizationId = assertOrgId(session.organizationId);
     const parsed = Body.safeParse(await req.json());
     if (!parsed.success) {
@@ -78,6 +77,9 @@ export async function POST(req: Request) {
           project_cost_inr: parsed.data.projectCostInr ?? null,
           sanctioned_interest_rate_pct: parsed.data.sanctionedInterestRatePct ?? null,
           adeetie_phase: "IGEA",
+          // Migration 0009. Without this the 200 km proximity claim is only in
+          // the audit trail and AD-ELG002 cannot evaluate it.
+          claimed_distance_to_cluster_km: parsed.data.claimedDistanceToClusterKm ?? null,
         }
       : {};
 

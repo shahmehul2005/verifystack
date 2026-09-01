@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireRole, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
+import { requireCapability, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
 import { jsonError } from "@/lib/api";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
@@ -30,10 +30,14 @@ export async function POST(req: Request) {
     if (!parsed.success) {
       return NextResponse.json({ ok: false, error: "Invalid body" }, { status: 400 });
     }
-    const session = await requireRole(
-      [parsed.data.role, "firm_admin"],
-      undefined
-    );
+    const cap = parsed.data.role === "lead_verifier" ? "signoff.lead" : "signoff.reviewer";
+    const session = await requireCapability(cap);
+    if (session.role !== parsed.data.role) {
+      return NextResponse.json(
+        { ok: false, error: "You can only attest in your own role." },
+        { status: 403 }
+      );
+    }
     const organizationId = assertOrgId(session.organizationId);
     const engagement = await getEngagement(parsed.data.engagementId, organizationId);
     if (!engagement) {

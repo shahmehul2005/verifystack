@@ -12,11 +12,13 @@ import {
   type RunRow,
 } from "@/components/adeetie/sec";
 import { getSession } from "@verifystack/backend/lib/auth/getSession";
+import { hasCapability } from "@verifystack/backend/lib/auth/capabilities";
 import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
 import { getEngagement } from "@verifystack/backend/lib/data/engagements";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { loadPack, canStartWork } from "@verifystack/backend/domain/packs";
+import { canSeedAdeetiePack } from "@verifystack/backend/demo/adeetieFacts";
 import { assessRunReadiness, type ProvenancedFact, type RunReadiness } from "@verifystack/backend/domain/calc/run";
 import {
   allowedSecPhases,
@@ -34,11 +36,22 @@ export default async function RunsPage({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   const session = await getSession();
   if (!session?.organizationId) return <ForbiddenState />;
+  if (!hasCapability(session.role, "runs.view")) {
+    return <ForbiddenState body="Calculation runs (P5) are not part of this role." />;
+  }
+  const canRun = hasCapability(session.role, "runs.execute");
+  const canDraft = hasCapability(session.role, "engagements.draftMode");
+  const canSeed = hasCapability(session.role, "engagements.create");
   const engagement = await getEngagement(id, session.organizationId);
   if (!engagement) notFound();
   const pack = loadPack(engagement.pack_id);
   const runnable = canStartWork(pack);
   const isSec = pack.calculation_method === "SEC";
+  const seedableAdeetie = canSeedAdeetiePack(pack);
+  const seedLabel = seedableAdeetie
+    ? "Load synthetic ADEETIE facts"
+    : "Load Aravalli synthetic facts";
+  const seedable = engagement.pack_id === "CCTS-CEMENT-v1" || seedableAdeetie;
 
   const supabase = createServiceClient() ?? (await createServerSupabase());
   const [{ data: runs }, { data: factRows }, { data: docs }] = await Promise.all([
@@ -107,26 +120,30 @@ export default async function RunsPage({ params }: { params: Promise<{ id: strin
             : "Engine version + pack version + input hash. Hash-chained."
         }
         actions={
-          runnable ? (
+          runnable && (canRun || canSeed) ? (
             <div className="flex flex-wrap gap-2">
-              {engagement.draft_mode && engagement.pack_id === "CCTS-CEMENT-v1" ? (
-                <SeedDemoFactsButton engagementId={id} />
+              {canSeed && engagement.draft_mode && seedable ? (
+                <SeedDemoFactsButton engagementId={id} label={seedLabel} />
               ) : null}
-              <RunCalcButton
-                engagementId={id}
-                method={isSec ? "SEC" : "GEI"}
-                allowedSecPhases={secPhases}
-              />
+              {canRun ? (
+                <RunCalcButton
+                  engagementId={id}
+                  method={isSec ? "SEC" : "GEI"}
+                  allowedSecPhases={secPhases}
+                />
+              ) : null}
             </div>
-          ) : (
+          ) : runnable ? undefined : (
             <Badge tone="draft">Scaffold — runs disabled</Badge>
           )
         }
       />
       <DraftBanner show={engagement.draft_mode} />
-      <div className="mb-4">
-        <DraftModeToggle engagementId={id} draftMode={engagement.draft_mode} />
-      </div>
+      {canDraft ? (
+        <div className="mb-4">
+          <DraftModeToggle engagementId={id} draftMode={engagement.draft_mode} />
+        </div>
+      ) : null}
 
       {isSec ? (
         <>
@@ -139,6 +156,7 @@ export default async function RunsPage({ params }: { params: Promise<{ id: strin
                 engagementId={id}
                 method="SEC"
                 allowedSecPhases={secPhases}
+                canExecute={canRun}
               />
             </div>
           ) : null}
@@ -164,6 +182,7 @@ export default async function RunsPage({ params }: { params: Promise<{ id: strin
               draftMode={engagement.draft_mode}
               engagementId={id}
               method="GEI"
+              canExecute={canRun}
             />
           ) : null}
         </>
@@ -219,12 +238,14 @@ function RunReadyState({
   engagementId,
   method,
   allowedSecPhases,
+  canExecute,
 }: {
   readiness: RunReadiness;
   draftMode: boolean;
   engagementId: string;
   method: "GEI" | "SEC";
   allowedSecPhases?: Array<"baseline" | "post_implementation">;
+  canExecute: boolean;
 }) {
   return (
     <div className="border border-stone-200 bg-white p-5">
@@ -250,6 +271,13 @@ function RunReadyState({
           </li>
         ))}
       </ul>
+      {readiness.warnings.length ? (
+        <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-amber-800">
+          {readiness.warnings.map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ul>
+      ) : null}
       {readiness.blockers.length ? (
         <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-red-800">
           {readiness.blockers.map((b) => (
@@ -261,13 +289,19 @@ function RunReadyState({
           Click <span className="font-medium">Run calculation</span> to write a hash-chained run.
         </p>
       )}
-      <div className="mt-4">
-        <RunCalcButton
-          engagementId={engagementId}
-          method={method}
-          allowedSecPhases={allowedSecPhases}
-        />
-      </div>
+      {canExecute ? (
+        <div className="mt-4">
+          <RunCalcButton
+            engagementId={engagementId}
+            method={method}
+            allowedSecPhases={allowedSecPhases}
+          />
+        </div>
+      ) : (
+        <p className="mt-4 text-[12px] text-stone-500">
+          Running the engine (P5) is restricted to the lead verifier.
+        </p>
+      )}
     </div>
   );
 }

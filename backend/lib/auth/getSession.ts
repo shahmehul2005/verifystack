@@ -30,10 +30,16 @@ export async function getSession(): Promise<SessionContext | null> {
   } = await supabase.auth.getUser();
   if (!user) return null;
 
+  // Ordered so the primary membership is stable across requests. Without an
+  // order the row Postgres happens to return first decides which organisation
+  // and role the whole session runs under, which would make authorisation
+  // non-deterministic the moment a user belongs to two firms.
   const { data: memberships } = await supabase
     .from("memberships")
     .select("*")
-    .eq("user_id", user.id);
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: true })
+    .order("organization_id", { ascending: true });
 
   let list = memberships ?? [];
   // Pre-0006 RLS deadlock: the user client cannot see memberships it owns.
@@ -44,7 +50,9 @@ export async function getSession(): Promise<SessionContext | null> {
       const { data: adminRows } = await admin
         .from("memberships")
         .select("*")
-        .eq("user_id", user.id);
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: true })
+        .order("organization_id", { ascending: true });
       list = adminRows ?? [];
     }
   }

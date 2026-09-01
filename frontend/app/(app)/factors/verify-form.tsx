@@ -14,7 +14,14 @@ export interface PromotableFactor {
   unit: string;
 }
 
-export function FactorVerifyPanel({ factors }: { factors: PromotableFactor[] }) {
+export function FactorVerifyPanel({
+  factors,
+  canChangeValue = false,
+}: {
+  factors: PromotableFactor[];
+  /** Platform stewards may replace a catalogue value; firms attest the shipped one. */
+  canChangeValue?: boolean;
+}) {
   const [key, setKey] = useState(`${factors[0].id}::${factors[0].vintage}`);
   const [citedSource, setCitedSource] = useState("");
   const [correctedValue, setCorrectedValue] = useState("");
@@ -34,7 +41,7 @@ export function FactorVerifyPanel({ factors }: { factors: PromotableFactor[] }) 
         factorId: selected.id,
         vintage: selected.vintage,
         citedSource,
-        correctedValue: corrected === "" ? null : Number(corrected),
+        correctedValue: !canChangeValue || corrected === "" ? null : Number(corrected),
       }),
     });
     const json = await res.json();
@@ -90,21 +97,38 @@ export function FactorVerifyPanel({ factors }: { factors: PromotableFactor[] }) 
         />
       </div>
 
-      <div>
-        <Label htmlFor="corrected">
-          Value as read from that source (leave blank to confirm {selected.value}{" "}
-          {selected.unit})
-        </Label>
-        <Input
-          id="corrected"
-          inputMode="decimal"
-          value={correctedValue}
-          onChange={(e) => setCorrectedValue(e.target.value)}
-        />
-      </div>
+      {canChangeValue ? (
+        <div>
+          <Label htmlFor="corrected">
+            Catalogue value as read from that source (leave blank to confirm {selected.value}{" "}
+            {selected.unit})
+          </Label>
+          <Input
+            id="corrected"
+            inputMode="decimal"
+            value={correctedValue}
+            onChange={(e) => setCorrectedValue(e.target.value)}
+          />
+          <p className="mt-1 text-[11px] text-stone-500">
+            You are recognised as a platform steward, so this writes a new value. Everything else
+            on the platform reads the catalogue you are editing.
+          </p>
+        </div>
+      ) : (
+        <p className="border border-stone-200 bg-stone-50 px-3 py-2 text-[11px] leading-relaxed text-stone-600">
+          You are attesting the catalogue value of{" "}
+          <span className="font-mono">
+            {selected.value} {selected.unit}
+          </span>
+          , not replacing it. The published figure is the same for every firm, so a firm-local
+          override would let the unverified-factor control be satisfied by assertion. If this value
+          disagrees with the publication in front of you, stop and report it — the catalogue is
+          wrong for everyone, not just for you.
+        </p>
+      )}
 
       <Button onClick={() => void submit()} disabled={pending || citedSource.trim().length < 12}>
-        Record verification
+        Record attestation
       </Button>
       <p className="text-[11px] text-stone-500">
         Written to the append-only factor verification log and to the audit trail, against your

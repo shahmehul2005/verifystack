@@ -92,6 +92,7 @@ export interface RunReadiness {
   boundStreamCount: number;
   canRun: boolean;
   blockers: string[];
+  warnings: string[];
 }
 
 /**
@@ -151,15 +152,25 @@ export function assessRunReadiness(
 
   const blockers: string[] = [];
   if (facts.length === 0) {
-    blockers.push("No D4 facts yet. Accept fields on the workbench, or load Aravalli synthetic facts.");
+    blockers.push("No D4 facts yet. Accept fields on the workbench, or load synthetic demo facts.");
   }
   if (productionPath && !productionBound) {
     blockers.push(
       `Production is required at "${productionPath}". Accept that field from an equivalent-product log.`
     );
   }
+
+  /**
+   * Leaving draft mode is not itself a blocker. Whether a factor is verified is
+   * known to the engine, not to this readiness pass, so a live run is allowed to
+   * proceed and fail with the specific unverified factor rather than being
+   * refused here for every engagement that has left draft.
+   */
+  const warnings: string[] = [];
   if (opts?.draftMode === false) {
-    blockers.push("This engagement is not in draft mode. Unverified factors will be refused.");
+    warnings.push(
+      "Live mode: the run will be refused if any bound factor is still unverified."
+    );
   }
 
   return {
@@ -170,6 +181,7 @@ export function assessRunReadiness(
     boundStreamCount: streams.filter((s) => s.bound).length,
     canRun: blockers.length === 0 && facts.length > 0 && Boolean(productionBound),
     blockers,
+    warnings,
   };
 }
 

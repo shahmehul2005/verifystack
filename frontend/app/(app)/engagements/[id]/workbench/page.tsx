@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { ConfigureSupabase, EmptyState, ForbiddenState } from "@/components/states";
 import { PageHeader } from "@/components/page-header";
 import { getSession } from "@verifystack/backend/lib/auth/getSession";
+import { hasCapability } from "@verifystack/backend/lib/auth/capabilities";
 import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
 import { getEngagement } from "@verifystack/backend/lib/data/engagements";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
@@ -31,6 +32,9 @@ export default async function AppWorkbenchPage({
   const { id } = await params;
   const session = await getSession();
   if (!session?.organizationId) return <ForbiddenState />;
+  if (!hasCapability(session.role, "review.decide")) {
+    return <ForbiddenState body="The review workbench (P4) is for verifiers and reviewers." />;
+  }
   const engagement = await getEngagement(id, session.organizationId);
   if (!engagement) notFound();
   const supabase = createServiceClient() ?? (await createServerSupabase());

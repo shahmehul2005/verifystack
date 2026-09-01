@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireSession, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
 import { AuthError } from "@verifystack/backend/lib/auth/getSession";
+import { hasCapability } from "@verifystack/backend/lib/auth/capabilities";
 import { jsonError } from "@/lib/api";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
@@ -39,8 +40,22 @@ export async function PATCH(
     }
     const pack = loadPack(engagement.pack_id);
     if (parsed.data.draftMode !== undefined) {
-      if (session.role !== "lead_verifier" && session.role !== "firm_admin") {
-        throw new AuthError("Leaving or entering draft mode is restricted to the lead verifier or firm admin.", 403);
+      if (!hasCapability(session.role, "engagements.draftMode")) {
+        throw new AuthError("Leaving or entering draft mode is restricted to the lead verifier.", 403);
+      }
+    }
+    if (
+      parsed.data.loanAmountInr !== undefined ||
+      parsed.data.projectCostInr !== undefined ||
+      parsed.data.sanctionedInterestRatePct !== undefined
+    ) {
+      if (!hasCapability(session.role, "adeetie.operate")) {
+        throw new AuthError("ADEETIE finance fields are restricted to the lead verifier.", 403);
+      }
+    }
+    if (parsed.data.status) {
+      if (!hasCapability(session.role, "engagements.create") && !hasCapability(session.role, "adeetie.operate")) {
+        throw new AuthError("Status changes are restricted to the lead verifier.", 403);
       }
     }
     if (parsed.data.status) {

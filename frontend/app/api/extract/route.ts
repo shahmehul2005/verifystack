@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { requireCapability } from "@verifystack/backend/lib/auth/requireRole";
+import { jsonError } from "@/lib/api";
 import { GeminiExtractionProvider } from "@verifystack/backend/domain/extraction/gemini";
 import {
   DOC_SCHEMAS,
@@ -30,7 +32,20 @@ const Body = z.object({
     .optional(),
 });
 
+/**
+ * Ad-hoc single-page extraction for the standalone workbench.
+ *
+ * This calls a paid model on caller-supplied bytes, so it is gated on the same
+ * capability as extraction inside an engagement (P3). The workbench's seeded
+ * demo still renders without a session; only live extraction needs one.
+ */
 export async function POST(req: Request) {
+  try {
+    await requireCapability("documents.extract");
+  } catch (e) {
+    return jsonError(e);
+  }
+
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
