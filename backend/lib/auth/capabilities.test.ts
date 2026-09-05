@@ -38,6 +38,7 @@ describe("DFD role capabilities", () => {
     expect(hasCapability("lead_verifier", "engagements.create")).toBe(true);
     expect(hasCapability("lead_verifier", "runs.execute")).toBe(true);
     expect(hasCapability("lead_verifier", "factors.verify")).toBe(true);
+    expect(hasCapability("lead_verifier", "nav.factors")).toBe(false);
     expect(hasCapability("lead_verifier", "signoff.lead")).toBe(true);
     expect(hasCapability("lead_verifier", "signoff.reviewer")).toBe(false);
     expect(hasCapability("lead_verifier", "team.manage")).toBe(false);
@@ -74,10 +75,13 @@ describe("DFD role capabilities", () => {
       "facts",
       "runs",
       "findings",
+      "ecm",
     ]);
     expect(engagementLinksForRole("independent_reviewer").some((i) => i.slug === "signoff")).toBe(
       true
     );
+    expect(engagementLinksForRole("firm_admin").some((i) => i.slug === "ecm")).toBe(false);
+    expect(engagementLinksForRole("verifier").some((i) => i.slug === "ecm")).toBe(true);
     expect(homePathFor("firm_admin")).toBe("/team");
     expect(homePathFor("verifier")).toBe("/engagements");
   });

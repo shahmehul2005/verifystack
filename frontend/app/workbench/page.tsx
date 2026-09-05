@@ -1,5 +1,5 @@
-import { Workbench } from "./Workbench";
+import { redirect } from "next/navigation";
 
 export default function WorkbenchPage() {
-  return <Workbench />;
+  redirect("/login");
 }

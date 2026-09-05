@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ConfigureSupabase, EmptyState, ForbiddenState } from "@/components/states";
-import { PageHeader, DraftBanner } from "@/components/page-header";
-import { DraftModeToggle } from "@/components/draft-mode-toggle";
+import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AdeetiePhasePanel } from "@/components/adeetie/phase-panel";
@@ -36,6 +35,8 @@ import {
 } from "@verifystack/backend/domain/adeetie/lifecycle";
 import { MIN_ENERGY_SAVINGS_PCT } from "@verifystack/backend/domain/packs/adeetie";
 import { openBlockFindings } from "@verifystack/backend/domain/signoff/guards";
+import { suggestEcmsForEngagement } from "@verifystack/backend/lib/data/ecm";
+import { EcmSuggestions } from "@/components/ecm/suggestions";
 import { formatIst } from "@/lib/format";
 
 function readPhase(engagement: unknown): AdeetiePhase {
@@ -133,6 +134,10 @@ export default async function EngagementHome({
   const savingUnit = pack.sec_config?.reportingEnergyUnit ?? "GJ";
   const financeLocked = phase === "MV" || !hasCapability(session.role, "adeetie.operate");
   const canOperateAdeetie = hasCapability(session.role, "adeetie.operate");
+  const canViewEcm = hasCapability(session.role, "adeetie.view");
+  const ecmPayload = canViewEcm
+    ? await suggestEcmsForEngagement(id, session.organizationId, { style: false })
+    : null;
   const tiles = engagementLinksForRole(session.role);
 
   return (
@@ -151,12 +156,6 @@ export default async function EngagementHome({
           ) : undefined
         }
       />
-      <DraftBanner show={engagement.draft_mode} />
-      {hasCapability(session.role, "engagements.draftMode") ? (
-        <div className="mb-4">
-          <DraftModeToggle engagementId={id} draftMode={engagement.draft_mode} />
-        </div>
-      ) : null}
       {missingLifecycleTable ? (
         <p className="mb-4 border border-amber-300 bg-amber-50 px-3 py-2 text-[13px] text-amber-950">
           Run <span className="font-mono">backend/supabase/migrations/0008_adeetie_lifecycle.sql</span>{" "}
@@ -222,6 +221,15 @@ export default async function EngagementHome({
             locked={financeLocked}
           />
         </>
+      ) : null}
+
+      {ecmPayload ? (
+        <div className="mb-8">
+          <h2 className="mb-2 text-[11px] uppercase tracking-wide text-stone-500">
+            ECM suggestions
+          </h2>
+          <EcmSuggestions payload={ecmPayload} />
+        </div>
       ) : null}
 
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">

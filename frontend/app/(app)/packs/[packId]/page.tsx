@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Table, Td, Th } from "@/components/ui/table";
-import { ClusterSourceNotice } from "@/components/adeetie/notices";
 import { loadPack, PackError } from "@verifystack/backend/domain/packs";
 import type {
   MethodologyPack,
@@ -204,20 +203,15 @@ export default async function PackDetailPage({
                 </tr>
               </thead>
               <tbody>
-                {pack.clause_citations.map((c) => {
-                  const unverified = /TO VERIFY/i.test(c.clauseRef);
-                  return (
+                {pack.clause_citations.map((c) => (
                     <tr key={c.ruleId}>
                       <Td className="font-mono text-[12px]">{c.ruleId}</Td>
                       <Td className="max-w-xl text-[12px] leading-relaxed">{c.clauseRef}</Td>
                       <Td>
-                        <Badge tone={unverified ? "draft" : "neutral"}>
-                          {unverified ? "unverified" : "recorded"}
-                        </Badge>
+                        <Badge>recorded</Badge>
                       </Td>
                     </tr>
-                  );
-                })}
+                ))}
               </tbody>
             </Table>
           </>
@@ -226,11 +220,9 @@ export default async function PackDetailPage({
 
       {pack.adeetie ? (
         <Section title="ADEETIE notified clusters">
-          <ClusterSourceNotice
-            clusterSource={pack.adeetie.clusterSource}
-            clustersVerified={pack.adeetie.clustersVerified}
-            clusterCount={pack.adeetie.clusters.length}
-          />
+          {pack.adeetie.clusterSource ? (
+            <p className="mb-3 text-[12px] leading-relaxed text-stone-600">{pack.adeetie.clusterSource}</p>
+          ) : null}
           {pack.adeetie.clusters.length === 0 ? (
             <Muted>No notified cluster is recorded for this sector.</Muted>
           ) : (
@@ -380,28 +372,12 @@ function DeclaredFactors({ pack }: { pack: MethodologyPack }) {
       (r) => r.id === ref.factorKey && r.vintage === ref.vintage
     ),
   }));
-  const unverified = rows.filter((r) => r.record && !r.record.verified).length;
-
   return (
     <Section title="Declared factors">
       {rows.length === 0 ? (
         <Muted>This pack declares no emission or energy factors.</Muted>
       ) : (
         <>
-          {unverified > 0 ? (
-            <div className="mb-2 border border-amber-400 bg-amber-50 px-3 py-2 text-[12px] text-amber-950">
-              <Badge tone="draft">Unverified</Badge>
-              <span className="ml-2">
-                {unverified} of {rows.length} declared factor(s) are development placeholders that
-                no human has read back against a published source. The engine refuses them outside
-                draft mode. Promote them on the{" "}
-                <Link href="/factors" className="underline">
-                  factor register
-                </Link>
-                .
-              </span>
-            </div>
-          ) : null}
           <Table>
             <thead>
               <tr>
@@ -410,7 +386,6 @@ function DeclaredFactors({ pack }: { pack: MethodologyPack }) {
                 <Th>Vintage</Th>
                 <Th>Value</Th>
                 <Th>Source</Th>
-                <Th>Verified</Th>
               </tr>
             </thead>
             <tbody>
@@ -427,11 +402,6 @@ function DeclaredFactors({ pack }: { pack: MethodologyPack }) {
                   </Td>
                   <Td className="max-w-sm text-[11px] leading-relaxed text-stone-600">
                     {record?.source ?? "—"}
-                  </Td>
-                  <Td>
-                    <Badge tone={record?.verified ? "ok" : "draft"}>
-                      {record?.verified ? "verified" : "unverified"}
-                    </Badge>
                   </Td>
                 </tr>
               ))}

@@ -13,7 +13,7 @@ import {
 import { cn } from "@/lib/cn";
 import { Badge } from "@/components/ui/badge";
 import { ROLE_LABEL } from "@verifystack/backend/lib/auth/roles";
-import { navForRole } from "@verifystack/backend/lib/auth/capabilities";
+import { APP_NAV, navForRole } from "@verifystack/backend/lib/auth/capabilities";
 import type { MembershipRole } from "@verifystack/backend/lib/supabase/types";
 import { SignOutButton } from "./sign-out-button";
 
@@ -31,14 +31,21 @@ export function AppShell({
   orgName,
   role,
   userEmail,
+  isSteward = false,
 }: {
   children: React.ReactNode;
   orgName?: string | null;
   role?: MembershipRole | null;
   userEmail?: string | null;
+  isSteward?: boolean;
 }) {
   const pathname = usePathname();
   const nav = navForRole(role);
+  const factorsItem = APP_NAV.find((item) => item.href === "/factors");
+  if (isSteward && factorsItem && !nav.some((item) => item.href === "/factors")) {
+    const packsAt = nav.findIndex((item) => item.href === "/packs");
+    nav.splice(packsAt + 1, 0, factorsItem);
+  }
   return (
     <div className="flex min-h-screen bg-stone-100 text-stone-900">
       <aside className="hidden w-56 shrink-0 border-r border-stone-300 bg-stone-900 text-stone-100 md:flex md:flex-col">
@@ -94,9 +101,6 @@ export function AppShell({
                 <SignOutButton />
               </>
             ) : null}
-            <Link href="/workbench" className="text-[12px] text-stone-500 hover:text-stone-800">
-              Public demo
-            </Link>
           </div>
         </header>
         <nav className="flex gap-1 overflow-x-auto border-b border-stone-200 bg-white px-2 py-1 md:hidden">

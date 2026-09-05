@@ -8,6 +8,8 @@ import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configur
 import { getEngagement } from "@verifystack/backend/lib/data/engagements";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
+import { readFindingCitation } from "@verifystack/backend/domain/citations/types";
+import { CitationPanel } from "./citation-panel";
 import { FindingActions } from "./finding-actions";
 
 export default async function FindingsPage({ params }: { params: Promise<{ id: string }> }) {
@@ -49,6 +51,11 @@ export default async function FindingsPage({ params }: { params: Promise<{ id: s
               <h2 className="mt-2 text-sm font-semibold">{f.heading ?? f.title}</h2>
               <p className="mt-2 text-sm leading-relaxed text-stone-700">{f.body ?? f.detail}</p>
               <p className="mt-2 text-[11px] text-stone-500">{f.clause_ref}</p>
+              <CitationPanel
+                citation={readFindingCitation(f)}
+                findingId={f.id}
+                engagementId={id}
+              />
               <FindingActions findingId={f.id} engagementId={id} />
             </li>
           ))}

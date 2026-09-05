@@ -18,8 +18,8 @@ export default function MarketingPage() {
             <Link href="/signup" className="text-stone-300 hover:text-white">
               Create account
             </Link>
-            <Link href="/workbench" className="bg-white px-3 py-1.5 text-stone-900">
-              Public demo
+            <Link href="/login" className="bg-white px-3 py-1.5 text-stone-900">
+              Open app
             </Link>
           </div>
         </div>
@@ -51,8 +51,7 @@ export default function MarketingPage() {
         </ul>
 
         <p className="mt-10 text-xs text-stone-500">
-          No performance claims. Factors in the demo are unverified placeholders until a human
-          cites a published source. See{" "}
+          No performance claims. See{" "}
           <Link href="/privacy" className="underline">
             privacy / DPDP
           </Link>

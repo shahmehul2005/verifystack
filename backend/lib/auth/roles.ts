@@ -14,7 +14,7 @@ export const ROLE_LABEL: Record<MembershipRole, string> = {
   independent_reviewer: "Independent reviewer",
 };
 
-/** Shown on sign-in / create account. Maps 1:1 to DFD processes. */
+/** Shown on sign-in. Maps 1:1 to DFD processes. */
 export const ROLE_BLURB: Record<MembershipRole, string> = {
   firm_admin: "Team, audit log, pack catalogue. Not intake, calculation, or sign-off.",
   lead_verifier: "Open engagements, run the engine, cite factors, lead sign-off (P1, P5, D8, P7).",

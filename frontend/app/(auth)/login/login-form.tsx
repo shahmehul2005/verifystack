@@ -23,7 +23,7 @@ export function LoginForm() {
   const supabase = createBrowserSupabase();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<MembershipRole>("lead_verifier");
+  const [role, setRole] = useState<MembershipRole>("firm_admin");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -79,8 +79,8 @@ export function LoginForm() {
       <p className="text-[11px] uppercase tracking-[0.2em] text-stone-500">VerifyStack</p>
       <h1 className="mt-1 text-lg font-semibold">Sign in</h1>
       <p className="mt-1 text-sm text-stone-600">
-        Verifier firms only. Pick the role you work as. Existing members keep the role the firm
-        admin assigned — this only applies when you first create a firm.
+        Verifier firms only. The role dropdown applies only when you are opening a new firm.
+        Invited members keep the role the firm admin assigned.
       </p>
       <LoginNotice
         error={noticeError}
@@ -135,10 +135,7 @@ export function LoginForm() {
           Create an account
         </Link>
         {" · "}
-        Invited?{" "}
-        <Link href="/invite" className="underline">
-          Accept invite
-        </Link>
+        Invited? Open the create-account link your admin sent.
       </p>
     </div>
   );

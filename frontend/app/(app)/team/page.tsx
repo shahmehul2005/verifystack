@@ -40,7 +40,7 @@ export default async function TeamPage() {
       <PageHeader
         kicker="Access"
         title="Team / roles"
-        description="Add colleagues to this firm with a role. They must not use Create account — that opens a different organisation. Changing a role updates nav and permissions on their next request."
+        description="Add colleagues with a role and send them the create-account link. That link joins this firm. Opening Create account on their own would start a different organisation."
       />
       {canManage ? <InviteMemberForm /> : null}
       {!data?.length ? (

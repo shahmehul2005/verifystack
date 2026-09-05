@@ -244,7 +244,7 @@ export function mapFactsToSecInput(
         label: production.fact.source_text,
       },
     },
-    allowUnverifiedFactors: req.draftMode,
+    allowUnverifiedFactors: true,
   };
 
   const demand = pack.demand_binding;

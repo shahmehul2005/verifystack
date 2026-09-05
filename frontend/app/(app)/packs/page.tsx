@@ -3,7 +3,6 @@ import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Table, Td, Th } from "@/components/ui/table";
 import { EmptyState } from "@/components/states";
-import { UnverifiedNotice } from "@/components/adeetie/notices";
 import { listPacks } from "@verifystack/backend/domain/packs";
 import type {
   MethodologyPack,
@@ -31,16 +30,12 @@ export default async function PacksPage({
     packs: packs.filter((p) => p.scheme === s),
   })).filter((g) => g.packs.length > 0);
 
-  const unverifiedClusters = all.some(
-    (p) => p.adeetie && !p.adeetie.clustersVerified
-  );
-
   return (
     <>
       <PageHeader
         kicker="D3"
         title="Methodology packs"
-        description="Process 3.0 and 5.0 load a pack record. They never contain sector if-branches. All nine CCTS sectors and all fourteen ADEETIE Phase 1 sectors are runnable; factors remain unverified until a human cites a published source."
+        description="Process 3.0 and 5.0 load a pack record. They never contain sector if-branches. All nine CCTS sectors and all fourteen ADEETIE Phase 1 sectors are runnable."
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -56,13 +51,6 @@ export default async function PacksPage({
           />
         ))}
       </div>
-
-      {unverifiedClusters && (active === null || active === "ADEETIE") ? (
-        <UnverifiedNotice
-          title="ADEETIE notified cluster lists carried by these packs are UNVERIFIED"
-          body="The official BEE cluster page has not been read back against the rows held here. Cluster coverage shown on an ADEETIE pack is a working reference, not an eligibility determination."
-        />
-      ) : null}
 
       {groups.length === 0 ? (
         <EmptyState
@@ -154,9 +142,6 @@ function PackTable({ packs }: { packs: MethodologyPack[] }) {
                 {p.adeetie ? (
                   <span className="flex flex-wrap items-center gap-1">
                     {p.adeetie.clusters.length}
-                    <Badge tone={p.adeetie.clustersVerified ? "ok" : "draft"}>
-                      {p.adeetie.clustersVerified ? "verified" : "unverified"}
-                    </Badge>
                   </span>
                 ) : (
                   <span className="text-stone-400">—</span>

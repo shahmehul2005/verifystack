@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 import { ConfigureSupabase, ForbiddenState } from "@/components/states";
-import { PageHeader, DraftBanner } from "@/components/page-header";
-import { DraftModeToggle } from "@/components/draft-mode-toggle";
+import { PageHeader } from "@/components/page-header";
 import { Table, Td, Th } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { SecRunView } from "@/components/adeetie/sec-run-view";
@@ -18,7 +17,6 @@ import { getEngagement } from "@verifystack/backend/lib/data/engagements";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { loadPack, canStartWork } from "@verifystack/backend/domain/packs";
-import { canSeedAdeetiePack } from "@verifystack/backend/demo/adeetieFacts";
 import { assessRunReadiness, type ProvenancedFact, type RunReadiness } from "@verifystack/backend/domain/calc/run";
 import {
   allowedSecPhases,
@@ -28,7 +26,6 @@ import { isAdeetiePhase } from "@verifystack/backend/domain/packs/adeetie/phases
 import type { AdeetiePhase } from "@verifystack/backend/lib/supabase/types";
 import { formatIn, formatIst } from "@/lib/format";
 import { RunCalcButton } from "./run-button";
-import { SeedDemoFactsButton } from "../facts/seed-demo-button";
 import type { CalcResult } from "@verifystack/backend/domain/calc/engine";
 
 export default async function RunsPage({ params }: { params: Promise<{ id: string }> }) {
@@ -40,18 +37,11 @@ export default async function RunsPage({ params }: { params: Promise<{ id: strin
     return <ForbiddenState body="Calculation runs (P5) are not part of this role." />;
   }
   const canRun = hasCapability(session.role, "runs.execute");
-  const canDraft = hasCapability(session.role, "engagements.draftMode");
-  const canSeed = hasCapability(session.role, "engagements.create");
   const engagement = await getEngagement(id, session.organizationId);
   if (!engagement) notFound();
   const pack = loadPack(engagement.pack_id);
   const runnable = canStartWork(pack);
   const isSec = pack.calculation_method === "SEC";
-  const seedableAdeetie = canSeedAdeetiePack(pack);
-  const seedLabel = seedableAdeetie
-    ? "Load synthetic ADEETIE facts"
-    : "Load Aravalli synthetic facts";
-  const seedable = engagement.pack_id === "CCTS-CEMENT-v1" || seedableAdeetie;
 
   const supabase = createServiceClient() ?? (await createServerSupabase());
   const [{ data: runs }, { data: factRows }, { data: docs }] = await Promise.all([
@@ -120,30 +110,17 @@ export default async function RunsPage({ params }: { params: Promise<{ id: strin
             : "Engine version + pack version + input hash. Hash-chained."
         }
         actions={
-          runnable && (canRun || canSeed) ? (
-            <div className="flex flex-wrap gap-2">
-              {canSeed && engagement.draft_mode && seedable ? (
-                <SeedDemoFactsButton engagementId={id} label={seedLabel} />
-              ) : null}
-              {canRun ? (
-                <RunCalcButton
-                  engagementId={id}
-                  method={isSec ? "SEC" : "GEI"}
-                  allowedSecPhases={secPhases}
-                />
-              ) : null}
-            </div>
+          runnable && canRun ? (
+            <RunCalcButton
+              engagementId={id}
+              method={isSec ? "SEC" : "GEI"}
+              allowedSecPhases={secPhases}
+            />
           ) : runnable ? undefined : (
             <Badge tone="draft">Scaffold — runs disabled</Badge>
           )
         }
       />
-      <DraftBanner show={engagement.draft_mode} />
-      {canDraft ? (
-        <div className="mb-4">
-          <DraftModeToggle engagementId={id} draftMode={engagement.draft_mode} />
-        </div>
-      ) : null}
 
       {isSec ? (
         <>
@@ -152,7 +129,6 @@ export default async function RunsPage({ params }: { params: Promise<{ id: strin
             <div className="mt-6">
               <RunReadyState
                 readiness={readiness}
-                draftMode={engagement.draft_mode}
                 engagementId={id}
                 method="SEC"
                 allowedSecPhases={secPhases}
@@ -179,7 +155,6 @@ export default async function RunsPage({ params }: { params: Promise<{ id: strin
           {!rows.length ? (
             <RunReadyState
               readiness={readiness}
-              draftMode={engagement.draft_mode}
               engagementId={id}
               method="GEI"
               canExecute={canRun}
@@ -198,7 +173,6 @@ export default async function RunsPage({ params }: { params: Promise<{ id: strin
                 <Th>Engine</Th>
                 <Th>Pack</Th>
                 <Th>Factor set</Th>
-                <Th>Draft</Th>
                 <Th>When (IST)</Th>
               </tr>
             </thead>
@@ -211,7 +185,6 @@ export default async function RunsPage({ params }: { params: Promise<{ id: strin
                     {r.pack_id}@{r.pack_version}
                   </Td>
                   <Td className="font-mono text-[11px]">{r.factor_set_version}</Td>
-                  <Td>{r.draft_mode ? "yes" : "no"}</Td>
                   <Td className="text-[12px]">{formatIst(r.created_at)}</Td>
                 </tr>
               ))}
@@ -234,14 +207,12 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 function RunReadyState({
   readiness,
-  draftMode,
   engagementId,
   method,
   allowedSecPhases,
   canExecute,
 }: {
   readiness: RunReadiness;
-  draftMode: boolean;
   engagementId: string;
   method: "GEI" | "SEC";
   allowedSecPhases?: Array<"baseline" | "post_implementation">;
@@ -254,9 +225,6 @@ function RunReadyState({
       </h2>
       <p className="mt-1 text-sm text-stone-600">
         {readiness.factCount} D4 fact{readiness.factCount === 1 ? "" : "s"} committed.
-        {draftMode
-          ? " Draft mode is on, so unverified factors are allowed."
-          : " Draft mode is off — unverified factors will be refused."}
       </p>
       {readiness.productionPath ? (
         <p className="mt-2 font-mono text-[12px] text-stone-600">

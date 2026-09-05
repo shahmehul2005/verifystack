@@ -71,15 +71,8 @@ export function ConfigureSupabase({ className }: { className?: string }) {
         Copy <code className="font-mono text-[12px]">.env.example</code> to{" "}
         <code className="font-mono text-[12px]">frontend/.env.local</code> and set{" "}
         <code className="font-mono text-[12px]">NEXT_PUBLIC_SUPABASE_URL</code> and{" "}
-        <code className="font-mono text-[12px]">NEXT_PUBLIC_SUPABASE_ANON_KEY</code>. The public
-        cement demo does not need keys.
+        <code className="font-mono text-[12px]">NEXT_PUBLIC_SUPABASE_ANON_KEY</code>.
       </p>
-      <Link
-        href="/workbench"
-        className="mt-4 inline-flex h-9 items-center bg-stone-900 px-3.5 text-sm text-white"
-      >
-        Open public cement demo
-      </Link>
     </div>
   );
 }

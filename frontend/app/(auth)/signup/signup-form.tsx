@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserSupabase } from "@verifystack/backend/lib/supabase/client";
 import { MIN_PASSWORD_LENGTH, passwordIssue } from "@verifystack/backend/lib/auth/redirect";
 import { homePathFor } from "@verifystack/backend/lib/auth/capabilities";
@@ -12,26 +12,67 @@ import { Input, Label } from "@/components/ui/input";
 import { ConfigureSupabase } from "@/components/states";
 import { AuthDivider, GoogleButton } from "@/components/auth/google-button";
 import { signInWithGoogle } from "@/components/auth/google";
-import { RoleSelect } from "@/components/auth/role-select";
 import { rememberIntendedRole } from "@/components/auth/intended-role";
+
+interface InvitePreview {
+  email: string;
+  role: MembershipRole;
+  roleLabel: string;
+  firmName: string;
+}
 
 export function SignupForm() {
   const router = useRouter();
+  const params = useSearchParams();
+  const inviteToken = params.get("invite");
   const supabase = createBrowserSupabase();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [role, setRole] = useState<MembershipRole>("lead_verifier");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [invite, setInvite] = useState<InvitePreview | null>(null);
+  const [inviteReady, setInviteReady] = useState(!inviteToken);
+
+  useEffect(() => {
+    if (!inviteToken) return;
+    let cancelled = false;
+    void fetch(`/api/invites?token=${encodeURIComponent(inviteToken)}`)
+      .then(async (res) => {
+        const json = (await res.json()) as InvitePreview & { ok?: boolean; error?: string };
+        if (cancelled) return;
+        if (!res.ok || !json.ok) {
+          setError(json.error ?? "This invite link is invalid or has expired.");
+          setInviteReady(true);
+          return;
+        }
+        setInvite({
+          email: json.email,
+          role: json.role,
+          roleLabel: json.roleLabel,
+          firmName: json.firmName,
+        });
+        setEmail(json.email);
+        setInviteReady(true);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setError("Could not load this invite.");
+          setInviteReady(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [inviteToken]);
 
   if (!supabase) return <ConfigureSupabase />;
 
   async function onGoogle() {
     setPending(true);
     setError(null);
-    rememberIntendedRole(role);
-    const { error: err } = await signInWithGoogle(homePathFor(role), role);
+    rememberIntendedRole("firm_admin");
+    const { error: err } = await signInWithGoogle(homePathFor("firm_admin"), "firm_admin");
     if (err) {
       setPending(false);
       setError("Could not start Google sign-in. Check that Google is enabled in Supabase Auth.");
@@ -45,34 +86,52 @@ export function SignupForm() {
       setError(issue);
       return;
     }
-    setPending(true);
-    setError(null);
-    rememberIntendedRole(role);
-    const origin = window.location.origin;
-    const { data, error: err } = await supabase!.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: `${origin}/auth/callback?next=${encodeURIComponent(homePathFor(role))}`,
-        data: { intended_role: role },
-      },
-    });
-    if (err) {
-      setPending(false);
-      setError("Could not create the account. Sign in or reset your password.");
+    if (inviteToken && !invite) {
+      setError("This invite link is invalid or has expired.");
       return;
     }
-    if (data.session) {
+    setPending(true);
+    setError(null);
+    const created = await fetch("/api/auth/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email,
+        password,
+        ...(inviteToken ? { inviteToken } : {}),
+      }),
+    });
+    const json = (await created.json()) as {
+      ok?: boolean;
+      error?: string;
+      invited?: boolean;
+      role?: MembershipRole;
+    };
+    if (!created.ok || !json.ok) {
+      setPending(false);
+      setError(json.error ?? "Could not create the account. Sign in or reset your password.");
+      return;
+    }
+
+    const { error: signErr } = await supabase!.auth.signInWithPassword({ email, password });
+    if (signErr) {
+      setPending(false);
+      setError("Account was created but sign-in failed. Try signing in with the same password.");
+      return;
+    }
+
+    if (!json.invited) {
+      rememberIntendedRole("firm_admin");
       await fetch("/api/bootstrap", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role }),
+        body: JSON.stringify({ role: "firm_admin" }),
       }).catch(() => undefined);
-      router.push(homePathFor(role));
-      router.refresh();
-      return;
+      router.push(homePathFor("firm_admin"));
+    } else {
+      router.push(homePathFor(json.role ?? invite?.role ?? "verifier"));
     }
-    router.push("/login?check_email=1");
+    router.refresh();
   }
 
   return (
@@ -80,18 +139,23 @@ export function SignupForm() {
       <p className="text-[11px] uppercase tracking-[0.2em] text-stone-500">VerifyStack</p>
       <h1 className="mt-1 text-lg font-semibold">Create account</h1>
       <p className="mt-1 text-sm text-stone-600">
-        Choose the DFD role you will work as. A firm admin can change this later on Team.
+        {invite
+          ? `Join ${invite.firmName} as ${invite.roleLabel}. Your firm admin already chose this role.`
+          : "This opens a new firm. You will be the firm admin. Team members join from an invite link, not from this page."}
       </p>
       {error ? (
         <p className="mt-4 border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">{error}</p>
       ) : null}
-      <div className="mt-6">
-        <RoleSelect value={role} onChange={setRole} disabled={pending} />
-      </div>
-      <div className="mt-4">
-        <GoogleButton pending={pending} onClick={onGoogle} label="Sign up with Google" />
-      </div>
-      <AuthDivider />
+      {!inviteToken ? (
+        <>
+          <div className="mt-6">
+            <GoogleButton pending={pending} onClick={onGoogle} label="Sign up with Google" />
+          </div>
+          <AuthDivider />
+        </>
+      ) : (
+        <div className="mt-6" />
+      )}
       <form onSubmit={onSubmit} className="space-y-3">
         <div>
           <Label htmlFor="email">Email</Label>
@@ -102,6 +166,7 @@ export function SignupForm() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
+            readOnly={Boolean(invite)}
           />
         </div>
         <div>
@@ -128,8 +193,8 @@ export function SignupForm() {
             required
           />
         </div>
-        <Button type="submit" disabled={pending} className="w-full">
-          {pending ? "Creating…" : "Create account"}
+        <Button type="submit" disabled={pending || !inviteReady} className="w-full">
+          {pending ? "Creating…" : invite ? "Join firm" : "Create account"}
         </Button>
       </form>
       <p className="mt-6 text-center text-[12px] text-stone-500">

@@ -12,16 +12,15 @@ Production build in progress. The deterministic core (units, factors, calculatio
 
 ```bash
 npm install
-cp .env.example frontend/.env.local   # optional; marketing + /workbench work without keys
+cp .env.example frontend/.env.local   # optional; marketing works without keys
 npm test
 npm run typecheck
 npm run dev
 ```
 
 - Open `/` for marketing.
-- Open `/workbench` for the public Aravalli Cement facsimile demo (no keys).
 - Open `/login` — if Supabase env is missing you will see a configure empty state.
-- Pack catalogue at `/packs` (all 9 CCTS sectors and all 14 ADEETIE Phase 1 sectors are runnable; factors stay unverified until cited).
+- Pack catalogue at `/packs` (all 9 CCTS sectors and all 14 ADEETIE Phase 1 sectors are runnable).
 
 ### With Supabase
 

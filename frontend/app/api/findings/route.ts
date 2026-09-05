@@ -14,6 +14,8 @@ const PatchBody = z.object({
   findingId: z.string().uuid(),
   state: z.enum(["suggested", "accepted", "edited", "rejected", "closed"]).optional(),
   polish: z.boolean().optional(),
+  citationState: z.enum(["suggested", "accepted", "edited", "rejected"]).optional(),
+  citationExplanation: z.string().max(8000).optional(),
 });
 
 export async function PATCH(req: Request) {
@@ -54,6 +56,8 @@ async function handle(req: Request) {
       heading?: string;
       generator?: string;
       state?: typeof parsed.data.state;
+      citation_state?: "suggested" | "accepted" | "edited" | "rejected";
+      citation_explanation?: string;
     } = { updated_at: new Date().toISOString() };
 
     if (parsed.data.polish) {
@@ -74,10 +78,16 @@ async function handle(req: Request) {
     }
 
     if (parsed.data.state) updates.state = parsed.data.state;
+    if (parsed.data.citationState) updates.citation_state = parsed.data.citationState;
+    if (parsed.data.citationExplanation !== undefined) {
+      updates.citation_explanation = parsed.data.citationExplanation;
+    }
 
     const { error } = await supabase
       .from("findings")
-      .update(updates)
+      // citation_* columns arrive with migration 0010 and are not on the
+      // hand-written Database types.
+      .update(updates as never)
       .eq("id", finding.id)
       .eq("organization_id", organizationId);
     if (error) throw new Error(error.message);

@@ -65,7 +65,7 @@ export async function POST(req: Request) {
     const role: MembershipRole =
       parsed.data.role ??
       parseMembershipRole(meta.intended_role) ??
-      "lead_verifier";
+      "firm_admin";
     const defaultName =
       parsed.data.firmName ??
       `${email.split("@")[0]} verification firm`;

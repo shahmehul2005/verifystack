@@ -1,5 +1,6 @@
 import { AppShell } from "@/components/shell/app-shell";
 import { getSession } from "@verifystack/backend/lib/auth/getSession";
+import { isPlatformSteward } from "@verifystack/backend/lib/auth/steward";
 import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -17,6 +18,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       orgName={configured ? orgName ?? "Your firm" : "Not configured"}
       role={session?.role}
       userEmail={session?.user.email}
+      isSteward={isPlatformSteward(session?.user.email)}
     >
       {children}
     </AppShell>

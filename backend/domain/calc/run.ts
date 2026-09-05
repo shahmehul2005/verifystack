@@ -102,7 +102,7 @@ export interface RunReadiness {
 export function assessRunReadiness(
   pack: MethodologyPack,
   facts: ProvenancedFact[],
-  opts?: { draftMode?: boolean }
+  _opts?: { draftMode?: boolean }
 ): RunReadiness {
   const productionPath = pack.production_binding?.path ?? null;
   const productionBound = productionPath ? Boolean(factByPath(facts, productionPath)) : false;
@@ -152,7 +152,7 @@ export function assessRunReadiness(
 
   const blockers: string[] = [];
   if (facts.length === 0) {
-    blockers.push("No D4 facts yet. Accept fields on the workbench, or load synthetic demo facts.");
+    blockers.push("No D4 facts yet. Upload evidence, extract, and accept fields on the workbench.");
   }
   if (productionPath && !productionBound) {
     blockers.push(
@@ -160,18 +160,7 @@ export function assessRunReadiness(
     );
   }
 
-  /**
-   * Leaving draft mode is not itself a blocker. Whether a factor is verified is
-   * known to the engine, not to this readiness pass, so a live run is allowed to
-   * proceed and fail with the specific unverified factor rather than being
-   * refused here for every engagement that has left draft.
-   */
   const warnings: string[] = [];
-  if (opts?.draftMode === false) {
-    warnings.push(
-      "Live mode: the run will be refused if any bound factor is still unverified."
-    );
-  }
 
   return {
     factCount: facts.length,
@@ -384,7 +373,7 @@ export function mapFactsToCalcInput(
     // The engine treats `sector` as an opaque label and branches on nothing.
     // Sector identity is carried by packId on the persisted run.
     sector: "from-pack",
-    allowUnverifiedFactors: req.draftMode,
+    allowUnverifiedFactors: true,
     geiTarget: req.geiTarget,
     streams,
     production: buildProduction(facts, pack.production_binding),

@@ -61,7 +61,7 @@ export async function POST(req: Request) {
       compliance_year: parsed.data.complianceYear,
       gei_target: parsed.data.geiTarget ?? null,
       status: "setup",
-      draft_mode: true,
+      draft_mode: false,
       created_by: session.user.id,
     };
 

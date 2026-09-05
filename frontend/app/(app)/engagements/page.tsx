@@ -32,8 +32,7 @@ export default async function EngagementsPage() {
         <PageHeader kicker="D1" title="Engagements" />
         <EmptyState
           title="No organisation yet"
-          body="You are signed in but not attached to a firm. Create one to start work, or open the public cement demo."
-          action={{ href: "/workbench", label: "Open public demo" }}
+          body="You are signed in but not attached to a firm. Create one to start work."
         />
         <BootstrapFirm />
       </>
@@ -95,9 +94,7 @@ export default async function EngagementsPage() {
                   <span className="font-mono text-[12px]">{e.pack_id}</span>
                 </Td>
                 <Td>
-                  <Badge tone={e.draft_mode ? "draft" : "neutral"}>
-                    {STATUS_LABEL[e.status]}
-                  </Badge>
+                  <Badge>{STATUS_LABEL[e.status]}</Badge>
                 </Td>
                 <Td className="text-[12px] text-stone-500">{formatIst(e.created_at)}</Td>
               </tr>

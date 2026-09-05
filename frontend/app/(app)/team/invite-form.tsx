@@ -37,6 +37,7 @@ export function InviteMemberForm() {
       error?: string;
       emailed?: boolean;
       created?: boolean;
+      alreadyMember?: boolean;
       inviteUrl?: string | null;
     };
     setPending(false);
@@ -46,14 +47,14 @@ export function InviteMemberForm() {
     }
     setEmail("");
     setDisplayName("");
-    if (json.created && json.emailed) {
-      setInfo(`Invite sent to the lead’s inbox. They set a password from the email, then land in this firm as ${ROLE_LABEL[role]}.`);
-    } else if (json.created) {
+    if (json.alreadyMember) {
       setInfo(
-        `They are on the firm as ${ROLE_LABEL[role]}. Hosted email may not have sent; copy the link below and share it with them.`
+        `They already have an account on this firm as ${ROLE_LABEL[role]}. Send them the create-account link below so they can set a password and sign in.`
       );
     } else {
-      setInfo(`They already had an account. They can sign in and will see this firm as ${ROLE_LABEL[role]}.`);
+      setInfo(
+        `Copy the link below and send it to them. It opens Create account. They set their own password and join this firm as ${ROLE_LABEL[role]} — they do not open a second firm.`
+      );
     }
     setInviteUrl(json.inviteUrl ?? null);
     router.refresh();
@@ -66,8 +67,9 @@ export function InviteMemberForm() {
     >
       <h2 className="text-sm font-semibold">Add to this firm</h2>
       <p className="mt-1 text-[12px] text-stone-600">
-        They join <span className="font-medium">your</span> organisation. Do not send them to Create
-        account — that would open a separate firm.
+        Choose their role, then send them the create-account link. They join{" "}
+        <span className="font-medium">this</span> firm. Do not tell them to open Create account on
+        their own — that would start a separate firm.
       </p>
       {error ? (
         <p className="mt-3 border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">{error}</p>

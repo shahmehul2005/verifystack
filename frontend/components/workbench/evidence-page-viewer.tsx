@@ -21,7 +21,7 @@ export function EvidencePageViewer({
       <div className="relative mx-auto aspect-[210/297] w-full max-w-[520px] border border-dashed border-stone-300 bg-[#fbfaf6]">
         <p className="p-6 text-[12px] text-stone-500">
           No page file on this document. Upload a PDF or image on the engagement to bind a real
-          page. The public HTML demo remains at /workbench.
+          page.
         </p>
         {bbox ? <Highlight bbox={bbox} /> : null}
       </div>

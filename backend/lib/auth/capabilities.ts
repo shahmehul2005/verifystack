@@ -56,7 +56,6 @@ const ROLE_CAPABILITIES: Record<MembershipRole, readonly Capability[]> = {
     "nav.engagements",
     "nav.reviewQueue",
     "nav.packs",
-    "nav.factors",
     "engagements.create",
     "engagements.draftMode",
     "documents.view",
@@ -114,6 +113,7 @@ export const ENGAGEMENT_LINKS: { slug: string; label: string; capability: Capabi
   { slug: "facts", label: "Facts ledger", capability: "review.decide" },
   { slug: "runs", label: "Calculation", capability: "runs.view" },
   { slug: "findings", label: "Findings", capability: "findings.decide" },
+  { slug: "ecm", label: "ECM suggestions", capability: "adeetie.view" },
   { slug: "signoff", label: "Sign-off", capability: "signoff.lead" },
 ];
 

@@ -5,6 +5,7 @@ import { jsonError } from "@/lib/api";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
+import { inviteSignupUrl, signFirmInvite } from "@verifystack/backend/lib/auth/firmInvite";
 import type { MembershipRole } from "@verifystack/backend/lib/supabase/types";
 
 const PatchBody = z.object({
@@ -61,110 +62,51 @@ export async function POST(req: Request) {
 
     const email = parsed.data.email.trim().toLowerCase();
     const role: MembershipRole = parsed.data.role;
-    const displayName = parsed.data.displayName?.trim() || email.split("@")[0];
-    const origin = requestOrigin(req);
-    const redirectTo = `${origin}/auth/callback?next=/invite`;
+    const displayName = parsed.data.displayName?.trim() || email.split("@")[0]!;
+    const userId = await findUserIdByEmail(admin, email);
+    let alreadyOnThisFirm = false;
 
-    let userId = await findUserIdByEmail(admin, email);
-    let emailed = false;
-    let inviteUrl: string | null = null;
-    let created = false;
-
-    if (!userId) {
-      const invited = await admin.auth.admin.inviteUserByEmail(email, {
-        data: { intended_role: role },
-        redirectTo,
-      });
-      if (invited.data.user?.id) {
-        userId = invited.data.user.id;
-        emailed = true;
-        created = true;
-      } else {
-        userId = await findUserIdByEmail(admin, email);
-        if (!userId) {
-          const link = await admin.auth.admin.generateLink({
-            type: "invite",
-            email,
-            options: { data: { intended_role: role }, redirectTo },
-          });
-          if (link.error || !link.data.user) {
-            return NextResponse.json(
-              {
-                ok: false,
-                error:
-                  invited.error?.message ??
-                  link.error?.message ??
-                  "Could not create the invite. Check Auth email settings in Supabase.",
-              },
-              { status: 400 }
-            );
-          }
-          userId = link.data.user.id;
-          inviteUrl = link.data.properties.action_link;
-          created = true;
-        }
+    if (userId) {
+      const { data: existing } = await admin
+        .from("memberships")
+        .select("id, organization_id")
+        .eq("user_id", userId);
+      const onThisFirm = existing?.some((m) => m.organization_id === organizationId) ?? false;
+      const onOtherFirm = existing?.some((m) => m.organization_id !== organizationId) ?? false;
+      alreadyOnThisFirm = onThisFirm;
+      if (onOtherFirm && !onThisFirm) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              "That email already belongs to another firm. They must use a different address, or a firm admin there must remove them first.",
+          },
+          { status: 409 }
+        );
       }
     }
 
-    const { data: existing } = await admin
-      .from("memberships")
-      .select("id, organization_id")
-      .eq("user_id", userId);
-    if (existing?.some((m) => m.organization_id === organizationId)) {
-      return NextResponse.json(
-        { ok: false, error: "That person is already on this firm. Change their role in the table." },
-        { status: 409 }
-      );
-    }
-    if (existing && existing.length > 0) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "That email already belongs to another firm. They must use a different address, or a firm admin there must remove them first.",
-        },
-        { status: 409 }
-      );
-    }
-
-    const { data: membership, error: memError } = await admin
-      .from("memberships")
-      .insert({
-        organization_id: organizationId,
-        user_id: userId,
-        role,
-        display_name: displayName,
-      })
-      .select("id")
-      .single();
-    if (memError || !membership) {
-      return NextResponse.json(
-        { ok: false, error: memError?.message ?? "Could not add the membership." },
-        { status: 500 }
-      );
-    }
-
-    if (!inviteUrl && created) {
-      const link = await admin.auth.admin.generateLink({
-        type: "invite",
-        email,
-        options: { redirectTo },
-      });
-      if (!link.error) inviteUrl = link.data.properties.action_link;
-    }
+    const token = signFirmInvite({
+      email,
+      organizationId,
+      role,
+      displayName,
+    });
+    const inviteUrl = inviteSignupUrl(requestOrigin(req), token);
 
     await auditEvent({
       organizationId,
       action: "membership.invited",
       entityType: "membership",
-      entityId: membership.id,
-      payload: { email, role, user_id: userId, emailed, created },
+      entityId: null,
+      payload: { email, role, already_had_account: Boolean(userId) },
     });
 
     return NextResponse.json({
       ok: true,
-      emailed,
-      created,
+      emailed: false,
+      created: !userId,
+      alreadyMember: alreadyOnThisFirm,
       inviteUrl,
       role,
     });

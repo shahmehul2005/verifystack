@@ -144,11 +144,10 @@ export function EngagementWizard() {
       out.push({
         ruleId: "AD-ELG002",
         severity: "info",
-        title: "Cluster matched against an UNVERIFIED notified-cluster list",
+        title: "Confirm cluster against the published BEE list",
         detail:
-          `"${clusterChoice}" matches a row in the ${sector} cluster list held by this system. That ` +
-          `list is flagged unverified — the official BEE cluster page has not been read back against ` +
-          `it — so the match must be confirmed against the published list before it is relied on.`,
+          `"${clusterChoice}" matches a row in the ${sector} cluster list held by this system. ` +
+          `Confirm it against the official BEE notified-cluster list before relying on it.`,
       });
     }
 

@@ -49,6 +49,9 @@ export async function POST(req: Request) {
   try {
     const session = await requireCapability("factors.verify");
     const organizationId = assertOrgId(session.organizationId);
+    if (!isPlatformSteward(session.user.email)) {
+      return NextResponse.json({ ok: false, error: STEWARD_ONLY_VALUE_CHANGE }, { status: 403 });
+    }
     const parsed = Body.safeParse(await req.json());
     if (!parsed.success) {
       return NextResponse.json({ ok: false, error: "Invalid body" }, { status: 400 });
@@ -58,23 +61,6 @@ export async function POST(req: Request) {
     const existing = [...baseSet.records.values()].find(
       (r) => r.id === parsed.data.factorId && r.vintage === parsed.data.vintage
     );
-
-    /**
-     * A verifier attests the shipped value against the publication they read.
-     * Replacing the value is a change to reference data every customer shares,
-     * so it is reserved to a platform steward — otherwise the engine's refusal
-     * of unverified factors could be satisfied by typing in a convenient number.
-     */
-    const steward = isPlatformSteward(session.user.email);
-    const changesValue =
-      parsed.data.correctedValue != null &&
-      (existing == null || parsed.data.correctedValue !== existing.value);
-    if (changesValue && !steward) {
-      return NextResponse.json(
-        { ok: false, error: STEWARD_ONLY_VALUE_CHANGE },
-        { status: 403 }
-      );
-    }
 
     const verifiedAt = new Date().toISOString();
     const nextVersion = `${baseSet.version}+${parsed.data.factorId}@${parsed.data.vintage}`;
@@ -159,8 +145,10 @@ export async function POST(req: Request) {
         previous_value: existing?.value ?? null,
         current_value: updated?.value ?? null,
         factor_set_version: nextVersion,
-        value_changed: changesValue,
-        by_platform_steward: steward,
+        value_changed:
+          parsed.data.correctedValue != null &&
+          (existing == null || parsed.data.correctedValue !== existing.value),
+        by_platform_steward: true,
       },
     });
 

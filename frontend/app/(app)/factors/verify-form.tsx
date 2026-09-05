@@ -61,9 +61,9 @@ export function FactorVerifyPanel({
       <p className="text-[12px] leading-relaxed text-stone-600">
         Record the publication you read the value in — the document, table and edition, not a
         reminder to check it later. A citation that is empty, shorter than twelve characters, or
-        still carrying a <span className="font-mono">TO VERIFY</span> marker is refused by the
-        domain layer and nothing is written. After you record one, turn draft mode off on the
-        engagement and re-run calculation — the engine will use the verified value.
+        still carrying a <span className="font-mono">TO VERIFY</span> marker is refused and
+        nothing is written. Re-run calculation after a correction so engagements pick up the
+        new value.
       </p>
       {error ? <ErrorState title="Verification refused" body={error} /> : null}
 

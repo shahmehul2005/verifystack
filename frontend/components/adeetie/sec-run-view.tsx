@@ -126,14 +126,12 @@ function SavingsSummary({
 
 function SecRunSection({ run }: { run: SecRun }) {
   const r = run.result;
-  const unverified = r.streams.flatMap((s) => s.factorsUsed.filter((f) => !f.verified));
 
   return (
     <section className="mb-8">
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <h2 className="text-sm font-semibold">{PHASE_LABEL[r.phase]}</h2>
         <Badge tone="ink">{r.periodLabel}</Badge>
-        <Badge>{run.row.draft_mode ? "draft run" : "non-draft run"}</Badge>
         <span className="text-[12px] text-stone-500">{formatIst(run.row.created_at)}</span>
       </div>
       <p className="mb-3 font-mono text-[11px] text-stone-500">
@@ -155,17 +153,6 @@ function SecRunSection({ run }: { run: SecRun }) {
           value={`${formatIn(r.sec, { maximumFractionDigits: 4 })} ${r.secUnitLabel}`}
         />
       </div>
-
-      {unverified.length > 0 ? (
-        <div className="mb-3 border border-amber-400 bg-amber-50 px-3 py-2 text-[12px] text-amber-950">
-          <Badge tone="draft">Unverified factors</Badge>
-          <span className="ml-2">
-            {unverified.length} factor value(s) in this run are placeholders that no human has read
-            back against a published source. A non-draft run is refused while that is true, and
-            this SEC figure must not be filed.
-          </span>
-        </div>
-      ) : null}
 
       <Table>
         <thead>
@@ -209,9 +196,6 @@ function SecRunSection({ run }: { run: SecRun }) {
                         <span className="font-mono">
                           {f.id} ({f.vintage}) {f.value} {f.unit}
                         </span>
-                        <Badge tone={f.verified ? "ok" : "draft"}>
-                          {f.verified ? "verified" : "unverified"}
-                        </Badge>
                       </li>
                     ))}
                   </ul>

@@ -15,6 +15,7 @@ import { runAdeetieRules } from "@verifystack/backend/domain/rules/adeetie";
 import type { AdeetieEligibilityInput } from "@verifystack/backend/domain/rules/adeetie";
 import type { EnterpriseCategory } from "@verifystack/backend/domain/packs/adeetie";
 import { draftCarFromTemplate } from "@verifystack/backend/domain/ai/draftCar";
+import { citeFinding, createDefaultCiteDeps } from "@verifystack/backend/domain/citations/attach";
 import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
 import { canStartWork, loadPack } from "@verifystack/backend/domain/packs";
 import { CalcError } from "@verifystack/backend/domain/calc/engine";
@@ -186,7 +187,10 @@ export async function POST(req: Request) {
         thisRun: run.result,
         previousResults: (previousRuns ?? []).map((r) => r.result),
       });
-      await insertFindings(supabase, organizationId, engagement.id, stored.id, findings);
+      await insertFindings(supabase, organizationId, engagement.id, stored.id, findings, {
+        scheme: engagement.scheme,
+        sectorOrCluster: engagement.sector_or_cluster,
+      });
 
       await auditEvent({
         organizationId,
@@ -261,7 +265,10 @@ export async function POST(req: Request) {
         facts,
       })
     );
-    await insertFindings(supabase, organizationId, engagement.id, stored.id, rules.findings);
+    await insertFindings(supabase, organizationId, engagement.id, stored.id, rules.findings, {
+      scheme: engagement.scheme,
+      sectorOrCluster: engagement.sector_or_cluster,
+    });
 
     await auditEvent({
       organizationId,
@@ -298,30 +305,38 @@ async function insertFindings(
   organizationId: string,
   engagementId: string,
   calculationRunId: string,
-  findings: RuleFinding[]
+  findings: RuleFinding[],
+  packFilter: { scheme: string; sectorOrCluster: string }
 ) {
   if (!findings.length) return;
-  const rows = findings.map((f) => {
-    const car = draftCarFromTemplate(f);
-    return {
-      organization_id: organizationId,
-      engagement_id: engagementId,
-      calculation_run_id: calculationRunId,
-      rule_id: f.ruleId,
-      severity: f.severity,
-      title: f.title,
-      detail: f.detail,
-      clause_ref: f.clauseRef,
-      evidence_refs: f.evidenceRefs,
-      magnitude: (f.magnitude ?? null) as Json,
-      state: "suggested" as const,
-      heading: car.heading,
-      body: car.body,
-      required_response: car.requiredResponse,
-      generator: car.generator,
-    };
-  });
-  await supabase.from("findings").insert(rows);
+  // match_regulatory_chunks / citation columns arrive with migration 0010 and
+  // are not described by the hand-written Database types.
+  const deps = createDefaultCiteDeps(supabase as never);
+  const rows = await Promise.all(
+    findings.map(async (f) => {
+      const car = draftCarFromTemplate(f);
+      const citation = await citeFinding(f, packFilter, deps);
+      return {
+        organization_id: organizationId,
+        engagement_id: engagementId,
+        calculation_run_id: calculationRunId,
+        rule_id: f.ruleId,
+        severity: f.severity,
+        title: f.title,
+        detail: f.detail,
+        clause_ref: f.clauseRef,
+        evidence_refs: f.evidenceRefs,
+        magnitude: (f.magnitude ?? null) as Json,
+        state: "suggested" as const,
+        heading: car.heading,
+        body: car.body,
+        required_response: car.requiredResponse,
+        generator: car.generator,
+        ...citation.columns,
+      };
+    })
+  );
+  await supabase.from("findings").insert(rows as never);
 }
 
 function isSecResult(value: unknown): value is SecResult {
