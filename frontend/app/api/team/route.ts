@@ -6,6 +6,7 @@ import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
 import { inviteSignupUrl, signFirmInvite } from "@verifystack/backend/lib/auth/firmInvite";
+import { sendTeamInviteEmail } from "@verifystack/backend/lib/email/invite";
 import type { MembershipRole } from "@verifystack/backend/lib/supabase/types";
 
 const PatchBody = z.object({
@@ -93,6 +94,18 @@ export async function POST(req: Request) {
       displayName,
     });
     const inviteUrl = inviteSignupUrl(requestOrigin(req), token);
+    const { data: organization } = await admin
+      .from("organizations")
+      .select("name")
+      .eq("id", organizationId)
+      .maybeSingle();
+    const emailed = await sendTeamInviteEmail({
+      email,
+      displayName,
+      organizationName: organization?.name ?? "your firm",
+      role,
+      inviteUrl,
+    });
 
     await auditEvent({
       organizationId,
@@ -104,7 +117,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      emailed: false,
+      emailed,
       created: !userId,
       alreadyMember: alreadyOnThisFirm,
       inviteUrl,

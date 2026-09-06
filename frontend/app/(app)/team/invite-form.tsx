@@ -16,6 +16,7 @@ export function InviteMemberForm() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -23,6 +24,7 @@ export function InviteMemberForm() {
     setError(null);
     setInfo(null);
     setInviteUrl(null);
+    setCopyState("idle");
     const res = await fetch("/api/team", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -47,17 +49,30 @@ export function InviteMemberForm() {
     }
     setEmail("");
     setDisplayName("");
-    if (json.alreadyMember) {
-      setInfo(
-        `They already have an account on this firm as ${ROLE_LABEL[role]}. Send them the create-account link below so they can set a password and sign in.`
-      );
-    } else {
-      setInfo(
-        `Copy the link below and send it to them. It opens Create account. They set their own password and join this firm as ${ROLE_LABEL[role]} — they do not open a second firm.`
-      );
-    }
+    const message = json.alreadyMember
+      ? `They already have an account on this firm as ${ROLE_LABEL[role]}.`
+      : `Invite created for ${ROLE_LABEL[role]}.`;
+    setInfo(
+      `${message} ${
+        json.emailed
+          ? "We also sent this link by email."
+          : "Email delivery is unavailable right now, so copy the link below and send it manually."
+      }`
+    );
     setInviteUrl(json.inviteUrl ?? null);
     router.refresh();
+  }
+
+  async function copyInviteUrl() {
+    if (!inviteUrl) return;
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      setCopyState("copied");
+      window.setTimeout(() => setCopyState("idle"), 2000);
+    } catch {
+      setCopyState("error");
+      window.setTimeout(() => setCopyState("idle"), 2000);
+    }
   }
 
   return (
@@ -78,7 +93,12 @@ export function InviteMemberForm() {
         <p className="mt-3 border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-800">{info}</p>
       ) : null}
       {inviteUrl ? (
-        <p className="mt-2 break-all font-mono text-[11px] text-stone-600">{inviteUrl}</p>
+        <div className="mt-2 flex items-start gap-2">
+          <p className="min-w-0 flex-1 break-all font-mono text-[11px] text-stone-600">{inviteUrl}</p>
+          <Button type="button" variant="secondary" size="sm" onClick={copyInviteUrl}>
+            {copyState === "copied" ? "Copied!" : copyState === "error" ? "Copy failed" : "Copy"}
+          </Button>
+        </div>
       ) : null}
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div>
