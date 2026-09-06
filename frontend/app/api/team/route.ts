@@ -9,6 +9,8 @@ import { inviteSignupUrl, signFirmInvite } from "@verifystack/backend/lib/auth/f
 import { sendTeamInviteEmail } from "@verifystack/backend/lib/email/invite";
 import type { MembershipRole } from "@verifystack/backend/lib/supabase/types";
 
+export const runtime = "nodejs";
+
 const PatchBody = z.object({
   membershipId: z.string().uuid(),
   role: z.enum(["firm_admin", "lead_verifier", "verifier", "independent_reviewer"]),
@@ -99,6 +101,9 @@ export async function POST(req: Request) {
       .select("name")
       .eq("id", organizationId)
       .maybeSingle();
+
+    // sendTeamInviteEmail will return false if RESEND_API_KEY is missing
+    // or if the request failed. Logging the result helps debug on the server.
     const emailed = await sendTeamInviteEmail({
       email,
       displayName,
