@@ -10,7 +10,6 @@ import type { MembershipRole } from "@verifystack/backend/lib/supabase/types";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { ConfigureSupabase } from "@/components/states";
-import { AuthDivider, GoogleButton } from "@/components/auth/google-button";
 import { signInWithGoogle } from "@/components/auth/google";
 import { rememberIntendedRole } from "@/components/auth/intended-role";
 
@@ -146,16 +145,7 @@ export function SignupForm() {
       {error ? (
         <p className="mt-4 border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">{error}</p>
       ) : null}
-      {!inviteToken ? (
-        <>
-          <div className="mt-6">
-            <GoogleButton pending={pending} onClick={onGoogle} label="Sign up with Google" />
-          </div>
-          <AuthDivider />
-        </>
-      ) : (
-        <div className="mt-6" />
-      )}
+      <div className="mt-6" />
       <form onSubmit={onSubmit} className="space-y-3">
         <div>
           <Label htmlFor="email">Email</Label>
