@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { signupGate } from "@verifystack/backend/lib/auth/signupPolicy";
 import { verifyFirmInvite } from "@verifystack/backend/lib/auth/firmInvite";
+import { sendSignupConfirmationEmail } from "@verifystack/backend/lib/email/invite";
 import type { MembershipRole } from "@verifystack/backend/lib/supabase/types";
 
 const Body = z.object({
@@ -10,6 +11,12 @@ const Body = z.object({
   password: z.string().min(8).max(200),
   inviteToken: z.string().min(16).optional(),
 });
+
+function requestOrigin(req: Request): string {
+  const origin = req.headers.get("origin");
+  if (origin) return origin;
+  return new URL(req.url).origin;
+}
 
 async function findUserIdByEmail(
   admin: NonNullable<ReturnType<typeof createServiceClient>>,
@@ -27,12 +34,13 @@ async function findUserIdByEmail(
 }
 
 /**
- * Self-serve (no invite): creates the user with email_confirm: false so
- * Supabase fires the confirmation email through the configured custom SMTP.
- * The client should show a "check your inbox" state and NOT sign in yet.
+ * Self-serve (no invite): uses admin.generateLink() to create the user AND
+ * obtain the confirmation URL in one call, then sends the URL via Resend
+ * directly. The Admin API's createUser() never triggers any email pipeline
+ * (even with email_confirm: false), so generateLink is the only reliable path.
  *
- * Invite path: email_confirm: true — the invite token is the trust signal,
- * so the member can sign in immediately without waiting for an email.
+ * Invite path: createUser with email_confirm: true — the invite token is the
+ * trust signal, no email confirmation needed.
  */
 export async function POST(req: Request) {
   const parsed = Body.safeParse(await req.json().catch(() => null));
@@ -80,36 +88,67 @@ export async function POST(req: Request) {
     );
   }
 
-  let userId = await findUserIdByEmail(admin, email);
+  let userId: string | null = await findUserIdByEmail(admin, email);
   let created = false;
 
-  // For self-serve signups, email_confirm is false so Supabase sends the
-  // confirmation email via the configured custom SMTP (Resend bridge).
-  // For invite-path signups, email_confirm is true — no confirmation needed.
-  const shouldConfirmEmail = Boolean(invite);
-
   if (!userId) {
-    const createdUser = await admin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: shouldConfirmEmail,
-    });
-    if (createdUser.error || !createdUser.data.user) {
-      const already =
-        /already|registered|exists/i.test(createdUser.error?.message ?? "") ||
-        createdUser.error?.status === 422;
-      return NextResponse.json(
-        {
-          ok: false,
-          error: already
-            ? "Could not create the account. Sign in or reset your password."
-            : (createdUser.error?.message ?? "Could not create the account."),
-        },
-        { status: already ? 409 : 400 }
-      );
+    if (invite) {
+      // Invite path: create pre-confirmed — no email needed.
+      const createdUser = await admin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+      });
+      if (createdUser.error || !createdUser.data.user) {
+        const already =
+          /already|registered|exists/i.test(createdUser.error?.message ?? "") ||
+          createdUser.error?.status === 422;
+        return NextResponse.json(
+          {
+            ok: false,
+            error: already
+              ? "Could not create the account. Sign in or reset your password."
+              : (createdUser.error?.message ?? "Could not create the account."),
+          },
+          { status: already ? 409 : 400 }
+        );
+      }
+      userId = createdUser.data.user.id;
+      created = true;
+    } else {
+      // Self-serve path: generateLink creates the user AND returns the
+      // confirmation URL. We send it via Resend ourselves because the
+      // Admin API's createUser() never fires the email pipeline.
+      const origin = requestOrigin(req);
+      const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
+        type: "signup",
+        email,
+        password,
+        options: { redirectTo: `${origin}/auth/callback` },
+      });
+      if (linkError || !linkData?.user) {
+        const already =
+          /already|registered|exists/i.test(linkError?.message ?? "") ||
+          (linkError as { status?: number } | null)?.status === 422;
+        return NextResponse.json(
+          {
+            ok: false,
+            error: already
+              ? "Could not create the account. Sign in or reset your password."
+              : (linkError?.message ?? "Could not create the account."),
+          },
+          { status: already ? 409 : 400 }
+        );
+      }
+      userId = linkData.user.id;
+      created = true;
+      // Fire-and-forget: if Resend fails the user can still confirm later
+      // via Supabase dashboard resend, and we log the error server-side.
+      void sendSignupConfirmationEmail({
+        email,
+        confirmationUrl: linkData.properties.action_link,
+      });
     }
-    userId = createdUser.data.user.id;
-    created = true;
   } else if (invite) {
     const updated = await admin.auth.admin.updateUserById(userId, {
       password,
