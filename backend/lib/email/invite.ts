@@ -61,8 +61,15 @@ export async function sendTeamInviteEmail(input: TeamInviteEmailInput): Promise<
         html: content.html,
       }),
     });
+    if (!response.ok) {
+      const body = await response.text().catch(() => "(unreadable)");
+      console.error(
+        `[resend] Failed to send invite email to ${input.email}: HTTP ${response.status} — ${body}`
+      );
+    }
     return response.ok;
-  } catch {
+  } catch (err) {
+    console.error(`[resend] Network error sending invite email to ${input.email}:`, err);
     return false;
   }
 }

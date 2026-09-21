@@ -32,6 +32,7 @@ export function SignupForm() {
   const [pending, setPending] = useState(false);
   const [invite, setInvite] = useState<InvitePreview | null>(null);
   const [inviteReady, setInviteReady] = useState(!inviteToken);
+  const [emailSent, setEmailSent] = useState(false);
 
   useEffect(() => {
     if (!inviteToken) return;
@@ -66,6 +67,42 @@ export function SignupForm() {
   }, [inviteToken]);
 
   if (!supabase) return <ConfigureSupabase />;
+
+  // Self-serve signup: show confirmation-email sent screen.
+  if (emailSent) {
+    return (
+      <div>
+        <p className="text-[11px] uppercase tracking-[0.2em] text-stone-500">VerifyStack</p>
+        <h1 className="mt-1 text-lg font-semibold">Check your email</h1>
+        <p className="mt-2 text-sm text-stone-600">
+          We sent a confirmation link to{" "}
+          <span className="font-medium text-stone-900">{email}</span>. Open that email and
+          click the link to verify your address and activate your account.
+        </p>
+        <p className="mt-4 text-sm text-stone-500">
+          After confirming,{" "}
+          <Link href="/login" className="underline">
+            sign in here
+          </Link>
+          .
+        </p>
+        <p className="mt-6 text-[11px] text-stone-400">
+          Didn&apos;t receive it? Check your spam folder, or{" "}
+          <button
+            type="button"
+            className="underline"
+            onClick={() => {
+              setEmailSent(false);
+              setError(null);
+            }}
+          >
+            try again
+          </button>
+          .
+        </p>
+      </div>
+    );
+  }
 
   async function onGoogle() {
     setPending(true);
@@ -104,6 +141,7 @@ export function SignupForm() {
       ok?: boolean;
       error?: string;
       invited?: boolean;
+      requiresEmailConfirmation?: boolean;
       role?: MembershipRole;
     };
     if (!created.ok || !json.ok) {
@@ -112,6 +150,15 @@ export function SignupForm() {
       return;
     }
 
+    // Self-serve signup: user is unconfirmed. Show "check your inbox" instead
+    // of attempting signInWithPassword (which would fail on an unconfirmed account).
+    if (json.requiresEmailConfirmation) {
+      setPending(false);
+      setEmailSent(true);
+      return;
+    }
+
+    // Invite path: user is pre-confirmed — sign in immediately.
     const { error: signErr } = await supabase!.auth.signInWithPassword({ email, password });
     if (signErr) {
       setPending(false);

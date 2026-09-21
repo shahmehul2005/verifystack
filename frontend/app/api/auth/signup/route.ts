@@ -27,10 +27,12 @@ async function findUserIdByEmail(
 }
 
 /**
- * Creates (or password-completes) a user without sending mail.
- * Self-serve: new firm later via /api/bootstrap as firm_admin.
- * Invite: membership is written here with the role the firm admin chose, and
- * the password is stored on the Auth user so they can sign in afterwards.
+ * Self-serve (no invite): creates the user with email_confirm: false so
+ * Supabase fires the confirmation email through the configured custom SMTP.
+ * The client should show a "check your inbox" state and NOT sign in yet.
+ *
+ * Invite path: email_confirm: true — the invite token is the trust signal,
+ * so the member can sign in immediately without waiting for an email.
  */
 export async function POST(req: Request) {
   const parsed = Body.safeParse(await req.json().catch(() => null));
@@ -81,11 +83,16 @@ export async function POST(req: Request) {
   let userId = await findUserIdByEmail(admin, email);
   let created = false;
 
+  // For self-serve signups, email_confirm is false so Supabase sends the
+  // confirmation email via the configured custom SMTP (Resend bridge).
+  // For invite-path signups, email_confirm is true — no confirmation needed.
+  const shouldConfirmEmail = Boolean(invite);
+
   if (!userId) {
     const createdUser = await admin.auth.admin.createUser({
       email,
       password,
-      email_confirm: true,
+      email_confirm: shouldConfirmEmail,
     });
     if (createdUser.error || !createdUser.data.user) {
       const already =
@@ -155,6 +162,10 @@ export async function POST(req: Request) {
     ok: true,
     created,
     invited: Boolean(invite),
+    // True when the user signed up without an invite: they must confirm their
+    // email before they can sign in. The form should show a "check your inbox"
+    // message and NOT attempt signInWithPassword yet.
+    requiresEmailConfirmation: !invite,
     role,
   });
 }
