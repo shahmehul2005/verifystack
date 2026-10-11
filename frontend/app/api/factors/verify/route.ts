@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireCapability, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
 import { jsonError } from "@/lib/api";
-import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
+import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
 import {
   isPlatformSteward,
@@ -41,7 +41,7 @@ interface LooseDb {
 const Body = z.object({
   factorId: z.string().min(1),
   vintage: z.string().min(1),
-  citedSource: z.string(),
+  citedSource: z.string().max(1000),
   correctedValue: z.number().nullable().optional(),
 });
 
@@ -95,9 +95,12 @@ export async function POST(req: Request) {
       throw e;
     }
 
-    const supabase = await createServerSupabase();
+    const supabase = createServiceClient();
     if (!supabase) {
-      return NextResponse.json({ ok: false, error: "Supabase is not configured" }, { status: 503 });
+      return NextResponse.json(
+        { ok: false, error: "SUPABASE_SERVICE_ROLE is not configured" },
+        { status: 503 }
+      );
     }
     const db = supabase as unknown as LooseDb;
 
@@ -135,6 +138,7 @@ export async function POST(req: Request) {
 
     await auditEvent({
       organizationId,
+      actorUserId: session.user.id,
       action: "factor.verified",
       entityType: "factor",
       entityId: logRow?.id ?? null,

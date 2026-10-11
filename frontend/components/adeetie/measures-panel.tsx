@@ -5,6 +5,9 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import { Table, Td, Th } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardBody, CardHeader } from "@/components/ui/card";
+import { Plus, Trash2 } from "lucide-react";
 import { formatINR } from "@verifystack/backend/domain/packs/adeetie";
 import { formatIn } from "@/lib/format";
 
@@ -15,6 +18,7 @@ export interface MeasureRow {
   saving_unit: string;
   capital_cost_inr: number;
   basis: string;
+  annual_cost_saving_inr?: number | null;
 }
 
 export function MeasuresPanel({
@@ -33,6 +37,7 @@ export function MeasuresPanel({
   const [saving, setSaving] = useState("");
   const [cost, setCost] = useState("");
   const [basis, setBasis] = useState("");
+  const [rupeeSaving, setRupeeSaving] = useState("");
 
   async function add() {
     setPending(true);
@@ -45,6 +50,7 @@ export function MeasuresPanel({
         savingUnit,
         capitalCostINR: Number(cost),
         basis,
+        ...(rupeeSaving.trim() !== "" ? { annualCostSavingINR: Number(rupeeSaving) } : {}),
       }),
     });
     const json = await res.json();
@@ -74,41 +80,54 @@ export function MeasuresPanel({
   }
 
   return (
-    <section className="mb-8">
-      <h2 className="mb-2 text-[11px] uppercase tracking-wide text-stone-500">
-        Energy conservation measures
-      </h2>
-      <p className="mb-3 max-w-3xl text-[12px] text-stone-600">
-        Identified at IGEA, costed in the DPR. Projected savings are estimates. The scheme
-        10% gate is decided on the measured M&amp;V SEC, not on this list.
-      </p>
+    <Card className="mb-8">
+      <CardHeader
+        title="Energy conservation measures"
+        description="Identified at IGEA and costed in the DPR. Projected savings are estimates; the scheme's 10% gate is decided on the measured M&V SEC, not on this list."
+        actions={locked ? <Badge>Locked during M&amp;V</Badge> : undefined}
+      />
+      <CardBody>
       {measures.length ? (
         <Table>
           <thead>
             <tr>
               <Th>Measure</Th>
-              <Th>Projected saving / year</Th>
-              <Th>Capex</Th>
+              <Th className="text-right">Projected saving / year</Th>
+              <Th className="text-right">Capital cost</Th>
+              <Th className="text-right">Saving in rupees / year</Th>
               <Th>Basis</Th>
-              <Th />
+              <Th>
+                <span className="sr-only">Actions</span>
+              </Th>
             </tr>
           </thead>
           <tbody>
             {measures.map((m) => (
               <tr key={m.id}>
-                <Td>{m.description}</Td>
-                <Td className="tabular">
-                  {formatIn(Number(m.projected_annual_saving))} {m.saving_unit}
+                <Td className="font-medium text-mist-900">{m.description}</Td>
+                <Td className="whitespace-nowrap text-right tabular">
+                  {formatIn(Number(m.projected_annual_saving))}{" "}
+                  <span className="text-xs text-mist-500">{m.saving_unit}</span>
                 </Td>
-                <Td className="tabular">{formatINR(Number(m.capital_cost_inr))}</Td>
-                <Td className="text-[12px]">{m.basis}</Td>
-                <Td>
+                <Td className="whitespace-nowrap text-right tabular">{formatINR(Number(m.capital_cost_inr))}</Td>
+                <Td className="whitespace-nowrap text-right tabular">
+                  {m.annual_cost_saving_inr == null ? (
+                    <span className="text-xs text-mist-400">Not recorded</span>
+                  ) : (
+                    formatINR(Number(m.annual_cost_saving_inr))
+                  )}
+                </Td>
+                <Td className="text-xs text-mist-600">{m.basis}</Td>
+                <Td className="text-right">
                   {locked ? null : (
                     <Button
-                      variant="secondary"
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-700 hover:bg-red-50 hover:text-red-800"
                       disabled={pending}
                       onClick={() => void remove(m.id)}
                     >
+                      <Trash2 />
                       Remove
                     </Button>
                   )}
@@ -118,12 +137,11 @@ export function MeasuresPanel({
           </tbody>
         </Table>
       ) : (
-        <p className="mb-3 text-[13px] text-stone-600">No measures recorded yet.</p>
+        <p className="text-[13px] text-mist-600">No measures recorded yet.</p>
       )}
-      {locked ? (
-        <p className="text-[12px] text-stone-500">Measures are locked during M&amp;V.</p>
-      ) : (
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+      {locked ? null : (
+        <div className="mt-5 grid gap-4 border-t border-mist-100 pt-5 sm:grid-cols-2">
+          <p className="text-sm font-medium text-mist-900 sm:col-span-2">Add a measure</p>
           <div className="sm:col-span-2">
             <Label htmlFor="m-desc">Description</Label>
             <Input
@@ -155,16 +173,32 @@ export function MeasuresPanel({
             />
           </div>
           <div className="sm:col-span-2">
+            <Label htmlFor="m-rupee">Value of the saving in rupees per year (optional)</Label>
+            <Input
+              id="m-rupee"
+              type="number"
+              min={0}
+              step="1"
+              value={rupeeSaving}
+              onChange={(e) => setRupeeSaving(e.target.value)}
+            />
+            <p className="mt-1.5 text-xs text-mist-500">
+              From the tariff or fuel price in the basis below. Without it, payback is not computed rather than estimated.
+            </p>
+          </div>
+          <div className="sm:col-span-2">
             <Label htmlFor="m-basis">Basis (quotation, vendor guarantee, audit estimate)</Label>
             <Input id="m-basis" value={basis} onChange={(e) => setBasis(e.target.value)} />
           </div>
           <div>
             <Button disabled={pending} onClick={() => void add()}>
+              <Plus />
               Add measure
             </Button>
           </div>
         </div>
       )}
-    </section>
+      </CardBody>
+    </Card>
   );
 }

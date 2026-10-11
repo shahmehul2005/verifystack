@@ -11,6 +11,10 @@ import type { MembershipRole } from "@verifystack/backend/lib/supabase/types";
  *   P5 Calculation run             → runs.execute
  *   P6 Findings                    → findings.decide
  *   P7 Lead / independent sign-off → signoff.lead / signoff.reviewer
+ *   13.0 Verification planning     → plan.manage
+ *   14.0 Fieldwork capture         → fieldwork.record
+ *   8.4  Independent tech review   → review.technical
+ *   1.0  Stage manager / bulk load → engagements.stage / engagements.import
  *   D3 Pack catalogue              → nav.packs
  *   D7 Audit log                   → nav.audit
  *   D8 Factor register             → nav.factors / factors.verify
@@ -33,6 +37,11 @@ export const CAPABILITIES = [
   "findings.decide",
   "signoff.lead",
   "signoff.reviewer",
+  "plan.manage",
+  "fieldwork.record",
+  "review.technical",
+  "engagements.stage",
+  "engagements.import",
   "reports.download",
   "factors.verify",
   "adeetie.view",
@@ -66,6 +75,10 @@ const ROLE_CAPABILITIES: Record<MembershipRole, readonly Capability[]> = {
     "runs.execute",
     "findings.decide",
     "signoff.lead",
+    "plan.manage",
+    "fieldwork.record",
+    "engagements.stage",
+    "engagements.import",
     "reports.download",
     "factors.verify",
     "adeetie.view",
@@ -81,6 +94,7 @@ const ROLE_CAPABILITIES: Record<MembershipRole, readonly Capability[]> = {
     "review.decide",
     "runs.view",
     "findings.decide",
+    "fieldwork.record",
     "reports.download",
     "adeetie.view",
   ],
@@ -93,6 +107,7 @@ const ROLE_CAPABILITIES: Record<MembershipRole, readonly Capability[]> = {
     "runs.view",
     "findings.decide",
     "signoff.reviewer",
+    "review.technical",
     "reports.download",
     "adeetie.view",
   ],
@@ -108,13 +123,17 @@ export const APP_NAV: { href: string; label: string; capability: Capability }[] 
 ];
 
 export const ENGAGEMENT_LINKS: { slug: string; label: string; capability: Capability }[] = [
+  { slug: "plan", label: "Plan", capability: "runs.view" },
   { slug: "documents", label: "Documents", capability: "documents.view" },
+  { slug: "fieldwork", label: "Fieldwork", capability: "fieldwork.record" },
   { slug: "workbench", label: "Workbench", capability: "review.decide" },
   { slug: "facts", label: "Facts ledger", capability: "review.decide" },
   { slug: "runs", label: "Calculation", capability: "runs.view" },
   { slug: "findings", label: "Findings", capability: "findings.decide" },
   { slug: "ecm", label: "ECM suggestions", capability: "adeetie.view" },
+  { slug: "technical-review", label: "Technical review", capability: "review.technical" },
   { slug: "signoff", label: "Sign-off", capability: "signoff.lead" },
+  { slug: "package", label: "Submission package", capability: "signoff.lead" },
 ];
 
 export function hasCapability(
@@ -146,6 +165,10 @@ export function engagementLinksForRole(role: MembershipRole | null | undefined) 
   return ENGAGEMENT_LINKS.filter((item) => {
     if (item.slug === "signoff") {
       return hasCapability(role, "signoff.lead") || hasCapability(role, "signoff.reviewer");
+    }
+    if (item.slug === "technical-review") {
+      // The lead sees the review status; only the independent reviewer decides.
+      return hasCapability(role, "review.technical") || hasCapability(role, "signoff.lead");
     }
     return hasCapability(role, item.capability);
   });

@@ -1,3 +1,4 @@
+import { Users } from "lucide-react";
 import { ConfigureSupabase, EmptyState, ForbiddenState } from "@/components/states";
 import { PageHeader } from "@/components/page-header";
 import { Table, Td, Th } from "@/components/ui/table";
@@ -8,8 +9,18 @@ import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configur
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { ROLE_LABEL } from "@verifystack/backend/lib/auth/roles";
+import { formatIst } from "@/lib/format";
 import { TeamRoleSelect } from "./role-select";
 import { InviteMemberForm } from "./invite-form";
+
+export const metadata = { title: "Team" };
+
+function initials(nameOrEmail: string): string {
+  const base = nameOrEmail.split("@")[0] ?? nameOrEmail;
+  const parts = base.split(/[\s._-]+/).filter(Boolean);
+  const letters = parts.length > 1 ? parts[0][0] + parts[1][0] : base.slice(0, 2);
+  return letters.toUpperCase();
+}
 
 export default async function TeamPage() {
   if (!isSupabaseConfigured()) return <ConfigureSupabase />;
@@ -38,36 +49,60 @@ export default async function TeamPage() {
   return (
     <>
       <PageHeader
-        kicker="Access"
-        title="Team / roles"
-        description="Add colleagues with a role and send them the create-account link. That link joins this firm. Opening Create account on their own would start a different organisation."
+        kicker="Firm"
+        title="Team"
+        description="Add colleagues with a role and send them the create-account link. That link joins this firm; signing up on their own would start a different organisation."
+        meta={data?.length ? <Badge>{data.length} {data.length === 1 ? "member" : "members"}</Badge> : undefined}
       />
       {canManage ? <InviteMemberForm /> : null}
       {!data?.length ? (
-        <EmptyState title="No members" body="Add a lead verifier above." />
+        <EmptyState icon={Users} title="No members yet" body="Add a lead verifier above." />
       ) : (
         <Table>
           <thead>
             <tr>
-              <Th>Name</Th>
-              <Th>Email</Th>
+              <Th>Member</Th>
               <Th>Role</Th>
+              <Th>Added</Th>
             </tr>
           </thead>
           <tbody>
-            {data.map((m) => (
-              <tr key={m.id}>
-                <Td>{m.display_name ?? "—"}</Td>
-                <Td className="text-[12px]">{emailByUser.get(m.user_id) ?? `${m.user_id.slice(0, 8)}…`}</Td>
-                <Td>
-                  {canManage ? (
-                    <TeamRoleSelect membershipId={m.id} role={m.role} />
-                  ) : (
-                    <Badge tone="ink">{ROLE_LABEL[m.role]}</Badge>
-                  )}
-                </Td>
-              </tr>
-            ))}
+            {data.map((m) => {
+              const email = emailByUser.get(m.user_id);
+              const label = m.display_name ?? email ?? m.user_id;
+              const isYou = m.user_id === session.user.id;
+              return (
+                <tr key={m.id}>
+                  <Td>
+                    <div className="flex items-center gap-3">
+                      <span
+                        aria-hidden
+                        className="flex size-8 shrink-0 items-center justify-center rounded-full bg-teal-50 text-xs font-semibold text-teal-800"
+                      >
+                        {initials(label)}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 text-[13px] font-medium text-mist-900">
+                          {m.display_name ?? "—"}
+                          {isYou ? <Badge tone="ink">You</Badge> : null}
+                        </div>
+                        <div className="truncate text-xs text-mist-500">
+                          {email ?? `${m.user_id.slice(0, 8)}…`}
+                        </div>
+                      </div>
+                    </div>
+                  </Td>
+                  <Td>
+                    {canManage ? (
+                      <TeamRoleSelect membershipId={m.id} role={m.role} />
+                    ) : (
+                      <Badge tone="ink">{ROLE_LABEL[m.role]}</Badge>
+                    )}
+                  </Td>
+                  <Td className="whitespace-nowrap text-xs text-mist-500">{formatIst(m.created_at)}</Td>
+                </tr>
+              );
+            })}
           </tbody>
         </Table>
       )}

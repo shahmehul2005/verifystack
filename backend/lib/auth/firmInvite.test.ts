@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   inviteExpiresAt,
   inviteSignupPath,
+  inviteSigningSecret,
   signFirmInvite,
   verifyFirmInvite,
 } from "./firmInvite";
@@ -52,5 +53,15 @@ describe("firm invite tokens", () => {
   it("builds a signup URL the invitee can open", () => {
     expect(inviteSignupPath("abc")).toBe("/signup?invite=abc");
     expect(inviteExpiresAt(0)).toBeGreaterThan(0);
+  });
+
+  it("signs with INVITE_SIGNING_SECRET ahead of the service role key", () => {
+    expect(
+      inviteSigningSecret({ INVITE_SIGNING_SECRET: " dedicated ", SUPABASE_SERVICE_ROLE: "svc" })
+    ).toBe("dedicated");
+    expect(inviteSigningSecret({ INVITE_SIGNING_SECRET: "  ", SUPABASE_SERVICE_ROLE: "svc" })).toBe(
+      "svc"
+    );
+    expect(() => inviteSigningSecret({})).toThrow(/INVITE_SIGNING_SECRET/);
   });
 });

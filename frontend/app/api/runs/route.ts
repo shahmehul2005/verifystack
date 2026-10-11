@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireCapability, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
-import { jsonError } from "@/lib/api";
+import { jsonError, limitExceeded } from "@/lib/api";
+import { LIMITS } from "@verifystack/backend/lib/rateLimit";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { getEngagement, ensureEngagementStatus } from "@verifystack/backend/lib/data/engagements";
 import { factorSetForOrganization } from "@verifystack/backend/lib/data/factors";
-import { executeRun, assessRunReadiness, type ProvenancedFact } from "@verifystack/backend/domain/calc/run";
+import { resolveMethod } from "@verifystack/backend/domain/calc/dispatch";
+import { executeRun, assessRunReadiness, toProvenancedFact, type ProvenancedFact } from "@verifystack/backend/domain/calc/run";
 import { executeSecRun } from "@verifystack/backend/domain/calc/secRun";
 import { assessSavings, type SecResult } from "@verifystack/backend/domain/calc/sec";
 import { runRules } from "@verifystack/backend/domain/rules/rules";
@@ -40,6 +42,8 @@ export async function POST(req: Request) {
   try {
     const session = await requireCapability("runs.execute");
     const organizationId = assertOrgId(session.organizationId);
+    const limited = limitExceeded(`model:${session.user.id}`, LIMITS.modelCallsPerUser);
+    if (limited) return limited;
     const parsed = Body.safeParse(await req.json());
     if (!parsed.success) {
       return NextResponse.json({ ok: false, error: "Invalid body" }, { status: 400 });
@@ -55,6 +59,10 @@ export async function POST(req: Request) {
         { status: 409 }
       );
     }
+    const dispatch = resolveMethod(pack);
+    if (!dispatch.implemented) {
+      return NextResponse.json({ ok: false, error: dispatch.reason }, { status: 409 });
+    }
     const supabase = createServiceClient() ?? (await createServerSupabase());
     if (!supabase) {
       return NextResponse.json({ ok: false, error: "Supabase is not configured" }, { status: 503 });
@@ -66,16 +74,7 @@ export async function POST(req: Request) {
       .eq("engagement_id", engagement.id)
       .eq("organization_id", organizationId);
 
-    const facts: ProvenancedFact[] = (factRows ?? []).map((f) => ({
-      id: f.id,
-      field_path: f.field_path,
-      value_json: f.value_json,
-      unit: f.unit,
-      document_id: f.document_id,
-      page: f.page,
-      bbox: f.bbox,
-      source_text: f.source_text,
-    }));
+    const facts: ProvenancedFact[] = (factRows ?? []).map(toProvenancedFact);
 
     const { data: previousRuns } = await supabase
       .from("calculation_runs")
@@ -87,14 +86,16 @@ export async function POST(req: Request) {
     const previousRunHash = previousRuns?.[0]?.input_hash ?? null;
     const factorSet = await factorSetForOrganization(organizationId);
 
-    if (pack.calculation_method === "SEC") {
+    if (dispatch.engine === "SEC") {
       const phase = parsed.data.phase ?? "baseline";
       const currentAdeetiePhase = engagement.adeetie_phase;
       if (engagement.scheme === "ADEETIE" && currentAdeetiePhase && isAdeetiePhase(currentAdeetiePhase)) {
         assertSecPhaseAllowed(currentAdeetiePhase, phase);
       }
 
-      const docIds = [...new Set(facts.map((f) => f.document_id).filter(Boolean))];
+      const docIds = [
+        ...new Set(facts.map((f) => f.document_id).filter((d): d is string => Boolean(d))),
+      ];
       const { data: docs } = docIds.length
         ? await supabase
             .from("documents")
@@ -194,6 +195,7 @@ export async function POST(req: Request) {
 
       await auditEvent({
         organizationId,
+        actorUserId: session.user.id,
         action: "calculation.ran",
         entityType: "calculation_run",
         entityId: stored.id,
@@ -209,6 +211,7 @@ export async function POST(req: Request) {
 
       await ensureEngagementStatus({
         organizationId,
+        actorUserId: session.user.id,
         engagementId: engagement.id,
         current: engagement.status,
         target: "findings",
@@ -272,6 +275,7 @@ export async function POST(req: Request) {
 
     await auditEvent({
       organizationId,
+      actorUserId: session.user.id,
       action: "calculation.ran",
       entityType: "calculation_run",
       entityId: stored.id,
@@ -286,6 +290,7 @@ export async function POST(req: Request) {
 
     await ensureEngagementStatus({
       organizationId,
+      actorUserId: session.user.id,
       engagementId: engagement.id,
       current: engagement.status,
       target: "findings",

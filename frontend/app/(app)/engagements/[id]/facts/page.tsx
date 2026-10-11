@@ -9,6 +9,23 @@ import { getEngagement } from "@verifystack/backend/lib/data/engagements";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { formatIst } from "@/lib/format";
+import { Badge } from "@/components/ui/badge";
+import { BookOpen } from "lucide-react";
+import {
+  factLabel,
+  PROVENANCE_LABEL,
+  provenanceFromColumns,
+  type ProvenanceColumns,
+} from "@verifystack/backend/domain/provenance";
+
+/** "Page 3", "Spreadsheet cell", etc. Falls back to the stored type for a malformed row. */
+function describeFactSource(f: ProvenanceColumns): string {
+  const p = provenanceFromColumns(f);
+  if (!p) return "Incomplete";
+  return p.type === "document_page" ? `Page ${p.page}` : PROVENANCE_LABEL[p.type];
+}
+
+export const metadata = { title: "Facts ledger" };
 
 export default async function FactsPage({ params }: { params: Promise<{ id: string }> }) {
   if (!isSupabaseConfigured()) return <ConfigureSupabase />;
@@ -16,7 +33,7 @@ export default async function FactsPage({ params }: { params: Promise<{ id: stri
   const session = await getSession();
   if (!session?.organizationId) return <ForbiddenState />;
   if (!hasCapability(session.role, "review.decide")) {
-    return <ForbiddenState body="The facts ledger (D4) is for verifiers and reviewers." />;
+    return <ForbiddenState body="The facts ledger is for verifiers and reviewers." />;
   }
   const engagement = await getEngagement(id, session.organizationId);
   if (!engagement) notFound();
@@ -31,36 +48,50 @@ export default async function FactsPage({ params }: { params: Promise<{ id: stri
   return (
     <>
       <PageHeader
-        kicker="D4"
         title="Facts ledger"
-        description="Accepted facts only. Each row carries document, page, bbox, and source text."
+        description="Values a person has accepted. Each one keeps its document, page, region and the exact source text it was read from."
+        meta={
+          facts?.length ? (
+            <Badge tone="ok" dot>
+              {facts.length} accepted {facts.length === 1 ? "fact" : "facts"}
+            </Badge>
+          ) : undefined
+        }
       />
       {!facts?.length ? (
         <EmptyState
-          title="No committed facts"
-          body="Upload evidence, extract, and accept fields on the review workbench. Accepted values appear here."
+          icon={BookOpen}
+          title="No accepted facts yet"
+          body="Upload evidence, run extraction and accept values in the review workbench. Accepted values appear here."
         />
       ) : (
         <Table>
           <thead>
             <tr>
               <Th>Field</Th>
-              <Th>Value</Th>
-              <Th>Source</Th>
-              <Th>Page</Th>
+              <Th className="text-right">Value</Th>
+              <Th>Source text</Th>
+              <Th className="text-right">Evidence</Th>
               <Th>Accepted</Th>
             </tr>
           </thead>
           <tbody>
             {facts.map((f) => (
               <tr key={f.id}>
-                <Td className="font-mono text-[12px]">{f.field_path}</Td>
-                <Td>
-                  {JSON.stringify(f.value_json)} {f.unit}
+                <Td className="font-mono text-xs text-mist-700">{f.field_path}</Td>
+                <Td className="whitespace-nowrap text-right tabular">
+                  <span className="font-medium text-mist-950">{JSON.stringify(f.value_json)}</span>
+                  {f.unit ? <span className="ml-1 text-xs text-mist-500">{f.unit}</span> : null}
                 </Td>
-                <Td className="max-w-xs truncate text-[12px]">{f.source_text}</Td>
-                <Td className="tabular">{f.page}</Td>
-                <Td className="text-[12px]">{formatIst(f.accepted_at)}</Td>
+                <Td className="max-w-sm">
+                  <span className="block truncate font-mono text-xs text-mist-600" title={factLabel(f)}>
+                    {factLabel(f)}
+                  </span>
+                </Td>
+                <Td className="whitespace-nowrap text-right text-xs text-mist-600">
+                  {describeFactSource(f)}
+                </Td>
+                <Td className="whitespace-nowrap text-xs text-mist-600">{formatIst(f.accepted_at)}</Td>
               </tr>
             ))}
           </tbody>

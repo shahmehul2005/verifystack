@@ -112,6 +112,7 @@ export async function POST(
 
     await resetForAdeetiePhase({
       organizationId,
+      actorUserId: session.user.id,
       engagementId: id,
       fromPhase: phase,
       fromStatus: engagement.status as Status,

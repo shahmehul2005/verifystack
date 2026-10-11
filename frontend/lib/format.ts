@@ -7,6 +7,29 @@ export function formatIn(
   return n.toLocaleString("en-IN", opts);
 }
 
+/** Rupees with Indian grouping, e.g. ₹12,50,000. */
+export function formatInr(n: number, maximumFractionDigits = 0) {
+  return n.toLocaleString("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits,
+  });
+}
+
+export function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes < 0) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${formatIn(bytes / 1024, { maximumFractionDigits: 0 })} KB`;
+  return `${formatIn(bytes / (1024 * 1024), { maximumFractionDigits: 1 })} MB`;
+}
+
+/** `electricity_bill` → `Electricity bill`. Display only. */
+export function humanize(value: string | null | undefined) {
+  if (!value) return "";
+  const s = value.replace(/[_-]+/g, " ").trim();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 export function formatIst(iso: string | Date, withTime = true) {
   return new Intl.DateTimeFormat("en-IN", {
     timeZone: IST,

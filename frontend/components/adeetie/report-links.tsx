@@ -1,3 +1,5 @@
+import { Download } from "lucide-react";
+import { buttonVariants } from "@/components/ui/button";
 import { ReportDisclaimer } from "./notices";
 
 /**
@@ -10,9 +12,9 @@ import { ReportDisclaimer } from "./notices";
  * what the sign-off screen already links to.
  */
 const REPORTS = [
-  { kind: "igea", label: "Download IGEA working draft" },
-  { kind: "dpr", label: "Download DPR working draft" },
-  { kind: "mv", label: "Download M&V working draft" },
+  { kind: "igea", label: "IGEA working draft" },
+  { kind: "dpr", label: "DPR working draft" },
+  { kind: "mv", label: "M&V working draft" },
 ] as const;
 
 export function AdeetieReportLinks({ engagementId }: { engagementId: string }) {
@@ -23,8 +25,9 @@ export function AdeetieReportLinks({ engagementId }: { engagementId: string }) {
           <a
             key={r.kind}
             href={`/api/reports?engagementId=${encodeURIComponent(engagementId)}&kind=${r.kind}`}
-            className="inline-flex h-9 items-center bg-white px-3 text-sm ring-1 ring-stone-300 hover:bg-stone-50"
+            className={buttonVariants({ variant: "secondary" })}
           >
+            <Download />
             {r.label}
           </a>
         ))}

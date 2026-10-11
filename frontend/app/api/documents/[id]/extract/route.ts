@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireCapability, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
-import { jsonError } from "@/lib/api";
+import { jsonError, limitExceeded } from "@/lib/api";
+import { LIMITS } from "@verifystack/backend/lib/rateLimit";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { runDocumentExtraction } from "@verifystack/backend/domain/extraction/runDocument";
 import { getEngagement, ensureEngagementStatus } from "@verifystack/backend/lib/data/engagements";
@@ -15,6 +16,8 @@ export async function POST(
   try {
     const session = await requireCapability("documents.extract");
     const organizationId = assertOrgId(session.organizationId);
+    const limited = limitExceeded(`model:${session.user.id}`, LIMITS.modelCallsPerUser);
+    if (limited) return limited;
     const { id } = await params;
     const admin = createServiceClient();
     if (!admin) {
@@ -44,6 +47,7 @@ export async function POST(
     if (result.ok) {
       await ensureEngagementStatus({
         organizationId,
+        actorUserId: session.user.id,
         engagementId: engagement.id,
         current: engagement.status,
         target: "review",

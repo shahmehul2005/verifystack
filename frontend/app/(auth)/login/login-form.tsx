@@ -15,6 +15,9 @@ import { signInWithGoogle } from "@/components/auth/google";
 import { LoginNotice } from "@/components/auth/login-notice";
 import { RoleSelect } from "@/components/auth/role-select";
 import { rememberIntendedRole } from "@/components/auth/intended-role";
+import { AuthFooter, AuthHeading, authLinkClass } from "@/components/auth/auth-heading";
+import { ChevronDown } from "lucide-react";
+import { cn } from "@/lib/cn";
 
 export function LoginForm() {
   const router = useRouter();
@@ -26,6 +29,7 @@ export function LoginForm() {
   const [role, setRole] = useState<MembershipRole>("firm_admin");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [newFirm, setNewFirm] = useState(false);
 
   const noticeError = error ?? publicAuthMessage(params.get("error"));
 
@@ -76,26 +80,21 @@ export function LoginForm() {
 
   return (
     <div>
-      <p className="text-[11px] uppercase tracking-[0.2em] text-stone-500">VerifyStack</p>
-      <h1 className="mt-1 text-lg font-semibold">Sign in</h1>
-      <p className="mt-1 text-sm text-stone-600">
-        Verifier firms only. The role dropdown applies only when you are opening a new firm.
-        Invited members keep the role the firm admin assigned.
-      </p>
+      <AuthHeading
+        title="Sign in"
+        description="Welcome back. Sign in to your firm's verification workspace."
+      />
       <LoginNotice
         error={noticeError}
         checkEmail={params.get("check_email") === "1"}
         passwordUpdated={params.get("password_updated") === "1"}
         signedOut={params.get("signed_out") === "1"}
       />
-      <div className="mt-6">
-        <RoleSelect value={role} onChange={setRole} disabled={pending} />
-      </div>
-      <div className="mt-4">
+      <div className="mt-7">
         <GoogleButton pending={pending} onClick={onGoogle} />
       </div>
       <AuthDivider />
-      <form onSubmit={onPassword} className="space-y-3">
+      <form onSubmit={onPassword} className="space-y-4">
         <div>
           <Label htmlFor="email">Email</Label>
           <Input
@@ -108,11 +107,11 @@ export function LoginForm() {
           />
         </div>
         <div>
-          <div className="mb-1 flex items-center justify-between">
+          <div className="mb-1.5 flex items-center justify-between">
             <Label htmlFor="password" className="mb-0">
               Password
             </Label>
-            <Link href="/forgot-password" className="text-[12px] text-stone-600 hover:underline">
+            <Link href="/forgot-password" className={cn(authLinkClass, "text-[13px]")}>
               Forgot password?
             </Link>
           </div>
@@ -125,18 +124,45 @@ export function LoginForm() {
             required
           />
         </div>
-        <Button type="submit" disabled={pending} className="w-full">
+        <Button type="submit" size="lg" disabled={pending} className="w-full">
           {pending ? "Signing in…" : "Sign in"}
         </Button>
       </form>
-      <p className="mt-6 text-center text-[12px] text-stone-500">
+
+      <div className="mt-6 rounded-lg border border-mist-200">
+        <button
+          type="button"
+          aria-expanded={newFirm}
+          aria-controls="new-firm-role"
+          onClick={() => setNewFirm((v) => !v)}
+          className="flex w-full items-center justify-between gap-2 rounded-lg px-4 py-3 text-left text-[13px] font-medium text-mist-800 hover:bg-mist-50"
+        >
+          Opening a new firm?
+          <ChevronDown
+            aria-hidden
+            className={cn("size-4 text-mist-500 transition-transform", newFirm && "rotate-180")}
+          />
+        </button>
+        {newFirm ? (
+          <div id="new-firm-role" className="border-t border-mist-100 px-4 pb-4 pt-3">
+            <p className="mb-3 text-xs leading-relaxed text-mist-600">
+              Choose your role before you sign in, and only if this sign-in opens a new firm.
+              Invited members keep the role their firm admin assigned.
+            </p>
+            <RoleSelect value={role} onChange={setRole} disabled={pending} />
+          </div>
+        ) : null}
+      </div>
+
+      <AuthFooter>
         New firm?{" "}
-        <Link href="/signup" className="underline">
+        <Link href="/signup" className={authLinkClass}>
           Create an account
         </Link>
-        {" · "}
-        Invited? Open the create-account link your admin sent.
-      </p>
+        <span className="mt-1 block text-xs">
+          Invited by your firm? Open the create-account link your admin sent.
+        </span>
+      </AuthFooter>
     </div>
   );
 }

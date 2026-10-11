@@ -12,6 +12,8 @@ import {
   canSubmit,
   type OpenFinding,
 } from "@verifystack/backend/domain/signoff/guards";
+import { loadTechnicalReview } from "@verifystack/backend/lib/data/technicalReview";
+import { assertTechnicalReviewAllowsSignoff } from "@verifystack/backend/domain/review/technical";
 import { createEsignProvider } from "@verifystack/backend/domain/esign/provider";
 import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
 import { signoffsForPass } from "@verifystack/backend/domain/adeetie/lifecycle";
@@ -19,8 +21,8 @@ import type { AdeetiePhase, MembershipRole } from "@verifystack/backend/lib/supa
 
 const Body = z.object({
   engagementId: z.string().uuid(),
-  attestorName: z.string().min(1),
-  statement: z.string().min(1),
+  attestorName: z.string().min(1).max(200),
+  statement: z.string().min(1).max(5000),
   role: z.enum(["lead_verifier", "independent_reviewer"]),
 });
 
@@ -54,6 +56,11 @@ export async function POST(req: Request) {
       .eq("engagement_id", engagement.id)
       .eq("organization_id", organizationId);
     assertCanSignOff((findings ?? []) as OpenFinding[]);
+
+    // A reviewer who asked for changes, or a pack that requires review and has
+    // none (or only a stale one), stops sign-off. Same loader the review page uses.
+    const review = await loadTechnicalReview(organizationId, engagement);
+    assertTechnicalReviewAllowsSignoff(review.state);
 
     const { data: existing } = await supabase
       .from("signoffs")
@@ -115,6 +122,7 @@ export async function POST(req: Request) {
 
     await auditEvent({
       organizationId,
+      actorUserId: session.user.id,
       action: "engagement.signed",
       entityType: "signoff",
       entityId: row.id,
@@ -132,6 +140,7 @@ export async function POST(req: Request) {
     ];
     await ensureEngagementStatus({
       organizationId,
+      actorUserId: session.user.id,
       engagementId: engagement.id,
       current: engagement.status,
       target: canSubmit(after) ? "submitted" : "signoff",

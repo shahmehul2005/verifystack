@@ -1,9 +1,67 @@
 import type { Unit } from "../units";
 import type { FuelPhase } from "../factors";
 
-export type PackScheme = "CCTS" | "ADEETIE";
+/**
+ * CBAM and GREEN_HYDROGEN exist as structure only (pack schema v2). They are
+ * code-resident, never seeded into the `packs` table, and cannot start work.
+ */
+export type PackScheme = "CCTS" | "ADEETIE" | "CBAM" | "GREEN_HYDROGEN";
 export type PackStatus = "runnable" | "scaffold";
-export type CalculationMethod = "GEI" | "SEC" | "TBD";
+/**
+ * `GEI` and `SEC` are implemented. `EMBEDDED_EMISSIONS` and `H2_INTENSITY` are
+ * declared by the structure-only packs and refused by the dispatcher until a
+ * method is specified and verified. `SAVINGS_DPR` is not a pack's primary
+ * method: it is a separate versioned layer over an ADEETIE engagement
+ * (backend/domain/savings).
+ */
+export type CalculationMethod =
+  | "GEI"
+  | "SEC"
+  | "EMBEDDED_EMISSIONS"
+  | "H2_INTENSITY"
+  | "TBD";
+
+/** Pack schema version. v1 packs omit the field. */
+export type PackSchemaVersion = 1 | 2;
+
+/** One input a structure-only pack says its method will need, and how it will be evidenced. */
+export interface PackStructureInput {
+  key: string;
+  label: string;
+  /** Which provenance types may evidence it, from backend/domain/provenance. */
+  evidence: Array<"document_page" | "spreadsheet_cell" | "time_series_range" | "site_observation">;
+  /** Unit family only. A structure pack carries no numeric factor, limit or default. */
+  unitFamily?: string;
+}
+
+/**
+ * The shape of a methodology the product does not yet implement. It records the
+ * boundary and the inputs so intake and planning can be designed against it,
+ * while every figure, formula and threshold stays an open item.
+ */
+export interface PackMethodStructure {
+  summary: string;
+  boundary: string[];
+  requiredInputs: PackStructureInput[];
+  /** What must be confirmed with the regulator or a domain expert before this can run. */
+  openItems: string[];
+}
+
+export interface PackStage {
+  id: string;
+  label: string;
+  phase?: "IGEA" | "DPR" | "MV";
+}
+
+/** Output formats a scheme or portal asks for in a submission package (DFD 8.7). */
+export interface PackSubmissionFormat {
+  id: string;
+  label: string;
+  kind: "csv" | "json" | "pdf";
+  /** True when the exact column layout comes from a scheme template we have not seen. */
+  layoutUnverified: boolean;
+  notes?: string;
+}
 
 export interface PackDocType {
   id: string;
@@ -180,6 +238,23 @@ export interface MethodologyPack {
   production_binding?: PackProductionBinding;
   sec_config?: PackSecConfig;
   adeetie?: PackAdeetieConfig;
+  /** Pack schema v2. Absent on v1 packs, which behave exactly as before. */
+  schema_version?: PackSchemaVersion;
+  /** Required on structure-only packs; they must also be `scaffold`. */
+  structure_only?: PackMethodStructure;
+  /**
+   * Whether an independent technical review must be recorded before sign-off.
+   * Defaults to false: which schemes require one is an open item in the
+   * regulatory register, so no pack switches it on without a source.
+   */
+  technical_review_required?: boolean;
+  /** Submission package outputs (DFD 8.7). Empty or absent means the generic package only. */
+  submission_formats?: PackSubmissionFormat[];
+  /**
+   * Stage list for the stage manager (DFD 1.5), in order. Absent means the
+   * scheme's stage list is not defined yet and no tracker is shown.
+   */
+  stages?: PackStage[];
   reconciliation_rules: string[];
   clause_citations: PackClauseCitation[];
   report_template: string;

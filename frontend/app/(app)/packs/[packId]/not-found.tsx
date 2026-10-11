@@ -1,10 +1,12 @@
+import { FileSearch } from "lucide-react";
 import { EmptyState } from "@/components/states";
 
 export default function NotFound() {
   return (
     <EmptyState
-      title="Unknown methodology pack"
-      body="No pack with this id is in the registry. Packs are code records, not database rows, so a missing pack is a registration gap rather than a permission problem."
+      icon={FileSearch}
+      title="Methodology pack not found"
+      body="No pack with this name is available. Check the link, or pick one from the pack library."
       action={{ href: "/packs", label: "Back to packs" }}
     />
   );

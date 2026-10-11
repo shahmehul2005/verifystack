@@ -16,6 +16,7 @@ import {
   CalcError,
 } from "./engine";
 import { matchFactPath } from "../extraction/fieldPaths";
+import { factLabel, hasProvenance } from "../provenance";
 import { loadPack, assertRunnable } from "../packs";
 import type {
   MethodologyPack,
@@ -24,15 +25,50 @@ import type {
   PackStreamBinding,
 } from "../packs/types";
 
+/**
+ * A committed fact as the engines see it. Page evidence fills `page`, `bbox` and
+ * `source_text`; the other three provenance types (backend/domain/provenance)
+ * fill `provenance_type` and `provenance` instead. Rows from before provenance
+ * v2 have neither and are read as page evidence.
+ */
 export interface ProvenancedFact {
   id: string;
   field_path: string;
   value_json: unknown;
   unit?: string | null;
-  document_id: string;
-  page: number;
-  bbox: { x: number; y: number; width: number; height: number } | unknown;
-  source_text: string;
+  document_id?: string | null;
+  page?: number | null;
+  bbox?: { x: number; y: number; width: number; height: number } | unknown;
+  source_text?: string | null;
+  provenance_type?: string | null;
+  provenance?: unknown;
+}
+
+/** Map a `facts` row to the shape the engines read. The one place that copies provenance columns. */
+export function toProvenancedFact(f: {
+  id: string;
+  field_path: string;
+  value_json: unknown;
+  unit?: string | null;
+  document_id?: string | null;
+  page?: number | null;
+  bbox?: unknown;
+  source_text?: string | null;
+  provenance_type?: string | null;
+  provenance?: unknown;
+}): ProvenancedFact {
+  return {
+    id: f.id,
+    field_path: f.field_path,
+    value_json: f.value_json,
+    unit: f.unit ?? null,
+    document_id: f.document_id ?? null,
+    page: f.page ?? null,
+    bbox: f.bbox ?? null,
+    source_text: f.source_text ?? null,
+    provenance_type: f.provenance_type ?? "document_page",
+    provenance: f.provenance ?? null,
+  };
 }
 
 export interface RunRequest {
@@ -175,9 +211,9 @@ export function assessRunReadiness(
 }
 
 function requireProvenance(fact: ProvenancedFact) {
-  if (!fact.source_text || !fact.page || !fact.bbox) {
+  if (!hasProvenance(fact)) {
     throw new CalcError(
-      `Fact "${fact.id}" is missing provenance (document/page/bbox/sourceText).`
+      `Fact "${fact.id}" is missing provenance. It needs a document page, spreadsheet cell, time-series range or site observation.`
     );
   }
 }
@@ -272,7 +308,7 @@ function buildStream(
           : { oxidationFactor: binding.oxidationFactor }),
         provenance: {
           factIds: [resolved.fact.id, cv.fact.id],
-          label: resolved.fact.source_text,
+          label: factLabel(resolved.fact),
         },
       };
     }
@@ -286,7 +322,7 @@ function buildStream(
         gridFactorVintage: binding.factorVintage,
         provenance: {
           factIds: [resolved.fact.id],
-          label: resolved.fact.source_text,
+          label: factLabel(resolved.fact),
         },
       };
     case "process_direct":
@@ -298,7 +334,7 @@ function buildStream(
         methodologyRef: binding.methodologyRef,
         provenance: {
           factIds: [resolved.fact.id],
-          label: resolved.fact.source_text,
+          label: factLabel(resolved.fact),
         },
       };
     default: {
@@ -323,7 +359,7 @@ function buildProduction(
     productUnitLabel: binding.productUnitLabel,
     provenance: {
       factIds: [resolved.fact.id],
-      label: resolved.fact.source_text,
+      label: factLabel(resolved.fact),
     },
   };
 }

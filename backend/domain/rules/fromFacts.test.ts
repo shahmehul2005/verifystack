@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { executeRun } from "../calc/run";
-import { SEED_FACTS } from "../../demo/seed";
+import { SEED_FACTS } from "../../fixtures/seed";
 import type { ProvenancedFact } from "../calc/run";
 import { fyMonths, reconciliationContextFromFacts } from "./fromFacts";
 import { runRules } from "./rules";

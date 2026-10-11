@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runDemoPipeline } from "@verifystack/backend/demo/pipeline";
+import { runDemoPipeline } from "@verifystack/backend/fixtures/pipeline";
 
 export const dynamic = "force-dynamic";
 

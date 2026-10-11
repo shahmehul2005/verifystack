@@ -28,6 +28,24 @@ export type EnterpriseCategory = "Micro" | "Small" | "Medium";
 /** ADEETIE lifecycle phase. Orthogonal to EngagementStatus. */
 export type AdeetiePhase = "IGEA" | "DPR" | "MV";
 
+/** Drafting states (suggested..rejected) and conversation states (open..closed). See domain/issues. */
+export type FindingState =
+  | "suggested"
+  | "accepted"
+  | "edited"
+  | "rejected"
+  | "open"
+  | "responded"
+  | "verified"
+  | "closed";
+
+/** See backend/domain/provenance for what each type must carry. */
+export type ProvenanceTypeName =
+  | "document_page"
+  | "spreadsheet_cell"
+  | "time_series_range"
+  | "site_observation";
+
 export type CalculationMethod = "GEI" | "SEC";
 export type SecPhase = "baseline" | "post_implementation";
 export type ReportingEnergyUnit = "GJ" | "toe" | "MJ" | "kWh";
@@ -172,6 +190,8 @@ export interface Database {
           project_cost_inr: number | null;
           sanctioned_interest_rate_pct: number | null;
           adeetie_phase: AdeetiePhase | null;
+          // 0014. Null for schemes whose stage list is not defined.
+          stage: string | null;
         }>;
         Insert: Insert<{
           id?: string;
@@ -197,9 +217,11 @@ export interface Database {
           project_cost_inr?: number | null;
           sanctioned_interest_rate_pct?: number | null;
           adeetie_phase?: AdeetiePhase | null;
+          stage?: string | null;
         }>;
         Update: Update<{
           status?: EngagementStatus;
+          stage?: string | null;
           client_name?: string;
           plant_name?: string | null;
           gei_target?: number | null;
@@ -232,6 +254,10 @@ export interface Database {
           created_by: string | null;
           created_at: string;
           adeetie_phase: AdeetiePhase | null;
+          // 0014
+          source: "upload" | "evidence_pack" | "entity_response" | "fieldwork";
+          finding_id: string | null;
+          scan_assessment: Json | null;
         }>;
         Insert: Insert<{
           id?: string;
@@ -248,6 +274,9 @@ export interface Database {
           created_by?: string | null;
           created_at?: string;
           adeetie_phase?: AdeetiePhase | null;
+          source?: "upload" | "evidence_pack" | "entity_response" | "fieldwork";
+          finding_id?: string | null;
+          scan_assessment?: Json | null;
         }>;
         Update: Update<{
           page_count?: number | null;
@@ -321,16 +350,24 @@ export interface Database {
         Row: Row<{
           id: string;
           organization_id: string;
-          extraction_job_id: string;
-          document_id: string;
+          /** Null for proposals from a spreadsheet mapping or a site visit. */
+          extraction_job_id: string | null;
+          /** Null for site observations. */
+          document_id: string | null;
           engagement_id: string;
           field_path: string;
           value_json: Json;
           unit: string | null;
+          proposed_by: string | null;
+          accept_mode: "individual" | "bulk" | null;
+          bulk_batch_id: string | null;
           confidence: number;
-          page: number;
-          bbox: Json;
-          source_text: string;
+          /** Null for spreadsheet, time-series and site-observation provenance. */
+          page: number | null;
+          bbox: Json | null;
+          source_text: string | null;
+          provenance_type: ProvenanceTypeName;
+          provenance: Json | null;
           triage_action: "human_review" | "auto_commit";
           state: "suggested" | "accepted" | "rejected" | "corrected";
           correction_json: Json | null;
@@ -341,16 +378,21 @@ export interface Database {
         Insert: Insert<{
           id?: string;
           organization_id: string;
-          extraction_job_id: string;
-          document_id: string;
+          extraction_job_id?: string | null;
+          document_id?: string | null;
           engagement_id: string;
           field_path: string;
           value_json: Json;
           unit?: string | null;
+          proposed_by?: string | null;
+          accept_mode?: "individual" | "bulk" | null;
+          bulk_batch_id?: string | null;
           confidence: number;
-          page: number;
-          bbox: Json;
-          source_text: string;
+          page?: number | null;
+          bbox?: Json | null;
+          source_text?: string | null;
+          provenance_type?: ProvenanceTypeName;
+          provenance?: Json | null;
           triage_action: "human_review" | "auto_commit";
           state?: "suggested" | "accepted" | "rejected" | "corrected";
           correction_json?: Json | null;
@@ -364,7 +406,313 @@ export interface Database {
           reviewed_by?: string | null;
           reviewed_at?: string | null;
           value_json?: Json;
+          accept_mode?: "individual" | "bulk" | null;
+          bulk_batch_id?: string | null;
         }>;
+        Relationships: [];
+      };
+      engagement_stage_events: {
+        Row: Row<{
+          id: string;
+          organization_id: string;
+          engagement_id: string;
+          from_stage: string | null;
+          to_stage: string;
+          direction: "forward" | "back";
+          note: string | null;
+          actor_user_id: string | null;
+          created_at: string;
+        }>;
+        Insert: Insert<{
+          id?: string;
+          organization_id: string;
+          engagement_id: string;
+          from_stage?: string | null;
+          to_stage: string;
+          direction: "forward" | "back";
+          note?: string | null;
+          actor_user_id?: string | null;
+          created_at?: string;
+        }>;
+        Update: Update<Record<string, never>>;
+        Relationships: [];
+      };
+      declared_values: {
+        Row: Row<{
+          id: string;
+          organization_id: string;
+          engagement_id: string;
+          field_path: string;
+          value_json: Json;
+          unit: string | null;
+          source: "evidence_pack" | "manual" | "setup";
+          document_id: string | null;
+          created_by: string | null;
+          created_at: string;
+        }>;
+        Insert: Insert<{
+          id?: string;
+          organization_id: string;
+          engagement_id: string;
+          field_path: string;
+          value_json: Json;
+          unit?: string | null;
+          source: "evidence_pack" | "manual" | "setup";
+          document_id?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+        }>;
+        Update: Update<{ value_json?: Json; unit?: string | null; document_id?: string | null }>;
+        Relationships: [];
+      };
+      bulk_accept_batches: {
+        Row: Row<{
+          id: string;
+          organization_id: string;
+          engagement_id: string;
+          accepted_by: string;
+          accepted_count: number;
+          sample_rate: number;
+          sample_field_ids: Json;
+          accepted_field_ids: Json;
+          created_at: string;
+        }>;
+        Insert: Insert<{
+          id?: string;
+          organization_id: string;
+          engagement_id: string;
+          accepted_by: string;
+          accepted_count: number;
+          sample_rate: number;
+          sample_field_ids: Json;
+          accepted_field_ids: Json;
+          created_at?: string;
+        }>;
+        Update: Update<Record<string, never>>;
+        Relationships: [];
+      };
+      issue_responses: {
+        Row: Row<{
+          id: string;
+          organization_id: string;
+          engagement_id: string;
+          finding_id: string;
+          kind: "entity" | "verifier";
+          responder_name: string;
+          responder_contact: string | null;
+          body: string;
+          document_ids: Json;
+          recorded_by: string | null;
+          ip_hash: string | null;
+          created_at: string;
+        }>;
+        Insert: Insert<{
+          id?: string;
+          organization_id: string;
+          engagement_id: string;
+          finding_id: string;
+          kind: "entity" | "verifier";
+          responder_name: string;
+          responder_contact?: string | null;
+          body: string;
+          document_ids?: Json;
+          recorded_by?: string | null;
+          ip_hash?: string | null;
+          created_at?: string;
+        }>;
+        Update: Update<Record<string, never>>;
+        Relationships: [];
+      };
+      technical_reviews: {
+        Row: Row<{
+          id: string;
+          organization_id: string;
+          engagement_id: string;
+          adeetie_phase: string | null;
+          reviewer_user_id: string;
+          reviewer_name: string;
+          decision: "approved" | "changes_requested";
+          comments: string;
+          snapshot_hash: string;
+          created_at: string;
+        }>;
+        Insert: Insert<{
+          id?: string;
+          organization_id: string;
+          engagement_id: string;
+          adeetie_phase?: string | null;
+          reviewer_user_id: string;
+          reviewer_name: string;
+          decision: "approved" | "changes_requested";
+          comments: string;
+          snapshot_hash: string;
+          created_at?: string;
+        }>;
+        Update: Update<Record<string, never>>;
+        Relationships: [];
+      };
+      verification_plans: {
+        Row: Row<{
+          id: string;
+          organization_id: string;
+          engagement_id: string;
+          version: number;
+          status: "draft" | "approved";
+          content: Json;
+          content_hash: string;
+          overall_risk: "low" | "medium" | "high";
+          sample_rate: number;
+          created_by: string;
+          approved_by: string | null;
+          created_at: string;
+        }>;
+        Insert: Insert<{
+          id?: string;
+          organization_id: string;
+          engagement_id: string;
+          version: number;
+          status: "draft" | "approved";
+          content: Json;
+          content_hash: string;
+          overall_risk: "low" | "medium" | "high";
+          sample_rate: number;
+          created_by: string;
+          approved_by?: string | null;
+          created_at?: string;
+        }>;
+        Update: Update<Record<string, never>>;
+        Relationships: [];
+      };
+      site_visits: {
+        Row: Row<{
+          id: string;
+          organization_id: string;
+          engagement_id: string;
+          planned_for: string | null;
+          location: string;
+          scope: string;
+          assigned_to: string | null;
+          status: "planned" | "in_progress" | "completed" | "cancelled";
+          created_by: string | null;
+          created_at: string;
+        }>;
+        Insert: Insert<{
+          id?: string;
+          organization_id: string;
+          engagement_id: string;
+          planned_for?: string | null;
+          location: string;
+          scope: string;
+          assigned_to?: string | null;
+          status?: "planned" | "in_progress" | "completed" | "cancelled";
+          created_by?: string | null;
+          created_at?: string;
+        }>;
+        Update: Update<{ status?: "planned" | "in_progress" | "completed" | "cancelled" }>;
+        Relationships: [];
+      };
+      site_observations: {
+        Row: Row<{
+          id: string;
+          organization_id: string;
+          engagement_id: string;
+          visit_id: string | null;
+          client_id: string;
+          kind: "meter_reading" | "nameplate" | "process_note" | "photo" | "interview";
+          observer_user_id: string;
+          observer_name: string;
+          observed_at: string;
+          recorded_at: string;
+          lat: number | null;
+          lng: number | null;
+          accuracy_m: number | null;
+          field_path: string | null;
+          value_json: Json | null;
+          unit: string | null;
+          note: string | null;
+          evidence_file_ids: Json;
+          extracted_field_id: string | null;
+        }>;
+        Insert: Insert<{
+          id?: string;
+          organization_id: string;
+          engagement_id: string;
+          visit_id?: string | null;
+          client_id: string;
+          kind: "meter_reading" | "nameplate" | "process_note" | "photo" | "interview";
+          observer_user_id: string;
+          observer_name: string;
+          observed_at: string;
+          recorded_at?: string;
+          lat?: number | null;
+          lng?: number | null;
+          accuracy_m?: number | null;
+          field_path?: string | null;
+          value_json?: Json | null;
+          unit?: string | null;
+          note?: string | null;
+          evidence_file_ids?: Json;
+          extracted_field_id?: string | null;
+        }>;
+        Update: Update<{ extracted_field_id?: string | null }>;
+        Relationships: [];
+      };
+      savings_dpr_runs: {
+        Row: Row<{
+          id: string;
+          organization_id: string;
+          engagement_id: string;
+          engine_version: string;
+          input_hash: string;
+          previous_run_hash: string | null;
+          chain_hash: string;
+          inputs: Json;
+          result: Json;
+          created_by: string | null;
+          created_at: string;
+        }>;
+        Insert: Insert<{
+          id?: string;
+          organization_id: string;
+          engagement_id: string;
+          engine_version: string;
+          input_hash: string;
+          previous_run_hash?: string | null;
+          chain_hash: string;
+          inputs: Json;
+          result: Json;
+          created_by?: string | null;
+          created_at?: string;
+        }>;
+        Update: Update<Record<string, never>>;
+        Relationships: [];
+      };
+      tabular_datasets: {
+        Row: Row<{
+          id: string;
+          organization_id: string;
+          engagement_id: string;
+          document_id: string;
+          kind: "spreadsheet" | "time_series";
+          name: string;
+          columns: Json;
+          row_count: number;
+          summary: Json;
+          created_at: string;
+        }>;
+        Insert: Insert<{
+          id?: string;
+          organization_id: string;
+          engagement_id: string;
+          document_id: string;
+          kind: "spreadsheet" | "time_series";
+          name: string;
+          columns?: Json;
+          row_count?: number;
+          summary?: Json;
+          created_at?: string;
+        }>;
+        Update: Update<{ summary?: Json }>;
         Relationships: [];
       };
       facts: {
@@ -373,13 +721,18 @@ export interface Database {
           organization_id: string;
           engagement_id: string;
           extracted_field_id: string | null;
-          document_id: string;
+          /** Null only for site-observation provenance. */
+          document_id: string | null;
           field_path: string;
           value_json: Json;
           unit: string | null;
-          page: number;
-          bbox: Json;
-          source_text: string;
+          page: number | null;
+          bbox: Json | null;
+          source_text: string | null;
+          provenance_type: ProvenanceTypeName;
+          provenance: Json | null;
+          accept_mode: "individual" | "bulk";
+          bulk_batch_id: string | null;
           accepted_by: string | null;
           accepted_at: string;
         }>;
@@ -388,13 +741,17 @@ export interface Database {
           organization_id: string;
           engagement_id: string;
           extracted_field_id?: string | null;
-          document_id: string;
+          document_id?: string | null;
           field_path: string;
           value_json: Json;
           unit?: string | null;
-          page: number;
-          bbox: Json;
-          source_text: string;
+          page?: number | null;
+          bbox?: Json | null;
+          source_text?: string | null;
+          provenance_type?: ProvenanceTypeName;
+          provenance?: Json | null;
+          accept_mode?: "individual" | "bulk";
+          bulk_batch_id?: string | null;
           accepted_by?: string | null;
           accepted_at?: string;
         }>;
@@ -578,13 +935,19 @@ export interface Database {
           clause_ref: string;
           evidence_refs: Json;
           magnitude: Json | null;
-          state: "suggested" | "accepted" | "edited" | "rejected" | "closed";
+          state: FindingState;
           heading: string | null;
           body: string | null;
           required_response: string | null;
           generator: string | null;
           created_at: string;
           updated_at: string;
+          // 0014
+          due_at: string | null;
+          opened_at: string | null;
+          responded_at: string | null;
+          verified_at: string | null;
+          response_nonce: string | null;
         }>;
         Insert: Insert<{
           id?: string;
@@ -598,7 +961,7 @@ export interface Database {
           clause_ref: string;
           evidence_refs?: Json;
           magnitude?: Json | null;
-          state?: "suggested" | "accepted" | "edited" | "rejected" | "closed";
+          state?: FindingState;
           heading?: string | null;
           body?: string | null;
           required_response?: string | null;
@@ -607,12 +970,17 @@ export interface Database {
           updated_at?: string;
         }>;
         Update: Update<{
-          state?: "suggested" | "accepted" | "edited" | "rejected" | "closed";
+          state?: FindingState;
           heading?: string | null;
           body?: string | null;
           required_response?: string | null;
           generator?: string | null;
           updated_at?: string;
+          due_at?: string | null;
+          opened_at?: string | null;
+          responded_at?: string | null;
+          verified_at?: string | null;
+          response_nonce?: string | null;
         }>;
         Relationships: [];
       };
@@ -654,6 +1022,8 @@ export interface Database {
           saving_unit: string;
           capital_cost_inr: number;
           basis: string;
+          /** 0014. Rupee value of the annual saving, with its basis in `basis`. Null when not recorded. */
+          annual_cost_saving_inr: number | null;
           created_by: string | null;
           created_at: string;
         }>;
@@ -666,6 +1036,7 @@ export interface Database {
           saving_unit: string;
           capital_cost_inr: number;
           basis: string;
+          annual_cost_saving_inr?: number | null;
           created_by?: string | null;
           created_at?: string;
         }>;
@@ -782,6 +1153,17 @@ export interface Database {
     Functions: {
       append_audit_event: {
         Args: {
+          p_organization_id: string;
+          p_action: string;
+          p_entity_type: string;
+          p_entity_id?: string | null;
+          p_payload?: Json;
+        };
+        Returns: string;
+      };
+      append_audit_event_as: {
+        Args: {
+          p_actor_user_id: string | null;
           p_organization_id: string;
           p_action: string;
           p_entity_type: string;

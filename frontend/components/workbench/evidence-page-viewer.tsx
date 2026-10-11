@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Highlight } from "@/app/workbench/DocumentFacsimile";
+import { Highlight } from "./document-facsimile";
 
 export type ViewerBBox = { x: number; y: number; width: number; height: number };
 
@@ -18,8 +18,8 @@ export function EvidencePageViewer({
 }) {
   if (!src) {
     return (
-      <div className="relative mx-auto aspect-[210/297] w-full max-w-[520px] border border-dashed border-stone-300 bg-[#fbfaf6]">
-        <p className="p-6 text-[12px] text-stone-500">
+      <div className="relative mx-auto aspect-[210/297] w-full max-w-[520px] rounded-md border border-dashed border-mist-300 bg-white">
+        <p className="p-6 text-[13px] leading-relaxed text-mist-500">
           No page file on this document. Upload a PDF or image on the engagement to bind a real
           page.
         </p>
@@ -30,7 +30,7 @@ export function EvidencePageViewer({
 
   if (mimeType?.startsWith("image/")) {
     return (
-      <div className="relative mx-auto w-full max-w-[520px] overflow-hidden border border-stone-300 bg-[#fbfaf6]">
+      <div className="relative mx-auto w-full max-w-[520px] overflow-hidden rounded-md border border-mist-200 bg-white shadow-sm">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={src} alt="Evidence page" className="block w-full" />
         {bbox ? <Highlight bbox={bbox} /> : null}
@@ -109,10 +109,18 @@ function PdfCanvas({
   return (
     <div
       ref={wrapRef}
-      className="relative mx-auto w-full max-w-[520px] overflow-hidden border border-stone-300 bg-[#fbfaf6]"
+      className="relative mx-auto w-full max-w-[520px] overflow-hidden rounded-md border border-mist-200 bg-white shadow-sm"
     >
-      {status !== "ready" ? (
-        <p className="p-6 text-[12px] text-stone-500">{message}</p>
+      {status === "loading" ? (
+        <p role="status" className="flex items-center gap-2.5 p-6 text-[13px] text-mist-500">
+          <span className="size-4 animate-spin rounded-full border-2 border-mist-200 border-t-teal-600" />
+          {message}
+        </p>
+      ) : null}
+      {status === "error" ? (
+        <p role="alert" className="p-6 text-[13px] text-red-700">
+          Could not render this page: {message}
+        </p>
       ) : null}
       <canvas ref={canvasRef} className="block w-full" />
       {status === "ready" && bbox ? <Highlight bbox={bbox} /> : null}

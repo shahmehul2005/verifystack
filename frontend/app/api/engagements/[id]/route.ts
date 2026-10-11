@@ -59,13 +59,28 @@ export async function PATCH(
       }
     }
     if (parsed.data.status) {
+      // `submitted` means both sign-offs exist; only /api/signoff may set it,
+      // after the maker–checker and open-block guards.
+      if (parsed.data.status === "submitted") {
+        return NextResponse.json(
+          { ok: false, error: "An engagement is submitted by completing both sign-offs." },
+          { status: 409 }
+        );
+      }
       if (!canStartWork(pack) && parsed.data.status !== "setup") {
         return NextResponse.json(
           { ok: false, error: "Scaffold packs cannot start active work" },
           { status: 409 }
         );
       }
-      assertTransition(engagement.status as Status, parsed.data.status as Status);
+      try {
+        assertTransition(engagement.status as Status, parsed.data.status as Status);
+      } catch (e) {
+        return NextResponse.json(
+          { ok: false, error: e instanceof Error ? e.message : "Illegal status transition" },
+          { status: 409 }
+        );
+      }
     }
 
     const patch: Database["public"]["Tables"]["engagements"]["Update"] = {};
@@ -94,6 +109,7 @@ export async function PATCH(
     if (error) throw new Error(error.message);
     await auditEvent({
       organizationId,
+      actorUserId: session.user.id,
       action: parsed.data.draftMode !== undefined
         ? "engagement.draft_mode"
         : parsed.data.status

@@ -2,6 +2,7 @@ import { requireCapability, assertOrgId } from "@verifystack/backend/lib/auth/re
 import { jsonError } from "@/lib/api";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
+import { contentDisposition, isEvidenceMimeType } from "@verifystack/backend/lib/evidence";
 
 /**
  * Same-origin stream of evidence bytes so PDF.js can load the page
@@ -35,11 +36,17 @@ export async function GET(
       throw new Error(error?.message ?? "Storage object missing");
     }
 
+    // Anything outside the evidence types is downloaded, never rendered.
+    const renderable = isEvidenceMimeType(doc.mime_type);
     return new Response(data, {
       headers: {
-        "Content-Type": doc.mime_type || "application/octet-stream",
+        "Content-Type": renderable ? doc.mime_type : "application/octet-stream",
         "Cache-Control": "private, max-age=60",
-        "Content-Disposition": `inline; filename="${doc.original_filename.replace(/"/g, "")}"`,
+        "Content-Disposition": contentDisposition(
+          renderable ? "inline" : "attachment",
+          doc.original_filename
+        ),
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch (e) {

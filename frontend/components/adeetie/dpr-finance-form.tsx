@@ -4,6 +4,8 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardBody, CardHeader } from "@/components/ui/card";
 
 export function DprFinanceForm({
   engagementId,
@@ -47,15 +49,14 @@ export function DprFinanceForm({
   }
 
   return (
-    <section className="mb-8">
-      <h2 className="mb-2 text-[11px] uppercase tracking-wide text-stone-500">
-        Loan structure
-      </h2>
-      <p className="mb-3 max-w-3xl text-[12px] text-stone-600">
-        Required to close the DPR pass. Amounts are rupees, never lakh/crore. Eligibility
-        windows are rules, not database constraints.
-      </p>
-      <div className="grid gap-3 sm:grid-cols-3">
+    <Card className="mb-8">
+      <CardHeader
+        title="Loan structure"
+        description="Needed to close the DPR pass. Enter amounts in rupees, not lakh or crore."
+        actions={locked ? <Badge>Locked</Badge> : undefined}
+      />
+      <CardBody>
+      <div className="grid gap-4 sm:grid-cols-3">
         <div>
           <Label htmlFor="loan">Loan amount (INR)</Label>
           <Input
@@ -92,12 +93,13 @@ export function DprFinanceForm({
         </div>
       </div>
       {locked ? null : (
-        <div className="mt-3">
+        <div className="mt-4">
           <Button disabled={pending} onClick={() => void save()}>
-            Save loan structure
+            {pending ? "Saving…" : "Save loan structure"}
           </Button>
         </div>
       )}
-    </section>
+      </CardBody>
+    </Card>
   );
 }

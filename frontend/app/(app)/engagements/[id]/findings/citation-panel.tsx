@@ -4,6 +4,9 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/input";
+import { ExternalLink } from "lucide-react";
+import { humanize } from "@/lib/format";
 import type { FindingCitationColumns } from "@verifystack/backend/domain/citations/types";
 import { NO_APPLICABLE_CLAUSE } from "@verifystack/backend/domain/citations/types";
 
@@ -29,7 +32,9 @@ export function CitationPanel({
     const json = await res.json();
     if (!res.ok || !json.ok) toast.error(json.error ?? "Update failed");
     else {
-      toast.success(typeof body.citationState === "string" ? body.citationState : "saved");
+      toast.success(
+        typeof body.citationState === "string" ? `Citation ${body.citationState}` : "Saved"
+      );
       window.location.reload();
     }
   }
@@ -41,64 +46,68 @@ export function CitationPanel({
       (gate === "no_applicable_clause" ? NO_APPLICABLE_CLAUSE : null);
     if (!gate && !message) return null;
     return (
-      <div className="mt-3 border border-stone-200 bg-stone-50 p-3">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-stone-500">
-          Regulatory citation
-        </p>
-        <div className="mt-1 flex flex-wrap gap-2">
-          {gate ? <Badge tone={gate === "rejected" ? "block" : "draft"}>{gate}</Badge> : null}
+      <div className="mt-4 rounded-md border border-mist-200 bg-mist-50 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs font-medium text-mist-600">Regulatory citation</p>
+          {gate ? (
+            <Badge tone={gate === "rejected" ? "block" : "draft"}>{humanize(gate)}</Badge>
+          ) : null}
         </div>
-        <p className="mt-2 text-sm text-stone-700">{message}</p>
+        <p className="mt-1.5 text-sm text-mist-700">{message}</p>
       </div>
     );
   }
 
   return (
-    <div className="mt-3 grid gap-3 lg:grid-cols-2">
-      <div className="border border-stone-200 bg-stone-50 p-3">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-stone-500">
-          Retrieved clause (verbatim)
-        </p>
-        {citation.citation_clause_ref ? (
-          <p className="mt-1 font-mono text-[11px] text-stone-500">{citation.citation_clause_ref}</p>
-        ) : null}
-        <p className="mt-2 whitespace-pre-wrap text-[13px] leading-relaxed text-stone-800">
+    <div className="mt-4 grid gap-3 lg:grid-cols-2">
+      <figure className="rounded-md border border-mist-200 bg-mist-50 px-4 py-3">
+        <figcaption className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs font-medium text-mist-600">Retrieved clause, verbatim</span>
+          {citation.citation_clause_ref ? (
+            <span className="font-mono text-xs text-mist-500">{citation.citation_clause_ref}</span>
+          ) : null}
+        </figcaption>
+        <blockquote className="mt-2 whitespace-pre-wrap border-l-2 border-teal-500 pl-3 text-[13px] leading-relaxed text-mist-800">
           {citation.citation_chunk_text}
-        </p>
-        <p className="mt-3 text-[11px] text-stone-600">
+        </blockquote>
+        <p className="mt-3 text-xs text-mist-600">
           {citation.citation_document_title}
-          {citation.citation_page_number != null ? ` · p. ${citation.citation_page_number}` : ""}
+          {citation.citation_page_number != null ? ` · page ${citation.citation_page_number}` : ""}
         </p>
         {citation.citation_source_url ? (
           <a
             href={citation.citation_source_url}
             target="_blank"
             rel="noreferrer"
-            className="mt-1 block break-all text-[11px] text-stone-700 underline underline-offset-2"
+            className="mt-1 inline-flex items-center gap-1 break-all text-xs text-teal-700 hover:text-teal-800 hover:underline"
           >
-            {citation.citation_source_url}
+            Open source document
+            <ExternalLink aria-hidden className="size-3" />
           </a>
         ) : null}
-      </div>
-      <div className="border border-stone-200 bg-white p-3">
+      </figure>
+      <div className="rounded-md border border-mist-200 bg-white px-4 py-3">
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-stone-500">
-            Why it applies
-          </p>
-          {citation.citation_state ? <Badge tone="draft">{citation.citation_state}</Badge> : null}
+          <p className="text-xs font-medium text-mist-600">Why it applies</p>
+          {citation.citation_state ? (
+            <Badge tone={citation.citation_state === "accepted" ? "ok" : citation.citation_state === "rejected" ? "block" : "draft"}>
+              {humanize(citation.citation_state)}
+            </Badge>
+          ) : null}
         </div>
         {editing ? (
-          <textarea
-            className="mt-2 min-h-28 w-full border border-stone-300 bg-white p-2 text-sm text-stone-900"
+          <Textarea
+            aria-label="Why the clause applies"
+            className="mt-2 min-h-28"
             value={explanation}
             onChange={(e) => setExplanation(e.target.value)}
           />
         ) : (
-          <p className="mt-2 text-sm leading-relaxed text-stone-700">
+          <p className="mt-2 text-sm leading-relaxed text-mist-700">
             {citation.citation_explanation}
           </p>
         )}
-        <div className="mt-2 flex flex-wrap gap-2">
+        <div className="mt-3 flex flex-wrap gap-2">
           {editing ? (
             <>
               <Button
@@ -123,7 +132,8 @@ export function CitationPanel({
               </Button>
               <Button
                 size="sm"
-                variant="danger"
+                variant="ghost"
+                className="text-red-700 hover:bg-red-50 hover:text-red-800"
                 onClick={() => void patch({ citationState: "rejected" })}
               >
                 Reject
@@ -131,9 +141,9 @@ export function CitationPanel({
             </>
           )}
         </div>
-        <p className="mt-2 text-[11px] text-stone-500">
-          Accept, edit, or reject the citation independently of the CAR. The clause text is
-          retrieved source, not model output.
+        <p className="mt-3 text-xs leading-relaxed text-mist-500">
+          Decide the citation separately from the CAR. The clause text is retrieved from the
+          source document, not written by a model.
         </p>
       </div>
     </div>

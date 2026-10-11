@@ -62,6 +62,26 @@ describe("DFD role capabilities", () => {
     expect(hasCapability("independent_reviewer", "engagements.create")).toBe(false);
   });
 
+  it("gives technical review only to the independent reviewer, planning only to the lead", () => {
+    expect(hasCapability("independent_reviewer", "review.technical")).toBe(true);
+    expect(hasCapability("lead_verifier", "review.technical")).toBe(false);
+    expect(hasCapability("verifier", "review.technical")).toBe(false);
+    expect(hasCapability("firm_admin", "review.technical")).toBe(false);
+    expect(hasCapability("lead_verifier", "plan.manage")).toBe(true);
+    expect(hasCapability("verifier", "plan.manage")).toBe(false);
+    expect(hasCapability("independent_reviewer", "plan.manage")).toBe(false);
+  });
+
+  it("lets verifiers capture fieldwork but not stage or import engagements", () => {
+    expect(hasCapability("verifier", "fieldwork.record")).toBe(true);
+    expect(hasCapability("independent_reviewer", "fieldwork.record")).toBe(false);
+    expect(hasCapability("firm_admin", "fieldwork.record")).toBe(false);
+    expect(hasCapability("verifier", "engagements.stage")).toBe(false);
+    expect(hasCapability("verifier", "engagements.import")).toBe(false);
+    expect(hasCapability("lead_verifier", "engagements.stage")).toBe(true);
+    expect(hasCapability("lead_verifier", "engagements.import")).toBe(true);
+  });
+
   it("keeps nav and engagement tiles in sync with the same map", () => {
     expect(navForRole("firm_admin").map((i) => i.href)).toEqual([
       "/engagements",
@@ -70,7 +90,9 @@ describe("DFD role capabilities", () => {
       "/team",
     ]);
     expect(engagementLinksForRole("verifier").map((i) => i.slug)).toEqual([
+      "plan",
       "documents",
+      "fieldwork",
       "workbench",
       "facts",
       "runs",
@@ -82,6 +104,7 @@ describe("DFD role capabilities", () => {
     );
     expect(engagementLinksForRole("firm_admin").some((i) => i.slug === "ecm")).toBe(false);
     expect(engagementLinksForRole("verifier").some((i) => i.slug === "ecm")).toBe(true);
+    expect(engagementLinksForRole("firm_admin").map((i) => i.slug)).toEqual(["documents"]);
     expect(homePathFor("firm_admin")).toBe("/team");
     expect(homePathFor("verifier")).toBe("/engagements");
   });

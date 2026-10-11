@@ -1,5 +1,8 @@
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
+import { Alert } from "@/components/ui/alert";
+import { SectionTitle } from "@/components/ui/card";
+import { StatTile } from "@/components/ui/stat";
 import { Table, Td, Th } from "@/components/ui/table";
 import { ForbiddenState } from "@/components/states";
 import { ALL_FACTOR_RECORDS } from "@verifystack/backend/domain/factors";
@@ -36,6 +39,8 @@ interface LooseDb {
     };
   };
 }
+
+export const metadata = { title: "Factor register" };
 
 export default async function FactorsPage() {
   const session = isSupabaseConfigured() ? await getSession() : null;
@@ -78,76 +83,76 @@ export default async function FactorsPage() {
   return (
     <>
       <PageHeader
-        kicker="D8"
+        kicker="Library"
         title="Factor register"
-        description="Platform catalogue of emission factors, calorific values and process factors. Record the publication you read, and correct a value only when the published figure differs from what ships in code."
+        description="The platform catalogue of emission factors, calorific values and process factors. Record the publication you read, and correct a value only when the published figure differs from what ships in code."
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Badge tone="ink">{rows.length} factors</Badge>
-        <Badge tone="ok">{rows.length - unverified.length} verified</Badge>
-        <Badge tone="draft">{unverified.length} unverified</Badge>
+      <div className="mb-6 grid gap-3 sm:grid-cols-3">
+        <StatTile label="Factors in the catalogue" value={String(rows.length)} />
+        <StatTile label="Verified" value={String(rows.length - unverified.length)} tone="ok" />
+        <StatTile
+          label="Unverified"
+          value={String(unverified.length)}
+          tone={unverified.length > 0 ? "warn" : "neutral"}
+        />
       </div>
 
       {unverified.length > 0 ? (
-        <div className="mb-4 border border-amber-400 bg-amber-50 px-3 py-2.5 text-[12px] text-amber-950">
-          <Badge tone="draft">Unverified</Badge>
-          <span className="ml-2 font-semibold">
-            {unverified.length} factor value(s) are development placeholders.
-          </span>
-          <p className="mt-1.5 max-w-3xl leading-relaxed text-amber-900">
-            Record the publication you actually read (document, table, edition). A citation that is
-            empty, trivial, or still carries a <span className="font-mono">TO VERIFY</span> marker
-            is rejected. Corrected values apply to this organisation&rsquo;s runs.
-          </p>
-        </div>
+        <Alert
+          tone="warn"
+          className="mb-4"
+          title={`${unverified.length} factor ${unverified.length === 1 ? "value is a development placeholder" : "values are development placeholders"}`}
+        >
+          Record the publication you actually read (document, table, edition). A citation that is
+          empty, trivial, or still carries a <span className="font-mono">TO VERIFY</span> marker is
+          rejected. Corrected values apply to this organisation&rsquo;s runs.
+        </Alert>
       ) : null}
 
       {stateError ? (
-        <div className="mb-4 border border-stone-300 bg-stone-50 px-3 py-2.5 text-[12px] text-stone-700">
-          Organisation verification state could not be read ({stateError}). The catalogue below is
-          shown as the code ships it, with every factor unverified.
-        </div>
+        <Alert tone="error" className="mb-4" title="Verification state could not be read">
+          {stateError}. The catalogue below is shown as the code ships it, with every factor
+          unverified.
+        </Alert>
       ) : null}
 
       <Table>
         <thead>
           <tr>
-            <Th>Key</Th>
+            <Th>Factor</Th>
             <Th>Vintage</Th>
-            <Th>Value</Th>
+            <Th className="text-right">Value</Th>
             <Th>Source</Th>
-            <Th>Verified</Th>
+            <Th>Status</Th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => (
             <tr key={`${r.record.id}::${r.record.vintage}`}>
               <Td>
-                <div className="font-mono text-[12px]">{r.record.id}</div>
-                <div className="text-[12px] text-stone-500">{r.record.label}</div>
+                <div className="text-[13px] font-medium text-mist-900">{r.record.label}</div>
+                <div className="font-mono text-xs text-mist-500">{r.record.id}</div>
               </Td>
-              <Td className="font-mono text-[12px]">{r.record.vintage}</Td>
-              <Td className="tabular whitespace-nowrap">
-                {r.value} {r.record.unit}
+              <Td className="font-mono text-xs">{r.record.vintage}</Td>
+              <Td className="whitespace-nowrap text-right tabular">
+                {r.value} <span className="text-xs text-mist-500">{r.record.unit}</span>
                 {r.verified && r.value !== r.record.value ? (
-                  <div className="text-[11px] text-stone-500">
-                    corrected from {r.record.value}
-                  </div>
+                  <div className="text-xs text-mist-500">corrected from {r.record.value}</div>
                 ) : null}
               </Td>
-              <Td className="max-w-sm text-[12px] leading-relaxed">
+              <Td className="max-w-sm text-xs leading-relaxed text-mist-700">
                 {r.source}
                 {r.record.notes && !r.verified ? (
-                  <div className="mt-1 text-[11px] text-stone-500">{r.record.notes}</div>
+                  <div className="mt-1 text-mist-500">{r.record.notes}</div>
                 ) : null}
               </Td>
               <Td>
-                <Badge tone={r.verified ? "ok" : "draft"}>
-                  {r.verified ? "verified" : "unverified"}
+                <Badge tone={r.verified ? "ok" : "draft"} dot>
+                  {r.verified ? "Verified" : "Unverified"}
                 </Badge>
                 {r.verifiedAt ? (
-                  <div className="mt-1 text-[11px] text-stone-500">
+                  <div className="mt-1 text-xs text-mist-500">
                     {formatIst(r.verifiedAt)}
                   </div>
                 ) : null}
@@ -157,16 +162,12 @@ export default async function FactorsPage() {
         </tbody>
       </Table>
 
-      <section className="mt-8">
-        <h2 className="mb-2 text-[11px] uppercase tracking-wide text-stone-500">
-          Record a catalogue citation
-        </h2>
+      <section className="mt-10">
+        <SectionTitle>Record a catalogue citation</SectionTitle>
         {!organizationId ? (
           <ForbiddenState body="Sign in to an organisation to write catalogue citations." />
         ) : unverified.length === 0 ? (
-          <p className="border border-dashed border-stone-300 bg-white px-3 py-4 text-[12px] text-stone-600">
-            Every factor in the register carries a citation.
-          </p>
+          <Alert tone="ok">Every factor in the register carries a citation.</Alert>
         ) : (
           <FactorVerifyPanel
             canChangeValue

@@ -7,8 +7,12 @@ import { createBrowserSupabase } from "@verifystack/backend/lib/supabase/client"
 import { MIN_PASSWORD_LENGTH, passwordIssue } from "@verifystack/backend/lib/auth/redirect";
 import { homePathFor } from "@verifystack/backend/lib/auth/capabilities";
 import type { MembershipRole } from "@verifystack/backend/lib/supabase/types";
-import { Button } from "@/components/ui/button";
-import { Input, Label } from "@/components/ui/input";
+import { MailCheck } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { FieldHint, Input, Label } from "@/components/ui/input";
+import { Alert } from "@/components/ui/alert";
+import { AuthFooter, AuthHeading, authLinkClass } from "@/components/auth/auth-heading";
+import { cn } from "@/lib/cn";
 import { ConfigureSupabase } from "@/components/states";
 import { signInWithGoogle } from "@/components/auth/google";
 import { rememberIntendedRole } from "@/components/auth/intended-role";
@@ -72,25 +76,29 @@ export function SignupForm() {
   if (emailSent) {
     return (
       <div>
-        <p className="text-[11px] uppercase tracking-[0.2em] text-stone-500">VerifyStack</p>
-        <h1 className="mt-1 text-lg font-semibold">Check your email</h1>
-        <p className="mt-2 text-sm text-stone-600">
-          We sent a confirmation link to{" "}
-          <span className="font-medium text-stone-900">{email}</span>. Open that email and
-          click the link to verify your address and activate your account.
-        </p>
-        <p className="mt-4 text-sm text-stone-500">
-          After confirming,{" "}
-          <Link href="/login" className="underline">
-            sign in here
-          </Link>
-          .
-        </p>
-        <p className="mt-6 text-[11px] text-stone-400">
+        <span className="flex size-11 items-center justify-center rounded-full bg-teal-50 text-teal-700">
+          <MailCheck className="size-5" />
+        </span>
+        <div className="mt-5">
+          <AuthHeading
+            title="Check your email"
+            description={
+              <>
+                We sent a confirmation link to{" "}
+                <span className="font-medium text-mist-900">{email}</span>. Open that email and
+                click the link to verify your address and activate your account.
+              </>
+            }
+          />
+        </div>
+        <Link href="/login" className={cn(buttonVariants({ size: "lg" }), "mt-7 w-full")}>
+          Go to sign in
+        </Link>
+        <p className="mt-6 text-[13px] text-mist-500">
           Didn&apos;t receive it? Check your spam folder, or{" "}
           <button
             type="button"
-            className="underline"
+            className={authLinkClass}
             onClick={() => {
               setEmailSent(false);
               setError(null);
@@ -182,18 +190,21 @@ export function SignupForm() {
 
   return (
     <div>
-      <p className="text-[11px] uppercase tracking-[0.2em] text-stone-500">VerifyStack</p>
-      <h1 className="mt-1 text-lg font-semibold">Create account</h1>
-      <p className="mt-1 text-sm text-stone-600">
-        {invite
-          ? `Join ${invite.firmName} as ${invite.roleLabel}. Your firm admin already chose this role.`
-          : "This opens a new firm. You will be the firm admin. Team members join from an invite link, not from this page."}
-      </p>
+      <AuthHeading
+        title={invite ? `Join ${invite.firmName}` : "Create your firm's account"}
+        description={
+          invite
+            ? `You're joining as ${invite.roleLabel}. Your firm admin chose this role.`
+            : "This opens a new firm with you as its admin. Colleagues join later from an invite link, not from this page."
+        }
+      />
       {error ? (
-        <p className="mt-4 border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">{error}</p>
+        <Alert tone="error" className="mt-5">
+          {error}
+        </Alert>
       ) : null}
-      <div className="mt-6" />
-      <form onSubmit={onSubmit} className="space-y-3">
+      <div className="mt-7" />
+      <form onSubmit={onSubmit} className="space-y-4">
         <div>
           <Label htmlFor="email">Email</Label>
           <Input
@@ -217,6 +228,7 @@ export function SignupForm() {
             onChange={(e) => setPassword(e.target.value)}
             required
           />
+          <FieldHint>At least {MIN_PASSWORD_LENGTH} characters.</FieldHint>
         </div>
         <div>
           <Label htmlFor="confirm">Confirm password</Label>
@@ -230,16 +242,16 @@ export function SignupForm() {
             required
           />
         </div>
-        <Button type="submit" disabled={pending || !inviteReady} className="w-full">
+        <Button type="submit" size="lg" disabled={pending || !inviteReady} className="w-full">
           {pending ? "Creating…" : invite ? "Join firm" : "Create account"}
         </Button>
       </form>
-      <p className="mt-6 text-center text-[12px] text-stone-500">
+      <AuthFooter>
         Already have an account?{" "}
-        <Link href="/login" className="underline">
+        <Link href="/login" className={authLinkClass}>
           Sign in
         </Link>
-      </p>
+      </AuthFooter>
     </div>
   );
 }

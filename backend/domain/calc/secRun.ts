@@ -20,6 +20,7 @@ import {
   type SecResult,
 } from "./sec";
 import { matchFactPath } from "../extraction/fieldPaths";
+import { factLabel, hasProvenance } from "../provenance";
 import { loadPack, assertRunnable } from "../packs";
 import type {
   MethodologyPack,
@@ -73,9 +74,9 @@ function factByPath(facts: ProvenancedFact[], path: string) {
 }
 
 function requireProvenance(fact: ProvenancedFact) {
-  if (!fact.source_text || !fact.page || !fact.bbox) {
+  if (!hasProvenance(fact)) {
     throw new SecError(
-      `Fact "${fact.id}" is missing provenance (document/page/bbox/sourceText).`
+      `Fact "${fact.id}" is missing provenance. It needs a document page, spreadsheet cell, time-series range or site observation.`
     );
   }
 }
@@ -126,7 +127,7 @@ function buildEnergyStream(
         ...(binding.onSiteGeneration === undefined
           ? {}
           : { onSiteGeneration: binding.onSiteGeneration }),
-        provenance: { factIds: provenanceIds, label: resolved.fact.source_text },
+        provenance: { factIds: provenanceIds, label: factLabel(resolved.fact) },
       };
 
     case "fuel_mass":
@@ -161,7 +162,7 @@ function buildEnergyStream(
             }),
         energyContentBasis: binding.energyContentBasis ?? "GCV",
         phase: binding.phase ?? "solid",
-        provenance: { factIds: provenanceIds, label: resolved.fact.source_text },
+        provenance: { factIds: provenanceIds, label: factLabel(resolved.fact) },
       };
     }
 
@@ -172,7 +173,7 @@ function buildEnergyStream(
         label: binding.label,
         quantity: resolved.quantity,
         methodologyRef: binding.methodologyRef ?? "Metered thermal energy",
-        provenance: { factIds: provenanceIds, label: resolved.fact.source_text },
+        provenance: { factIds: provenanceIds, label: factLabel(resolved.fact) },
       };
 
     default: {
@@ -241,7 +242,7 @@ export function mapFactsToSecInput(
       productUnitLabel: pack.production_binding.productUnitLabel,
       provenance: {
         factIds: [production.fact.id],
-        label: production.fact.source_text,
+        label: factLabel(production.fact),
       },
     },
     allowUnverifiedFactors: true,
@@ -263,7 +264,7 @@ export function mapFactsToSecInput(
           factIds: [contracted?.fact.id, maximum?.fact.id].filter(
             (id): id is string => typeof id === "string"
           ),
-          label: (contracted ?? maximum)?.fact.source_text,
+          label: factLabel((contracted ?? maximum)?.fact ?? {}),
         },
       };
     }

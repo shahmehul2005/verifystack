@@ -8,6 +8,8 @@ import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configur
 import { getEngagement } from "@verifystack/backend/lib/data/engagements";
 import { suggestEcmsForEngagement } from "@verifystack/backend/lib/data/ecm";
 
+export const metadata = { title: "ECM suggestions" };
+
 export default async function EcmPage({ params }: { params: Promise<{ id: string }> }) {
   if (!isSupabaseConfigured()) return <ConfigureSupabase />;
   const { id } = await params;
@@ -25,8 +27,8 @@ export default async function EcmPage({ params }: { params: Promise<{ id: string
     <>
       <PageHeader
         kicker={`${engagement.scheme} · ${engagement.sector_or_cluster}`}
-        title="ECM suggestions"
-        description="Library rows matching this facility's bound equipment and calculated intensity gap. Measures come from the curated library, not from free generation."
+        title="Energy conservation measures"
+        description="Measures from the curated library that match this facility's equipment and its calculated intensity gap."
       />
       <EcmSuggestions payload={payload} />
     </>

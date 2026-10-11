@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEED_FACTS } from "@verifystack/backend/demo/seed";
+import { SEED_FACTS } from "@verifystack/backend/fixtures/seed";
 import { executeRun, chainHash, mapFactsToCalcInput, assessRunReadiness } from "./run";
 import { hashInputs } from "./engine";
 import { loadPack } from "../packs";

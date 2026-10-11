@@ -1,30 +1,110 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   ClipboardList,
-  Files,
+  Inbox,
   Library,
+  Menu,
   Scale,
-  Shield,
+  ScrollText,
   Users,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { Badge } from "@/components/ui/badge";
+import { Logo } from "@/components/brand/logo";
 import { ROLE_LABEL } from "@verifystack/backend/lib/auth/roles";
 import { APP_NAV, navForRole } from "@verifystack/backend/lib/auth/capabilities";
 import type { MembershipRole } from "@verifystack/backend/lib/supabase/types";
-import { SignOutButton } from "./sign-out-button";
+import { UserMenu } from "./user-menu";
 
 const NAV_ICONS = {
   "/engagements": ClipboardList,
-  "/review-queue": Files,
+  "/review-queue": Inbox,
   "/packs": Library,
   "/factors": Scale,
-  "/audit": Shield,
+  "/audit": ScrollText,
   "/team": Users,
 } as const;
+
+const NAV_GROUPS: { label: string; hrefs: string[] }[] = [
+  { label: "Work", hrefs: ["/engagements", "/review-queue"] },
+  { label: "Library", hrefs: ["/packs", "/factors"] },
+  { label: "Firm", hrefs: ["/team", "/audit"] },
+];
+
+type NavItem = (typeof APP_NAV)[number];
+
+function NavLinks({
+  nav,
+  pathname,
+  onNavigate,
+}: {
+  nav: NavItem[];
+  pathname: string;
+  onNavigate?: () => void;
+}) {
+  return (
+    <>
+      {NAV_GROUPS.map((group) => {
+        const items = group.hrefs
+          .map((href) => nav.find((item) => item.href === href))
+          .filter((item): item is NavItem => Boolean(item));
+        if (items.length === 0) return null;
+        return (
+          <div key={group.label} className="mb-5">
+            <p className="mb-1 px-3 text-xs font-medium text-mist-500">{group.label}</p>
+            <ul className="space-y-0.5">
+              {items.map((item) => {
+                const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                const Icon = NAV_ICONS[item.href as keyof typeof NAV_ICONS];
+                return (
+                  <li key={item.href}>
+                    <Link
+                      href={item.href}
+                      onClick={onNavigate}
+                      aria-current={active ? "page" : undefined}
+                      className={cn(
+                        "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
+                        active
+                          ? "bg-white font-medium text-teal-900 shadow-[0_0_0_1px_rgb(12_22_21/0.06),0_2px_6px_-2px_rgb(12_22_21/0.1)]"
+                          : "text-mist-700 hover:bg-mist-900/5 hover:text-mist-900"
+                      )}
+                    >
+                      <Icon
+                        className={cn("size-4", active ? "text-teal-700" : "text-mist-500")}
+                      />
+                      {item.label}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function FirmBlock({
+  orgName,
+  role,
+}: {
+  orgName?: string | null;
+  role?: MembershipRole | null;
+}) {
+  return (
+    <div className="glass mx-3 mb-5 rounded-lg px-3 py-2.5">
+      <p className="truncate text-sm font-medium text-mist-900" title={orgName ?? undefined}>
+        {orgName ?? "Your firm"}
+      </p>
+      <p className="mt-0.5 text-xs text-mist-600">{role ? ROLE_LABEL[role] : "No role yet"}</p>
+    </div>
+  );
+}
 
 export function AppShell({
   children,
@@ -40,6 +120,7 @@ export function AppShell({
   isSteward?: boolean;
 }) {
   const pathname = usePathname();
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const nav = navForRole(role);
   const factorsItem = APP_NAV.find((item) => item.href === "/factors");
   if (isSteward && factorsItem && !nav.some((item) => item.href === "/factors")) {
@@ -47,74 +128,84 @@ export function AppShell({
     nav.splice(packsAt + 1, 0, factorsItem);
   }
   return (
-    <div className="flex min-h-screen bg-stone-100 text-stone-900">
-      <aside className="hidden w-56 shrink-0 border-r border-stone-300 bg-stone-900 text-stone-100 md:flex md:flex-col">
-        <div className="border-b border-stone-700 px-4 py-4">
-          <p className="text-[10px] uppercase tracking-[0.2em] text-stone-400">VerifyStack</p>
-          <p className="mt-1 text-sm font-semibold">Verifier workbench</p>
+    <div className="flex min-h-screen text-mist-900">
+      <aside className="glass-strong sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r md:flex">
+        <div className="flex h-14 items-center px-4">
+          <Link href="/" aria-label="VerifyStack home page" className="rounded-md">
+            <Logo />
+          </Link>
         </div>
-        <nav className="flex-1 p-2">
-          {nav.map((item) => {
-            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-            const Icon = NAV_ICONS[item.href as keyof typeof NAV_ICONS];
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "mb-0.5 flex items-center gap-2 px-3 py-2 text-[13px]",
-                  active ? "bg-stone-800 text-white" : "text-stone-300 hover:bg-stone-800/60"
-                )}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
-        <p className="px-4 py-3 text-[10px] text-stone-500">Desktop-first · IST · en-IN</p>
+        <div className="mt-2 flex-1 overflow-y-auto">
+          <FirmBlock orgName={orgName} role={role} />
+          <nav aria-label="Main" className="px-2">
+            <NavLinks nav={nav} pathname={pathname} />
+          </nav>
+        </div>
+        <div className="border-t border-mist-900/6 px-4 py-3 text-xs text-mist-500">
+          <Link href="/privacy" className="hover:text-mist-800">
+            Privacy and data
+          </Link>
+        </div>
       </aside>
+
+      {drawerOpen ? (
+        <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true" aria-label="Menu">
+          <button
+            type="button"
+            aria-label="Close menu"
+            className="absolute inset-0 bg-mist-950/30 backdrop-blur-[2px]"
+            onClick={() => setDrawerOpen(false)}
+          />
+          <div className="glass-strong absolute inset-y-0 left-0 flex w-72 flex-col shadow-lg">
+            <div className="flex h-14 items-center justify-between px-4">
+              <Link href="/" aria-label="VerifyStack home page" className="rounded-md">
+                <Logo />
+              </Link>
+              <button
+                type="button"
+                aria-label="Close menu"
+                className="rounded-md p-1.5 text-mist-600 hover:bg-mist-100"
+                onClick={() => setDrawerOpen(false)}
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+            <div className="mt-2 flex-1 overflow-y-auto">
+              <FirmBlock orgName={orgName} role={role} />
+              <nav aria-label="Main" className="px-2">
+                <NavLinks nav={nav} pathname={pathname} onNavigate={() => setDrawerOpen(false)} />
+              </nav>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-stone-300 bg-white px-4 py-2.5">
-          <div className="flex items-center gap-2">
-            <span className="border border-stone-300 bg-stone-50 px-2 py-1 text-[12px] text-stone-700">
-              {orgName ?? "Organisation"}
-              <span className="ml-2 text-stone-400">switcher</span>
-            </span>
-            {role ? <Badge tone="ink">{ROLE_LABEL[role]}</Badge> : <Badge>No role</Badge>}
-          </div>
-          <div className="flex min-w-0 items-center gap-2">
-            {userEmail ? (
-              <>
-                <span
-                  className="hidden max-w-[12rem] truncate text-[12px] text-stone-600 sm:inline"
-                  title={userEmail}
-                >
-                  {userEmail}
-                </span>
-                <Link
-                  href="/update-password"
-                  className="hidden text-[12px] text-stone-500 hover:text-stone-800 sm:inline"
-                >
-                  Password
-                </Link>
-                <SignOutButton />
-              </>
-            ) : null}
-          </div>
-        </header>
-        <nav className="flex gap-1 overflow-x-auto border-b border-stone-200 bg-white px-2 py-1 md:hidden">
-          {nav.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="whitespace-nowrap px-2 py-1 text-[12px] text-stone-600"
+        <header
+          data-app-header
+          className="glass-strong sticky top-0 z-30 flex h-14 items-center justify-between gap-3 border-b px-4 md:px-8"
+        >
+          <div className="flex items-center gap-2 md:hidden">
+            <button
+              type="button"
+              aria-label="Open menu"
+              className="rounded-md p-1.5 text-mist-700 hover:bg-mist-100"
+              onClick={() => setDrawerOpen(true)}
             >
-              {item.label}
+              <Menu className="size-5" />
+            </button>
+            <Link href="/" aria-label="VerifyStack home page" className="rounded-md">
+              <Logo />
             </Link>
-          ))}
-        </nav>
-        <main className="min-w-0 flex-1 p-4 md:p-6">{children}</main>
+          </div>
+          <p className="hidden truncate text-sm text-mist-600 md:block">
+            {orgName ?? "Your firm"}
+          </p>
+          {userEmail ? <UserMenu email={userEmail} role={role} /> : <span />}
+        </header>
+        <main className="min-w-0 flex-1 px-4 py-6 md:px-8 md:py-8">
+          <div className="mx-auto w-full max-w-7xl">{children}</div>
+        </main>
       </div>
     </div>
   );

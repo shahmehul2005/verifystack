@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
+import { Calculator } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 type SecPhase = "baseline" | "post_implementation";
@@ -35,7 +36,9 @@ export function RunCalcButton({
       toast.error(json.error ?? "Run failed");
       return;
     }
-    toast.success(`Run ${String(json.run?.input_hash ?? "").slice(0, 12)}…`);
+    toast.success("Run recorded", {
+      description: `Input fingerprint ${String(json.run?.input_hash ?? "").slice(0, 12)}…`,
+    });
     window.location.reload();
   }
 
@@ -52,7 +55,8 @@ export function RunCalcButton({
             disabled={pending !== null}
             onClick={() => void run(p.phase)}
           >
-            {p.label}
+            {pending === p.phase ? <Spinner /> : <Calculator />}
+            {pending === p.phase ? "Running…" : p.label}
           </Button>
         ))}
       </div>
@@ -61,7 +65,12 @@ export function RunCalcButton({
 
   return (
     <Button disabled={pending !== null} onClick={() => void run()}>
-      Run calculation
+      {pending ? <Spinner /> : <Calculator />}
+      {pending ? "Running…" : "Run calculation"}
     </Button>
   );
+}
+
+function Spinner() {
+  return <span className="size-4 animate-spin rounded-full border-2 border-current/30 border-t-current" />;
 }

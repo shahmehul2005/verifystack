@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input, Label } from "@/components/ui/input";
+import { FieldHint, Input, Label, Select, Textarea } from "@/components/ui/input";
 import { ErrorState } from "@/components/states";
 
 export interface PromotableFactor {
@@ -57,44 +57,43 @@ export function FactorVerifyPanel({
   }
 
   return (
-    <div className="max-w-2xl space-y-3 border border-stone-200 bg-white p-4">
-      <p className="text-[12px] leading-relaxed text-stone-600">
-        Record the publication you read the value in — the document, table and edition, not a
+    <div className="max-w-2xl space-y-4 rounded-lg border border-mist-200 bg-white p-5 shadow-xs">
+      <p className="text-[13px] leading-relaxed text-mist-600">
+        Record the publication you read the value in: the document, table and edition, not a
         reminder to check it later. A citation that is empty, shorter than twelve characters, or
-        still carrying a <span className="font-mono">TO VERIFY</span> marker is refused and
-        nothing is written. Re-run calculation after a correction so engagements pick up the
-        new value.
+        still carries a <span className="font-mono">TO VERIFY</span> marker is refused and nothing
+        is written. Re-run the calculation after a correction so engagements pick up the new value.
       </p>
       {error ? <ErrorState title="Verification refused" body={error} /> : null}
 
       <div>
         <Label htmlFor="factor">Factor</Label>
-        <select
-          id="factor"
-          className="h-9 w-full border border-stone-300 bg-white px-2 text-sm"
-          value={key}
-          onChange={(e) => setKey(e.target.value)}
-        >
+        <Select id="factor" value={key} onChange={(e) => setKey(e.target.value)}>
           {factors.map((f) => (
             <option key={`${f.id}::${f.vintage}`} value={`${f.id}::${f.vintage}`}>
               {f.id} ({f.vintage}) — {f.label}
             </option>
           ))}
-        </select>
-        <p className="mt-1 text-[11px] text-stone-500">
-          Catalogue value {selected.value} {selected.unit}
-        </p>
+        </Select>
+        <FieldHint>
+          Catalogue value{" "}
+          <span className="font-mono tabular">
+            {selected.value} {selected.unit}
+          </span>
+        </FieldHint>
       </div>
 
       <div>
-        <Label htmlFor="cited">Cited source (mandatory)</Label>
-        <textarea
+        <Label htmlFor="cited">Cited source</Label>
+        <Textarea
           id="cited"
-          className="h-24 w-full border border-stone-300 p-2 text-sm"
+          rows={4}
+          required
           value={citedSource}
           onChange={(e) => setCitedSource(e.target.value)}
           placeholder="e.g. IPCC 2006 Guidelines Vol.2 Ch.1 Table 1.4, Coke Oven Coke row, 2006 edition"
         />
+        <FieldHint>Required. At least twelve characters.</FieldHint>
       </div>
 
       {canChangeValue ? (
@@ -109,13 +108,13 @@ export function FactorVerifyPanel({
             value={correctedValue}
             onChange={(e) => setCorrectedValue(e.target.value)}
           />
-          <p className="mt-1 text-[11px] text-stone-500">
+          <FieldHint>
             You are recognised as a platform steward, so this writes a new value. Everything else
             on the platform reads the catalogue you are editing.
-          </p>
+          </FieldHint>
         </div>
       ) : (
-        <p className="border border-stone-200 bg-stone-50 px-3 py-2 text-[11px] leading-relaxed text-stone-600">
+        <p className="rounded-md border border-mist-200 bg-mist-50 px-3 py-2 text-xs leading-relaxed text-mist-600">
           You are attesting the catalogue value of{" "}
           <span className="font-mono">
             {selected.value} {selected.unit}
@@ -127,13 +126,15 @@ export function FactorVerifyPanel({
         </p>
       )}
 
-      <Button onClick={() => void submit()} disabled={pending || citedSource.trim().length < 12}>
-        Record attestation
-      </Button>
-      <p className="text-[11px] text-stone-500">
-        Written to the append-only factor verification log and to the audit trail, against your
-        user id.
-      </p>
+      <div className="flex flex-wrap items-center gap-3 border-t border-mist-100 pt-4">
+        <Button onClick={() => void submit()} disabled={pending || citedSource.trim().length < 12}>
+          {pending ? "Recording…" : "Record attestation"}
+        </Button>
+        <p className="text-xs text-mist-500">
+          Written to the append-only factor verification log and the audit trail, under your user
+          id.
+        </p>
+      </div>
     </div>
   );
 }

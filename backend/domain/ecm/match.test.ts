@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ADEETIE_FOUNDRY_V1 } from "../packs/adeetie";
-import { CCTS_CEMENT_V1 } from "../packs/cement";
+import { CCTS_CEMENT_V1 } from "../packs/ccts/cement";
 import { deriveEquipmentTags } from "./equipment";
 import { SYNTHETIC_ECM_LIBRARY } from "./fixture";
 import { gapFromGeiResult, gapFromSecRuns, impliedSecBenchmark } from "./gap";

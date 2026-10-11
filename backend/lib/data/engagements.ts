@@ -41,6 +41,7 @@ export async function ensureEngagementStatus(opts: {
   engagementId: string;
   current: string;
   target: Status;
+  actorUserId?: string | null;
 }): Promise<Status> {
   const from = opts.current as Status;
   const walked = walkStatus(from, opts.target);
@@ -60,6 +61,7 @@ export async function ensureEngagementStatus(opts: {
     entityType: "engagement",
     entityId: opts.engagementId,
     payload: { from, to, walked },
+    actorUserId: opts.actorUserId ?? null,
   });
   return to;
 }
@@ -74,6 +76,7 @@ export async function resetForAdeetiePhase(opts: {
   fromPhase: AdeetiePhase;
   fromStatus: Status;
   toPhase: AdeetiePhase;
+  actorUserId?: string | null;
 }): Promise<void> {
   const supabase = await dataClient();
   if (!supabase) {
@@ -96,5 +99,6 @@ export async function resetForAdeetiePhase(opts: {
       fromStatus: opts.fromStatus,
       toStatus: "setup",
     },
+    actorUserId: opts.actorUserId ?? null,
   });
 }

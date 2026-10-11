@@ -13,12 +13,22 @@ export interface FirmInvitePayload {
   nonce: string;
 }
 
-function secret(): string {
-  const value = process.env.SUPABASE_SERVICE_ROLE ?? process.env.INVITE_SIGNING_SECRET;
+/**
+ * A dedicated INVITE_SIGNING_SECRET wins, so rotating the database key does not
+ * void outstanding invites and one leaked key does not cover both.
+ */
+export function inviteSigningSecret(
+  env: Record<string, string | undefined> = process.env
+): string {
+  const value = env.INVITE_SIGNING_SECRET?.trim() || env.SUPABASE_SERVICE_ROLE?.trim();
   if (!value) {
-    throw new Error("Invite links need SUPABASE_SERVICE_ROLE (or INVITE_SIGNING_SECRET).");
+    throw new Error("Invite links need INVITE_SIGNING_SECRET (or SUPABASE_SERVICE_ROLE).");
   }
   return value;
+}
+
+function secret(): string {
+  return inviteSigningSecret();
 }
 
 function signBody(body: string, key: string): string {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEED_FACTS } from "@verifystack/backend/demo/seed";
+import { SEED_FACTS } from "@verifystack/backend/fixtures/seed";
 import { qty } from "../units";
 import { loadPack } from "../packs";
 import { mapFactsToCalcInput, executeRun, type ProvenancedFact } from "./run";

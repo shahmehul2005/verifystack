@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { MEMBERSHIP_ROLES, ROLE_LABEL } from "@verifystack/backend/lib/auth/roles";
 import type { MembershipRole } from "@verifystack/backend/lib/supabase/types";
+import { Select } from "@/components/ui/input";
 
 export function TeamRoleSelect({
   membershipId,
@@ -38,8 +39,9 @@ export function TeamRoleSelect({
 
   return (
     <div>
-      <select
-        className="h-8 border border-stone-300 bg-white px-2 text-[12px]"
+      <Select
+        aria-label="Role"
+        className="h-8 w-auto min-w-44 text-[13px]"
         value={value}
         disabled={pending}
         onChange={(e) => void onChange(e.target.value as MembershipRole)}
@@ -49,8 +51,8 @@ export function TeamRoleSelect({
             {ROLE_LABEL[r]}
           </option>
         ))}
-      </select>
-      {error ? <p className="mt-1 text-[11px] text-red-800">{error}</p> : null}
+      </Select>
+      {error ? <p className="mt-1 text-xs text-red-700">{error}</p> : null}
     </div>
   );
 }
