@@ -1,5 +1,7 @@
 "use client";
 
+import { useSoftReload } from "@/lib/soft-reload";
+
 import { useState } from "react";
 import { toast } from "sonner";
 import { ArrowRight } from "lucide-react";
@@ -16,6 +18,7 @@ export function AdvancePhaseButton({
   nextPhase: AdeetiePhase;
   blockers: string[];
 }) {
+  const { softReload, isRefreshing } = useSoftReload();
   const [pending, setPending] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const blocked = blockers.length > 0;
@@ -32,14 +35,14 @@ export function AdvancePhaseButton({
       return;
     }
     toast.success(`${label} opened`);
-    window.location.reload();
+    softReload();
   }
 
   return (
     <div className="mt-4 rounded-lg border border-mist-200 bg-white px-4 py-3.5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm font-medium text-mist-900">Next phase: {label}</p>
-        <Button disabled={pending || blocked} onClick={() => setConfirming(true)}>
+        <Button disabled={pending || isRefreshing || blocked} onClick={() => setConfirming(true)}>
           Open {label}
           <ArrowRight />
         </Button>
@@ -66,10 +69,10 @@ export function AdvancePhaseButton({
           move forward; this cannot be undone.
         </p>
         <div className="mt-5 flex justify-end gap-2">
-          <Button variant="secondary" onClick={() => setConfirming(false)} disabled={pending}>
+          <Button variant="secondary" onClick={() => setConfirming(false)} disabled={pending || isRefreshing}>
             Cancel
           </Button>
-          <Button onClick={() => void advance()} disabled={pending}>
+          <Button onClick={() => void advance()} disabled={pending || isRefreshing}>
             {pending ? "Opening…" : `Open ${label}`}
           </Button>
         </div>

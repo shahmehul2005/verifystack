@@ -8,10 +8,10 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, SectionTitle } from "@/components/ui/card";
 import { CopyText } from "@/components/ui/copy-text";
 import { formatIst } from "@/lib/format";
-import { getSession } from "@verifystack/backend/lib/auth/getSession";
+import { getSession } from "@/lib/session";
 import { hasCapability } from "@verifystack/backend/lib/auth/capabilities";
 import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
-import { getEngagement } from "@verifystack/backend/lib/data/engagements";
+import { getEngagement } from "@/lib/session";
 import { loadTechnicalReview } from "@verifystack/backend/lib/data/technicalReview";
 import { ReviewForm } from "./review-form";
 

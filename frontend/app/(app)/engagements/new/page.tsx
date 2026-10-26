@@ -1,6 +1,6 @@
 import { ConfigureSupabase, ForbiddenState } from "@/components/states";
 import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
-import { getSession } from "@verifystack/backend/lib/auth/getSession";
+import { getSession } from "@/lib/session";
 import { hasCapability } from "@verifystack/backend/lib/auth/capabilities";
 import { EngagementWizard } from "./wizard";
 

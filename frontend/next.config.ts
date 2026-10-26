@@ -32,6 +32,13 @@ const nextConfig: NextConfig = {
     // The proxy buffers request bodies and silently truncates past this limit.
     // It must exceed the 50 MB evidence cap or uploads are stored cut short.
     proxyClientMaxBodySize: "52mb",
+    // Keep a short client-router cache for dynamic Server Component navigations
+    // so switching back to a tab you just left feels instant. Mutations still
+    // call router.refresh() and replace the cache for that route.
+    staleTimes: {
+      dynamic: 30,
+      static: 180,
+    },
   },
   headers() {
     return [{ source: "/:path*", headers: securityHeaders }];

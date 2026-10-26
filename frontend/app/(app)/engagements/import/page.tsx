@@ -1,7 +1,7 @@
 import { ConfigureSupabase, ForbiddenState } from "@/components/states";
 import { PageHeader } from "@/components/page-header";
 import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
-import { getSession } from "@verifystack/backend/lib/auth/getSession";
+import { getSession } from "@/lib/session";
 import { hasCapability } from "@verifystack/backend/lib/auth/capabilities";
 import { MAX_IMPORT_ROWS } from "@verifystack/backend/domain/engagements/bulkImport";
 import { ImportClient } from "./import-client";

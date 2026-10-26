@@ -15,10 +15,10 @@ import {
   safeAssessSavings,
   type RunRow,
 } from "@/components/adeetie/sec";
-import { getSession } from "@verifystack/backend/lib/auth/getSession";
+import { getSession } from "@/lib/session";
 import { hasCapability } from "@verifystack/backend/lib/auth/capabilities";
 import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
-import { getEngagement } from "@verifystack/backend/lib/data/engagements";
+import { getEngagement } from "@/lib/session";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { loadPack, canStartWork } from "@verifystack/backend/domain/packs";

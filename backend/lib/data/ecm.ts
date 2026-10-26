@@ -28,6 +28,7 @@ import {
   type EcmSuggestionView,
   type IntensityGap,
 } from "@verifystack/backend/domain/ecm/types";
+import type { Tables } from "@verifystack/backend/lib/supabase/types";
 import { getEngagement } from "./engagements";
 
 interface LooseResult<T> {
@@ -52,10 +53,14 @@ interface EcmLibraryDbRow {
  * `ecm_library` arrives with migration 0011 and is not described by the
  * hand-written Database types in lib/supabase/types.ts.
  */
+interface LooseQuery {
+  select(columns: string): LooseQuery;
+  eq(column: string, value: string): LooseQuery;
+  then: PromiseLike<LooseResult<EcmLibraryDbRow[]>>["then"];
+}
+
 interface LooseDb {
-  from(table: string): {
-    select(columns: string): PromiseLike<LooseResult<EcmLibraryDbRow[]>>;
-  };
+  from(table: string): LooseQuery;
 }
 
 function mapDbRow(row: EcmLibraryDbRow): EcmLibraryRow {
@@ -72,7 +77,6 @@ function mapDbRow(row: EcmLibraryDbRow): EcmLibraryRow {
     sourceUrl: row.source_url,
   };
 }
-
 
 function isSecResult(value: unknown): value is SecResult {
   if (typeof value !== "object" || value === null) return false;
@@ -94,12 +98,18 @@ async function dataClient() {
   return createServiceClient() ?? (await createServerSupabase());
 }
 
-async function loadLibraryRows(): Promise<EcmLibraryRow[]> {
+/**
+ * Only rows for this sector can match (`matchEcmLibrary` requires an exact
+ * sector). Filtering here returns the same match set and uses
+ * ecm_library_sector_equipment_idx.
+ */
+async function loadLibraryRows(sectorOrCluster: string): Promise<EcmLibraryRow[]> {
   const supabase = await dataClient();
   if (!supabase) return [];
   const { data, error } = await (supabase as unknown as LooseDb)
     .from("ecm_library")
-    .select("*");
+    .select("*")
+    .eq("sector_or_cluster", sectorOrCluster);
   if (error || !data?.length) return [];
   return data.map(mapDbRow);
 }
@@ -130,12 +140,26 @@ function toView(args: {
   };
 }
 
+export type EcmRunRow = { result: unknown; created_at: string };
+
 export async function suggestEcmsForEngagement(
   engagementId: string,
   organizationId: string,
-  opts?: { style?: boolean }
+  opts?: {
+    style?: boolean;
+    /** Skip a second engagement fetch when the caller already loaded it. */
+    engagement?: Tables<"engagements"> | null;
+    /** Skip a second calculation_runs fetch when the caller already loaded them. */
+    runRows?: EcmRunRow[] | null;
+  }
 ): Promise<EcmSuggestionsPayload | null> {
-  const engagement = await getEngagement(engagementId, organizationId);
+  const preloaded = opts?.engagement;
+  const engagement =
+    preloaded &&
+    preloaded.id === engagementId &&
+    preloaded.organization_id === organizationId
+      ? preloaded
+      : await getEngagement(engagementId, organizationId);
   if (!engagement) return null;
 
   const pack = loadPack(engagement.pack_id);
@@ -143,21 +167,26 @@ export async function suggestEcmsForEngagement(
 
   let facts: Pick<ProvenancedFact, "field_path">[] = [];
   let gap: IntensityGap | null = null;
+  const suppliedRuns = opts?.runRows;
 
   if (supabase) {
-    const [{ data: factRows }, { data: runRows }] = await Promise.all([
-      supabase
-        .from("facts")
-        .select("field_path")
-        .eq("engagement_id", engagementId)
-        .eq("organization_id", organizationId),
-      supabase
-        .from("calculation_runs")
-        .select("result, created_at")
-        .eq("engagement_id", engagementId)
-        .eq("organization_id", organizationId)
-        .order("created_at", { ascending: false }),
-    ]);
+    const factsPromise = supabase
+      .from("facts")
+      .select("field_path")
+      .eq("engagement_id", engagementId)
+      .eq("organization_id", organizationId);
+
+    const runsPromise =
+      suppliedRuns != null
+        ? Promise.resolve({ data: suppliedRuns })
+        : supabase
+            .from("calculation_runs")
+            .select("result, created_at")
+            .eq("engagement_id", engagementId)
+            .eq("organization_id", organizationId)
+            .order("created_at", { ascending: false });
+
+    const [{ data: factRows }, { data: runRows }] = await Promise.all([factsPromise, runsPromise]);
     facts = (factRows ?? []).map((f) => ({ field_path: f.field_path }));
 
     if (pack.calculation_method === "SEC") {
@@ -190,7 +219,7 @@ export async function suggestEcmsForEngagement(
   }
 
   const equipmentTags = deriveEquipmentTags(pack, facts);
-  const library = await loadLibraryRows();
+  const library = await loadLibraryRows(pack.sector_or_cluster);
   const matched = matchEcmLibrary(
     {
       sectorOrCluster: pack.sector_or_cluster,
@@ -204,13 +233,15 @@ export async function suggestEcmsForEngagement(
   const shouldStyle = opts?.style !== false && matched.status === "matched";
   const suggestions: EcmSuggestionView[] = [];
   for (const ranked of matched.ranked) {
-    const styled = shouldStyle ? await styleEcmRow(ranked.row) : {
-      row: ranked.row,
-      presentation: "raw_row" as const,
-      sentence: null,
-      styled: false,
-      generator: "none" as const,
-    };
+    const styled = shouldStyle
+      ? await styleEcmRow(ranked.row)
+      : {
+          row: ranked.row,
+          presentation: "raw_row" as const,
+          sentence: null,
+          styled: false,
+          generator: "none" as const,
+        };
     suggestions.push(
       toView({
         row: ranked.row,

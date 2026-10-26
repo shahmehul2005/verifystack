@@ -1,5 +1,7 @@
 "use client";
 
+import { useSoftReload } from "@/lib/soft-reload";
+
 import { useState } from "react";
 import { toast } from "sonner";
 import { PenLine } from "lucide-react";
@@ -19,6 +21,7 @@ export function SignoffForm({
   engagementId: string;
   role: string;
 }) {
+  const { softReload, isRefreshing } = useSoftReload();
   const [name, setName] = useState("");
   const [statement, setStatement] = useState(
     "I attest that I have reviewed the evidence, facts, calculation run, and findings for this engagement."
@@ -40,7 +43,7 @@ export function SignoffForm({
     if (!res.ok || !json.ok) toast.error(json.error ?? "Sign-off refused");
     else {
       toast.success("Attestation recorded");
-      window.location.reload();
+      softReload();
     }
   }
 
@@ -86,10 +89,10 @@ export function SignoffForm({
           the latest calculation run. Attestations cannot be edited or removed afterwards.
         </p>
         <div className="mt-5 flex justify-end gap-2">
-          <Button variant="secondary" onClick={() => setConfirming(false)} disabled={pending}>
+          <Button variant="secondary" onClick={() => setConfirming(false)} disabled={pending || isRefreshing}>
             Cancel
           </Button>
-          <Button onClick={() => void submit()} disabled={pending}>
+          <Button onClick={() => void submit()} disabled={pending || isRefreshing}>
             {pending ? "Recording…" : "Record attestation"}
           </Button>
         </div>

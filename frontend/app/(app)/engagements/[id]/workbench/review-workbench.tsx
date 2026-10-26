@@ -1,5 +1,7 @@
 "use client";
 
+import { useSoftReload } from "@/lib/soft-reload";
+
 import { useEffect, useState } from "react";
 import { Check, PenLine, X } from "lucide-react";
 import { DocumentFacsimile } from "@/components/workbench/document-facsimile";
@@ -40,6 +42,7 @@ export function ReviewWorkbench({
   fields: ReviewField[];
   facsimileDocId?: string;
 }) {
+  const { softReload, isRefreshing } = useSoftReload();
   const [focus, setFocus] = useState<ReviewField | null>(fields[0] ?? null);
   const [correction, setCorrection] = useState("");
 
@@ -63,7 +66,7 @@ export function ReviewWorkbench({
     toast.success(
       state === "accepted" ? "Accepted" : state === "corrected" ? "Correction saved" : "Rejected"
     );
-    window.location.reload();
+    softReload();
   }
 
   const focusIndex = focus ? fields.findIndex((f) => f.id === focus.id) : -1;
@@ -158,16 +161,21 @@ export function ReviewWorkbench({
                 onChange={(e) => setCorrection(e.target.value)}
               />
               <div className="mt-4 flex flex-wrap gap-2">
-                <Button onClick={() => void decide("accepted")}>
+                <Button disabled={isRefreshing} onClick={() => void decide("accepted")}>
                   <Check />
                   Accept
                 </Button>
-                <Button variant="secondary" onClick={() => void decide("corrected")}>
+                <Button
+                  variant="secondary"
+                  disabled={isRefreshing}
+                  onClick={() => void decide("corrected")}
+                >
                   <PenLine />
                   Correct
                 </Button>
                 <Button
                   variant="secondary"
+                  disabled={isRefreshing}
                   className="text-red-700 hover:border-red-300 hover:bg-red-50"
                   onClick={() => void decide("rejected")}
                 >

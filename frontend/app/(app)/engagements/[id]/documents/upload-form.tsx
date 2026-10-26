@@ -7,6 +7,7 @@ import { Package, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { ErrorState } from "@/components/states";
+import { useSoftReload } from "@/lib/soft-reload";
 
 interface PackResponse {
   ok?: boolean;
@@ -19,6 +20,7 @@ interface PackResponse {
 
 export function UploadForm({ engagementId, disabled }: { engagementId: string; disabled?: boolean }) {
   const router = useRouter();
+  const { softReload, isRefreshing } = useSoftReload();
   const inputRef = useRef<HTMLInputElement>(null);
   const packRef = useRef<HTMLInputElement>(null);
   const [pending, setPending] = useState(false);
@@ -63,7 +65,7 @@ export function UploadForm({ engagementId, disabled }: { engagementId: string; d
           ? "Already on file (same bytes)"
           : "Stored. Map its cells or time-series windows into proposed values below."
       );
-      window.location.reload();
+      softReload();
       return;
     }
     toast.success(json.deduped ? "Already on file (same bytes)" : "Stored. Extracting fields…");
@@ -81,7 +83,7 @@ export function UploadForm({ engagementId, disabled }: { engagementId: string; d
       if (!extracted.ok) {
         setError(extracted.error ?? "File stored, but extraction failed. Use Extract on the row.");
         toast.error(extracted.error ?? "Extraction failed");
-        window.location.reload();
+        softReload();
         return;
       }
       if ((extracted.extracted ?? 0) > 0) {
@@ -95,7 +97,7 @@ export function UploadForm({ engagementId, disabled }: { engagementId: string; d
           : "Stored, but no provenanced fields were returned."
       );
     }
-    window.location.reload();
+    softReload();
   }
 
   async function importPack(file: File) {
@@ -124,7 +126,7 @@ export function UploadForm({ engagementId, disabled }: { engagementId: string; d
         (skipped.length ? ` Skipped ${skipped.length}: ${skipped.map((s) => `${s.name} (${s.reason})`).join("; ")}` : "")
     );
     toast.success("Evidence pack imported");
-    if (skipped.length === 0) window.location.reload();
+    if (skipped.length === 0) softReload();
   }
 
   return (
@@ -135,7 +137,7 @@ export function UploadForm({ engagementId, disabled }: { engagementId: string; d
           type="file"
           className="sr-only"
           accept="application/pdf,image/png,image/jpeg,image/webp,.xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
-          disabled={disabled || pending}
+          disabled={disabled || pending || isRefreshing}
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) void upload(file);
@@ -146,17 +148,17 @@ export function UploadForm({ engagementId, disabled }: { engagementId: string; d
           type="file"
           className="sr-only"
           accept=".zip,application/zip"
-          disabled={disabled || pending}
+          disabled={disabled || pending || isRefreshing}
           onChange={(e) => {
             const file = e.target.files?.[0];
             if (file) void importPack(file);
           }}
         />
-        <Button variant="secondary" disabled={disabled || pending} onClick={() => packRef.current?.click()}>
+        <Button variant="secondary" disabled={disabled || pending || isRefreshing} onClick={() => packRef.current?.click()}>
           <Package />
           Import evidence pack
         </Button>
-        <Button disabled={disabled || pending} onClick={() => inputRef.current?.click()}>
+        <Button disabled={disabled || pending || isRefreshing} onClick={() => inputRef.current?.click()}>
           {pending ? (
             <span className="size-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
           ) : (

@@ -1,5 +1,7 @@
 "use client";
 
+import { useSoftReload } from "@/lib/soft-reload";
+
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -12,6 +14,7 @@ export function DeclaredForm({
   engagementId: string;
   paths: { path: string; label: string }[];
 }) {
+  const { softReload, isRefreshing } = useSoftReload();
   const [fieldPath, setFieldPath] = useState("");
   const [value, setValue] = useState("");
   const [unit, setUnit] = useState("");
@@ -38,7 +41,7 @@ export function DeclaredForm({
       return;
     }
     toast.success("Declared value recorded");
-    window.location.reload();
+    softReload();
   }
 
   return (
@@ -65,7 +68,7 @@ export function DeclaredForm({
       />
       <Input aria-label="Declared value" placeholder="Declared value" value={value} onChange={(e) => setValue(e.target.value)} />
       <Input aria-label="Unit" placeholder="unit" value={unit} onChange={(e) => setUnit(e.target.value)} />
-      <Button type="submit" variant="secondary" size="sm" disabled={pending || !fieldPath || !value}>
+      <Button type="submit" variant="secondary" size="sm" disabled={pending || isRefreshing || !fieldPath || !value}>
         Record declared value
       </Button>
     </form>

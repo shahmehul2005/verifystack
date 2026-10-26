@@ -4,7 +4,7 @@ import { ConfigureSupabase, EmptyState, ForbiddenState } from "@/components/stat
 import { PageHeader } from "@/components/page-header";
 import { buttonVariants } from "@/components/ui/button";
 import { EngagementsTable } from "./engagements-table";
-import { getSession } from "@verifystack/backend/lib/auth/getSession";
+import { getSession } from "@/lib/session";
 import { hasCapability } from "@verifystack/backend/lib/auth/capabilities";
 import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
 import { listEngagements } from "@verifystack/backend/lib/data/engagements";

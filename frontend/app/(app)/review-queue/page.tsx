@@ -3,7 +3,7 @@ import { ArrowRight, Inbox } from "lucide-react";
 import { ConfigureSupabase, EmptyState, ForbiddenState } from "@/components/states";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
-import { getSession } from "@verifystack/backend/lib/auth/getSession";
+import { getSession } from "@/lib/session";
 import { hasCapability } from "@verifystack/backend/lib/auth/capabilities";
 import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";

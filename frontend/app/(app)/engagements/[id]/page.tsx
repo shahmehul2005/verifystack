@@ -35,10 +35,10 @@ import {
   safeAssessSavings,
   type RunRow,
 } from "@/components/adeetie/sec";
-import { getSession } from "@verifystack/backend/lib/auth/getSession";
+import { getSession } from "@/lib/session";
 import { hasCapability, engagementLinksForRole } from "@verifystack/backend/lib/auth/capabilities";
 import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
-import { getEngagement } from "@verifystack/backend/lib/data/engagements";
+import { getEngagement } from "@/lib/session";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { loadPack, canStartWork } from "@verifystack/backend/domain/packs";
@@ -163,31 +163,93 @@ export default async function EngagementHome({
   let measures: MeasureRow[] = [];
   let blockers: string[] = [];
   let missingLifecycleTable = false;
-  if (canViewAdeetie) {
-    const supabase = createServiceClient() ?? (await createServerSupabase());
-    const [{ data: runs }, measuresRes, { data: findings }] = await Promise.all([
-      supabase!
-        .from("calculation_runs")
-        .select("*")
-        .eq("engagement_id", id)
-        .eq("organization_id", session.organizationId)
-        .order("created_at", { ascending: false }),
-      supabase!
-        .from("adeetie_measures")
-        .select("*")
-        .eq("engagement_id", id)
-        .eq("organization_id", session.organizationId)
-        .order("created_at", { ascending: true }),
-      supabase!
-        .from("findings")
-        .select("id, severity, state")
-        .eq("engagement_id", id)
-        .eq("organization_id", session.organizationId),
-    ]);
+  let savingsRun: SavingsRunView | null = null;
+  let stageEvents: StageEventRow[] = [];
+
+  const canOperateAdeetie = hasCapability(session.role, "adeetie.operate");
+  const canViewEcm = hasCapability(session.role, "adeetie.view");
+  const supabase = createServiceClient() ?? (await createServerSupabase());
+
+  // Independent remote reads in parallel. Same results as the previous
+  // sequential chain; only the wait order changes.
+  const [adeetieBundle, savingsRow, stageRows] = await Promise.all([
+    canViewAdeetie && supabase
+      ? Promise.all([
+          supabase
+            .from("calculation_runs")
+            .select("*")
+            .eq("engagement_id", id)
+            .eq("organization_id", session.organizationId)
+            .order("created_at", { ascending: false }),
+          supabase
+            .from("adeetie_measures")
+            .select("*")
+            .eq("engagement_id", id)
+            .eq("organization_id", session.organizationId)
+            .order("created_at", { ascending: true }),
+          supabase
+            .from("findings")
+            .select("id, severity, state")
+            .eq("engagement_id", id)
+            .eq("organization_id", session.organizationId),
+        ]).then(([runsRes, measuresRes, findingsRes]) => ({
+          runs: runsRes.data ?? [],
+          measuresRes,
+          findings: findingsRes.data ?? [],
+        }))
+      : Promise.resolve(null),
+    canViewAdeetie && supabase
+      ? supabase
+          .from("savings_dpr_runs")
+          .select("input_hash, result, created_at")
+          .eq("engagement_id", id)
+          .eq("organization_id", session.organizationId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .then(({ data }) => data?.[0] ?? null)
+      : Promise.resolve(null),
+    canViewAdeetie && pack.stages?.length && supabase
+      ? supabase
+          .from("engagement_stage_events")
+          .select("*")
+          .eq("engagement_id", id)
+          .eq("organization_id", session.organizationId)
+          .order("created_at", { ascending: false })
+          .limit(5)
+          .then(({ data }) => data ?? [])
+      : Promise.resolve(
+          [] as {
+            id: string;
+            from_stage: string | null;
+            to_stage: string;
+            direction: string;
+            note: string | null;
+            created_at: string;
+          }[]
+        ),
+  ]);
+
+  // Reuse the engagement (and ADEETIE runs when already loaded) so ECM does not
+  // repeat those round trips. Matching and styling behaviour is unchanged.
+  const ecmPayload = canViewEcm
+    ? await suggestEcmsForEngagement(id, session.organizationId, {
+        style: false,
+        engagement,
+        runRows: adeetieBundle
+          ? adeetieBundle.runs.map((r) => ({
+              result: (r as { result: unknown }).result,
+              created_at: (r as { created_at: string }).created_at,
+            }))
+          : undefined,
+      })
+    : null;
+
+  if (adeetieBundle) {
+    const { runs, measuresRes, findings } = adeetieBundle;
     const measureRows = measuresRes.error ? [] : (measuresRes.data ?? []);
     missingLifecycleTable = Boolean(measuresRes.error);
-    secSet = pickSecRuns((runs ?? []) as RunRow[]);
-    measures = (measureRows ?? []) as MeasureRow[];
+    secSet = pickSecRuns(runs as RunRow[]);
+    measures = measureRows as MeasureRow[];
 
     let projected = null;
     const baseline = secSet.baseline?.result;
@@ -207,65 +269,39 @@ export default async function EngagementHome({
     }
     blockers = phaseAdvanceBlockers({
       position,
-      hasBaselineSec: Boolean(secSet.baseline) ||
-        (runs ?? []).some((r) => (r as { sec_phase?: string }).sec_phase === "baseline"),
-      openBlockCount: openBlockFindings(findings ?? []).length,
+      hasBaselineSec:
+        Boolean(secSet.baseline) ||
+        runs.some((r) => (r as { sec_phase?: string }).sec_phase === "baseline"),
+      openBlockCount: openBlockFindings(findings).length,
       measureCount: measures.length,
       loanAmountINR: engagement.loan_amount_inr,
       projectCostINR: engagement.project_cost_inr,
       projected,
     });
   }
-  let savingsRun: SavingsRunView | null = null;
-  if (canViewAdeetie) {
-    const sb = createServiceClient() ?? (await createServerSupabase());
-    const { data: sr } = await sb!
-      .from("savings_dpr_runs")
-      .select("input_hash, result, created_at")
-      .eq("engagement_id", id)
-      .eq("organization_id", session.organizationId)
-      .order("created_at", { ascending: false })
-      .limit(1);
-    const row = sr?.[0];
-    if (row) {
-      savingsRun = {
-        inputHash: row.input_hash,
-        createdAt: row.created_at,
-        result: row.result as unknown as SavingsRunView["result"],
-      };
-    }
+  if (savingsRow) {
+    savingsRun = {
+      inputHash: savingsRow.input_hash,
+      createdAt: savingsRow.created_at,
+      result: savingsRow.result as unknown as SavingsRunView["result"],
+    };
   }
-  let stageEvents: StageEventRow[] = [];
-  if (canViewAdeetie && pack.stages?.length) {
-    const sb = createServiceClient() ?? (await createServerSupabase());
-    const { data: evs } = await sb!
-      .from("engagement_stage_events")
-      .select("*")
-      .eq("engagement_id", id)
-      .eq("organization_id", session.organizationId)
-      .order("created_at", { ascending: false })
-      .limit(5);
-    stageEvents = (evs ?? []).map((e) => ({
-      id: e.id,
-      from: e.from_stage,
-      to: e.to_stage,
-      direction: e.direction,
-      note: e.note,
-      at: formatIst(e.created_at, false),
-    }));
-  }
+  stageEvents = stageRows.map((e) => ({
+    id: e.id,
+    from: e.from_stage,
+    to: e.to_stage,
+    direction: e.direction as StageEventRow["direction"],
+    note: e.note,
+    at: formatIst(e.created_at, false),
+  }));
+
   const savings = safeAssessSavings(
     secSet,
     pack.sec_config?.minSavingsPct ?? ADEETIE_MIN_SAVINGS_PCT
   );
   const nextPhase = isAdeetie ? nextAdeetiePhase(phase) : null;
   const savingUnit = pack.sec_config?.reportingEnergyUnit ?? "GJ";
-  const financeLocked = phase === "MV" || !hasCapability(session.role, "adeetie.operate");
-  const canOperateAdeetie = hasCapability(session.role, "adeetie.operate");
-  const canViewEcm = hasCapability(session.role, "adeetie.view");
-  const ecmPayload = canViewEcm
-    ? await suggestEcmsForEngagement(id, session.organizationId, { style: false })
-    : null;
+  const financeLocked = phase === "MV" || !canOperateAdeetie;
   const tiles = engagementLinksForRole(session.role);
 
   const status = engagement.status as Status;

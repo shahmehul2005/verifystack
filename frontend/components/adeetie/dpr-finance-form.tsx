@@ -1,5 +1,7 @@
 "use client";
 
+import { useSoftReload } from "@/lib/soft-reload";
+
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -20,6 +22,7 @@ export function DprFinanceForm({
   sanctionedInterestRatePct: number | null;
   locked: boolean;
 }) {
+  const { softReload, isRefreshing } = useSoftReload();
   const [pending, setPending] = useState(false);
   const [loan, setLoan] = useState(loanAmountInr == null ? "" : String(loanAmountInr));
   const [cost, setCost] = useState(projectCostInr == null ? "" : String(projectCostInr));
@@ -45,7 +48,7 @@ export function DprFinanceForm({
       return;
     }
     toast.success("Loan structure saved");
-    window.location.reload();
+    softReload();
   }
 
   return (
@@ -94,7 +97,7 @@ export function DprFinanceForm({
       </div>
       {locked ? null : (
         <div className="mt-4">
-          <Button disabled={pending} onClick={() => void save()}>
+          <Button disabled={pending || isRefreshing} onClick={() => void save()}>
             {pending ? "Saving…" : "Save loan structure"}
           </Button>
         </div>

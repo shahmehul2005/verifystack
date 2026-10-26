@@ -1,5 +1,7 @@
 "use client";
 
+import { useSoftReload } from "@/lib/soft-reload";
+
 import { useState } from "react";
 import { toast } from "sonner";
 import { Check, X } from "lucide-react";
@@ -12,6 +14,7 @@ export function QueueActions({
   fieldId: string;
   engagementId: string;
 }) {
+  const { softReload, isRefreshing } = useSoftReload();
   const [pending, setPending] = useState(false);
 
   async function decide(state: "accepted" | "rejected") {
@@ -26,13 +29,13 @@ export function QueueActions({
     if (!res.ok || !json.ok) toast.error(json.error ?? "Review failed");
     else {
       toast.success(state === "accepted" ? "Accepted as a fact" : "Rejected");
-      window.location.reload();
+      softReload();
     }
   }
 
   return (
     <div className="flex shrink-0 gap-2">
-      <Button size="sm" disabled={pending} onClick={() => void decide("accepted")}>
+      <Button size="sm" disabled={pending || isRefreshing} onClick={() => void decide("accepted")}>
         <Check />
         Accept
       </Button>
@@ -40,7 +43,7 @@ export function QueueActions({
         size="sm"
         variant="ghost"
         className="text-red-700 hover:bg-red-50 hover:text-red-800"
-        disabled={pending}
+        disabled={pending || isRefreshing}
         onClick={() => void decide("rejected")}
       >
         <X />

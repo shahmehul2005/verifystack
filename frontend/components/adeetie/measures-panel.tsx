@@ -1,5 +1,7 @@
 "use client";
 
+import { useSoftReload } from "@/lib/soft-reload";
+
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -32,6 +34,7 @@ export function MeasuresPanel({
   savingUnit: string;
   locked: boolean;
 }) {
+  const { softReload, isRefreshing } = useSoftReload();
   const [pending, setPending] = useState(false);
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState("");
@@ -60,7 +63,7 @@ export function MeasuresPanel({
       return;
     }
     toast.success("Measure recorded");
-    window.location.reload();
+    softReload();
   }
 
   async function remove(measureId: string) {
@@ -76,7 +79,7 @@ export function MeasuresPanel({
       return;
     }
     toast.success("Measure removed");
-    window.location.reload();
+    softReload();
   }
 
   return (
@@ -124,7 +127,7 @@ export function MeasuresPanel({
                       variant="ghost"
                       size="sm"
                       className="text-red-700 hover:bg-red-50 hover:text-red-800"
-                      disabled={pending}
+                      disabled={pending || isRefreshing}
                       onClick={() => void remove(m.id)}
                     >
                       <Trash2 />
@@ -191,7 +194,7 @@ export function MeasuresPanel({
             <Input id="m-basis" value={basis} onChange={(e) => setBasis(e.target.value)} />
           </div>
           <div>
-            <Button disabled={pending} onClick={() => void add()}>
+            <Button disabled={pending || isRefreshing} onClick={() => void add()}>
               <Plus />
               Add measure
             </Button>

@@ -1,5 +1,7 @@
 "use client";
 
+import { useSoftReload } from "@/lib/soft-reload";
+
 import { useState } from "react";
 import { toast } from "sonner";
 import { Calculator } from "lucide-react";
@@ -55,6 +57,7 @@ export function SavingsPanel({
   canRun: boolean;
   hasMeasures: boolean;
 }) {
+  const { softReload, isRefreshing } = useSoftReload();
   const [pending, setPending] = useState(false);
 
   async function run() {
@@ -67,7 +70,7 @@ export function SavingsPanel({
       return;
     }
     toast.success("Savings and payback recorded");
-    window.location.reload();
+    softReload();
   }
 
   const t = latest?.result.totals;
@@ -78,7 +81,7 @@ export function SavingsPanel({
         description="A projection from the recorded measures against the baseline. It is recorded and hashed like a run, so a figure on a DPR review can be reproduced."
         actions={
           canRun ? (
-            <Button size="sm" disabled={pending || !hasMeasures} onClick={() => void run()}>
+            <Button size="sm" disabled={pending || isRefreshing || !hasMeasures} onClick={() => void run()}>
               <Calculator />
               {latest ? "Recompute" : "Compute"}
             </Button>

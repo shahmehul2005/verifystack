@@ -1,5 +1,7 @@
 "use client";
 
+import { useSoftReload } from "@/lib/soft-reload";
+
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -26,6 +28,7 @@ export function ScheduleVisit({
   members: Member[];
   suggestions: Suggestion[];
 }) {
+  const { softReload, isRefreshing } = useSoftReload();
   const [plannedFor, setPlannedFor] = useState("");
   const [location, setLocation] = useState("");
   const [scope, setScope] = useState("");
@@ -52,7 +55,7 @@ export function ScheduleVisit({
       return;
     }
     toast.success("Visit scheduled");
-    window.location.reload();
+    softReload();
   }
 
   return (
@@ -106,7 +109,7 @@ export function ScheduleVisit({
           </Select>
         </div>
         <div className="flex items-end">
-          <Button type="submit" disabled={pending || location.trim().length < 2 || scope.trim().length < 5}>
+          <Button type="submit" disabled={pending || isRefreshing || location.trim().length < 2 || scope.trim().length < 5}>
             Schedule
           </Button>
         </div>
@@ -125,6 +128,7 @@ export function VisitStatusButtons({
   visitId: string;
   status: string;
 }) {
+  const { softReload, isRefreshing } = useSoftReload();
   const [pending, setPending] = useState(false);
   if (status === "completed" || status === "cancelled") return null;
 
@@ -142,15 +146,15 @@ export function VisitStatusButtons({
       toast.error(json.error ?? "Could not update the visit");
       return;
     }
-    window.location.reload();
+    softReload();
   }
 
   return (
     <span className="flex gap-1">
-      <Button size="sm" variant="secondary" disabled={pending} onClick={() => void set("completed")}>
+      <Button size="sm" variant="secondary" disabled={pending || isRefreshing} onClick={() => void set("completed")}>
         Complete
       </Button>
-      <Button size="sm" variant="ghost" disabled={pending} onClick={() => void set("cancelled")}>
+      <Button size="sm" variant="ghost" disabled={pending || isRefreshing} onClick={() => void set("cancelled")}>
         Cancel
       </Button>
     </span>

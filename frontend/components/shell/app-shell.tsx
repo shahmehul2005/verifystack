@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   ClipboardList,
   Inbox,
@@ -46,6 +46,16 @@ function NavLinks({
   pathname: string;
   onNavigate?: () => void;
 }) {
+  const router = useRouter();
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
+  const [pathWhenPending, setPathWhenPending] = useState(pathname);
+  const [isPending, startTransition] = useTransition();
+
+  if (pendingHref != null && pathname !== pathWhenPending) {
+    setPathWhenPending(pathname);
+    setPendingHref(null);
+  }
+
   return (
     <>
       {NAV_GROUPS.map((group) => {
@@ -58,19 +68,43 @@ function NavLinks({
             <p className="mb-1 px-3 text-xs font-medium text-mist-500">{group.label}</p>
             <ul className="space-y-0.5">
               {items.map((item) => {
-                const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                const pathActive =
+                  pathname === item.href || pathname.startsWith(`${item.href}/`);
+                const active =
+                  pendingHref != null
+                    ? pendingHref === item.href || pendingHref.startsWith(`${item.href}/`)
+                    : pathActive;
                 const Icon = NAV_ICONS[item.href as keyof typeof NAV_ICONS];
                 return (
                   <li key={item.href}>
                     <Link
                       href={item.href}
-                      onClick={onNavigate}
+                      prefetch={false}
                       aria-current={active ? "page" : undefined}
+                      aria-busy={active && isPending ? true : undefined}
+                      onClick={(e) => {
+                        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) {
+                          onNavigate?.();
+                          return;
+                        }
+                        e.preventDefault();
+                        if (pathActive && pendingHref == null) {
+                          onNavigate?.();
+                          return;
+                        }
+                        setPendingHref(item.href);
+                        setPathWhenPending(pathname);
+                        onNavigate?.();
+                        startTransition(() => {
+                          router.push(item.href);
+                        });
+                      }}
                       className={cn(
                         "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
                         active
                           ? "bg-white font-medium text-teal-900 shadow-[0_0_0_1px_rgb(12_22_21/0.06),0_2px_6px_-2px_rgb(12_22_21/0.1)]"
-                          : "text-mist-700 hover:bg-mist-900/5 hover:text-mist-900"
+                          : "text-mist-700 hover:bg-mist-900/5 hover:text-mist-900",
+                        active && isPending && "opacity-80"
                       )}
                     >
                       <Icon

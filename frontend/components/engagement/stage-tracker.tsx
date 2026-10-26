@@ -1,5 +1,7 @@
 "use client";
 
+import { useSoftReload } from "@/lib/soft-reload";
+
 import { useState } from "react";
 import { toast } from "sonner";
 import { ArrowRight, Undo2 } from "lucide-react";
@@ -37,6 +39,7 @@ export function StageTracker({
   mismatch: string | null;
   events: StageEventRow[];
 }) {
+  const { softReload, isRefreshing } = useSoftReload();
   const [busy, setBusy] = useState(false);
   const [backTo, setBackTo] = useState("");
   const [note, setNote] = useState("");
@@ -62,7 +65,7 @@ export function StageTracker({
         return;
       }
       toast.success(`Stage: ${label(stage)}`);
-      window.location.reload();
+      softReload();
     } finally {
       setBusy(false);
     }
@@ -81,7 +84,7 @@ export function StageTracker({
         {canMove && !closed ? (
           <div className="flex flex-wrap items-end gap-3 border-t border-mist-100 pt-4">
             {next ? (
-              <Button size="sm" disabled={busy} onClick={() => void move(next.id)}>
+              <Button size="sm" disabled={busy || isRefreshing} onClick={() => void move(next.id)}>
                 {current ? `Move to ${next.label}` : `Start at ${next.label}`}
                 <ArrowRight />
               </Button>
@@ -106,7 +109,7 @@ export function StageTracker({
                 <Button
                   size="sm"
                   variant="secondary"
-                  disabled={busy || !backTo || note.trim().length < 5}
+                  disabled={busy || isRefreshing || !backTo || note.trim().length < 5}
                   onClick={() => void move(backTo, note.trim())}
                 >
                   <Undo2 />

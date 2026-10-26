@@ -8,7 +8,7 @@ import { ForbiddenState } from "@/components/states";
 import { ALL_FACTOR_RECORDS } from "@verifystack/backend/domain/factors";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
-import { getSession } from "@verifystack/backend/lib/auth/getSession";
+import { getSession } from "@/lib/session";
 import { isPlatformSteward } from "@verifystack/backend/lib/auth/steward";
 import { formatIst } from "@/lib/format";
 import { FactorVerifyPanel } from "./verify-form";

@@ -1,9 +1,9 @@
 import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { EngagementNav } from "@/components/shell/engagement-nav";
-import { getSession } from "@verifystack/backend/lib/auth/getSession";
+import { getSession } from "@/lib/session";
 import { engagementLinksForRole } from "@verifystack/backend/lib/auth/capabilities";
 import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
-import { getEngagement } from "@verifystack/backend/lib/data/engagements";
+import { getEngagement } from "@/lib/session";
 
 export default async function EngagementLayout({
   children,

@@ -22,7 +22,7 @@ export async function GET(
     }
     const { data: doc } = await supabase
       .from("documents")
-      .select("*")
+      .select("id, storage_path, mime_type, original_filename, organization_id")
       .eq("id", id)
       .eq("organization_id", organizationId)
       .single();
@@ -30,8 +30,7 @@ export async function GET(
       return Response.json({ ok: false, error: "Not found" }, { status: 404 });
     }
 
-    const admin = createServiceClient() ?? supabase;
-    const { data, error } = await admin.storage.from("evidence").download(doc.storage_path);
+    const { data, error } = await supabase.storage.from("evidence").download(doc.storage_path);
     if (error || !data) {
       throw new Error(error?.message ?? "Storage object missing");
     }

@@ -1,5 +1,7 @@
 "use client";
 
+import { useSoftReload } from "@/lib/soft-reload";
+
 import { useState } from "react";
 import { toast } from "sonner";
 import { CheckCheck } from "lucide-react";
@@ -19,6 +21,7 @@ export function BulkAcceptButton({
   count: number;
   disabled: boolean;
 }) {
+  const { softReload, isRefreshing } = useSoftReload();
   const [pending, setPending] = useState(false);
 
   async function run() {
@@ -42,11 +45,11 @@ export function BulkAcceptButton({
       return;
     }
     toast.success(`${json.accepted} value(s) accepted`);
-    window.location.reload();
+    softReload();
   }
 
   return (
-    <Button size="sm" disabled={disabled || pending} onClick={() => void run()}>
+    <Button size="sm" disabled={disabled || pending || isRefreshing} onClick={() => void run()}>
       <CheckCheck />
       {pending ? "Accepting…" : `Accept ${count} low-risk value${count === 1 ? "" : "s"}`}
     </Button>

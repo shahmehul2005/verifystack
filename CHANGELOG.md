@@ -16,6 +16,23 @@ must say which version it bumps. Current versions:
 
 ## [Unreleased]
 
+### Changed: app navigation feel
+
+- Per-request memoisation of `getSession` / `getEngagement` in Server Components, so shell,
+  engagement layout and the page share one auth and engagement read.
+- Engagement Overview loads ADEETIE panels, savings and stages in parallel; ECM reuses that
+  engagement (and runs when already loaded).
+- Mutations soft-refresh with `router.refresh()` instead of a full browser reload.
+- Engagement-route loading skeleton; short client-router `staleTimes` for tab switches.
+- Proxy skips `auth.getUser()` when no Supabase auth cookie is present (anonymous traffic),
+  and also on signed-in app navigations (the single `getUser()` is in `getSession()`).
+- Engagement and sidebar nav highlight instantly on click; tab links use `prefetch={false}`.
+- Soft refresh after mutations runs inside `useTransition` so buttons stay busy until the
+  RSC update lands.
+- ECM library load is scoped to the pack sector; same match rules as before.
+- Migration `0015_engagement_query_indexes.sql` adds engagement_id indexes on hot tables.
+  Auth rules, pack behaviour and user-visible outcomes are unchanged.
+
 ### Changed: public site and visual language
 
 - **Landing page** rewritten to cover the whole workflow: planning, four evidence types,

@@ -1,5 +1,7 @@
 "use client";
 
+import { useSoftReload } from "@/lib/soft-reload";
+
 import { useState } from "react";
 import { toast } from "sonner";
 import {
@@ -77,6 +79,7 @@ export function FindingActions({
   dueAt: string | null;
   hasLiveLink: boolean;
 }) {
+  const { softReload, isRefreshing } = useSoftReload();
   const [busy, setBusy] = useState(false);
   const [due, setDue] = useState(dueAt ? dueAt.slice(0, 10) : defaultDue());
   const [link, setLink] = useState<string | null>(null);
@@ -111,7 +114,7 @@ export function FindingActions({
         setLink(json.responseLink);
         return;
       }
-      if (reload) window.location.reload();
+      if (reload) softReload();
     } finally {
       setBusy(false);
     }
@@ -131,42 +134,42 @@ export function FindingActions({
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         {(drafted || state === "accepted" || state === "edited") && (
-          <Button size="sm" variant="subtle" disabled={busy} onClick={() => void run({ polish: true })}>
+          <Button size="sm" variant="subtle" disabled={busy || isRefreshing} onClick={() => void run({ polish: true })}>
             <Sparkles />
             Draft CAR
           </Button>
         )}
         {canAccept && drafted && (
-          <Button size="sm" disabled={busy} onClick={() => void run({ state: "accepted" })}>
+          <Button size="sm" disabled={busy || isRefreshing} onClick={() => void run({ state: "accepted" })}>
             <FileSignature />
             Accept CAR
           </Button>
         )}
         {canVerify && (
-          <Button size="sm" disabled={busy} onClick={() => void run({ state: "verified" })}>
+          <Button size="sm" disabled={busy || isRefreshing} onClick={() => void run({ state: "verified" })}>
             <ShieldCheck />
             Verify response
           </Button>
         )}
         {canClose && (
-          <Button size="sm" variant="secondary" disabled={busy} onClick={() => void run({ state: "closed" })}>
+          <Button size="sm" variant="secondary" disabled={busy || isRefreshing} onClick={() => void run({ state: "closed" })}>
             <CircleCheck />
             Close issue
           </Button>
         )}
         {state === "open" && (
           <>
-            <Button size="sm" variant="secondary" disabled={busy} onClick={() => void run({ action: "newLink" }, { reload: false })}>
+            <Button size="sm" variant="secondary" disabled={busy || isRefreshing} onClick={() => void run({ action: "newLink" }, { reload: false })}>
               <Link2 />
               {hasLiveLink ? "New response link" : "Issue response link"}
             </Button>
             {hasLiveLink && (
-              <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run({ action: "revokeLink" })}>
+              <Button size="sm" variant="ghost" disabled={busy || isRefreshing} onClick={() => void run({ action: "revokeLink" })}>
                 <Link2Off />
                 Revoke link
               </Button>
             )}
-            <Button size="sm" variant="secondary" disabled={busy} onClick={() => setRecording((v) => !v)}>
+            <Button size="sm" variant="secondary" disabled={busy || isRefreshing} onClick={() => setRecording((v) => !v)}>
               <MessageSquarePlus />
               Record a response
             </Button>
@@ -177,7 +180,7 @@ export function FindingActions({
             size="sm"
             variant="ghost"
             className="text-red-700 hover:bg-red-50 hover:text-red-800"
-            disabled={busy}
+            disabled={busy || isRefreshing}
             onClick={() => void run({ state: "rejected" })}
           >
             <X />
@@ -201,7 +204,7 @@ export function FindingActions({
           </div>
           <Button
             size="sm"
-            disabled={busy || !due}
+            disabled={busy || isRefreshing || !due}
             onClick={() => void run({ state: "open", dueAt: dueIso() }, { reload: false })}
           >
             {state === "responded" || state === "verified" ? <RotateCcw /> : <Send />}
@@ -218,7 +221,7 @@ export function FindingActions({
           tone="ok"
           title="Send this link to the entity"
           actions={
-            <Button size="sm" variant="secondary" onClick={() => window.location.reload()}>
+            <Button size="sm" variant="secondary" onClick={() => softReload()}>
               Done
             </Button>
           }
@@ -249,7 +252,7 @@ export function FindingActions({
           </div>
           <Button
             size="sm"
-            disabled={busy || said.trim().length < 5}
+            disabled={busy || isRefreshing || said.trim().length < 5}
             onClick={() =>
               void run({
                 action: "recordResponse",
@@ -285,15 +288,16 @@ export function CloseFindingButton({
   findingId: string;
   engagementId: string;
 }) {
+  const { softReload, isRefreshing } = useSoftReload();
   async function close() {
     const json = await send(engagementId, findingId, { state: "closed" });
     if (json) {
       toast.success("Issue closed");
-      window.location.reload();
+      softReload();
     }
   }
   return (
-    <Button size="sm" variant="secondary" onClick={() => void close()}>
+    <Button size="sm" variant="secondary" disabled={isRefreshing} onClick={() => void close()}>
       <CircleCheck />
       Close
     </Button>

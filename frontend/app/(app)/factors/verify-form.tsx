@@ -1,5 +1,7 @@
 "use client";
 
+import { useSoftReload } from "@/lib/soft-reload";
+
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -22,6 +24,7 @@ export function FactorVerifyPanel({
   /** Platform stewards may replace a catalogue value; firms attest the shipped one. */
   canChangeValue?: boolean;
 }) {
+  const { softReload, isRefreshing } = useSoftReload();
   const [key, setKey] = useState(`${factors[0].id}::${factors[0].vintage}`);
   const [citedSource, setCitedSource] = useState("");
   const [correctedValue, setCorrectedValue] = useState("");
@@ -53,7 +56,7 @@ export function FactorVerifyPanel({
       return;
     }
     toast.success(`${selected.id} (${selected.vintage}) recorded as verified`);
-    window.location.reload();
+    softReload();
   }
 
   return (
@@ -127,7 +130,7 @@ export function FactorVerifyPanel({
       )}
 
       <div className="flex flex-wrap items-center gap-3 border-t border-mist-100 pt-4">
-        <Button onClick={() => void submit()} disabled={pending || citedSource.trim().length < 12}>
+        <Button onClick={() => void submit()} disabled={pending || isRefreshing || citedSource.trim().length < 12}>
           {pending ? "Recording…" : "Record attestation"}
         </Button>
         <p className="text-xs text-mist-500">

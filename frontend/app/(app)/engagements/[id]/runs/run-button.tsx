@@ -1,5 +1,7 @@
 "use client";
 
+import { useSoftReload } from "@/lib/soft-reload";
+
 import { useState } from "react";
 import { toast } from "sonner";
 import { Calculator } from "lucide-react";
@@ -21,6 +23,7 @@ export function RunCalcButton({
   method?: "GEI" | "SEC";
   allowedSecPhases?: SecPhase[];
 }) {
+  const { softReload, isRefreshing } = useSoftReload();
   const [pending, setPending] = useState<string | null>(null);
 
   async function run(phase?: SecPhase) {
@@ -39,7 +42,7 @@ export function RunCalcButton({
     toast.success("Run recorded", {
       description: `Input fingerprint ${String(json.run?.input_hash ?? "").slice(0, 12)}…`,
     });
-    window.location.reload();
+    softReload();
   }
 
   if (method === "SEC") {
@@ -52,7 +55,7 @@ export function RunCalcButton({
           <Button
             key={p.phase}
             variant={p.phase === "baseline" ? "primary" : "secondary"}
-            disabled={pending !== null}
+            disabled={pending !== null || isRefreshing}
             onClick={() => void run(p.phase)}
           >
             {pending === p.phase ? <Spinner /> : <Calculator />}
@@ -64,7 +67,7 @@ export function RunCalcButton({
   }
 
   return (
-    <Button disabled={pending !== null} onClick={() => void run()}>
+    <Button disabled={pending !== null || isRefreshing} onClick={() => void run()}>
       {pending ? <Spinner /> : <Calculator />}
       {pending ? "Running…" : "Run calculation"}
     </Button>

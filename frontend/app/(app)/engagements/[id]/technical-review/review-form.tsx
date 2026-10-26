@@ -1,5 +1,7 @@
 "use client";
 
+import { useSoftReload } from "@/lib/soft-reload";
+
 import { useState } from "react";
 import { toast } from "sonner";
 import { ClipboardCheck } from "lucide-react";
@@ -10,6 +12,7 @@ import { FieldHint, Label, Textarea } from "@/components/ui/input";
 type Decision = "approved" | "changes_requested";
 
 export function ReviewForm({ engagementId }: { engagementId: string }) {
+  const { softReload, isRefreshing } = useSoftReload();
   const [decision, setDecision] = useState<Decision>("approved");
   const [comments, setComments] = useState("");
   const [confirming, setConfirming] = useState(false);
@@ -28,7 +31,7 @@ export function ReviewForm({ engagementId }: { engagementId: string }) {
     if (!res.ok || !json?.ok) toast.error(json?.error ?? "Review refused");
     else {
       toast.success(decision === "approved" ? "Review approved" : "Changes requested");
-      window.location.reload();
+      softReload();
     }
   }
 
@@ -87,10 +90,10 @@ export function ReviewForm({ engagementId }: { engagementId: string }) {
           stops counting and a new review is needed. Reviews cannot be edited or removed.
         </p>
         <div className="mt-5 flex justify-end gap-2">
-          <Button variant="secondary" onClick={() => setConfirming(false)} disabled={pending}>
+          <Button variant="secondary" onClick={() => setConfirming(false)} disabled={pending || isRefreshing}>
             Cancel
           </Button>
-          <Button onClick={() => void submit()} disabled={pending}>
+          <Button onClick={() => void submit()} disabled={pending || isRefreshing}>
             {pending ? "Recording…" : "Record review"}
           </Button>
         </div>

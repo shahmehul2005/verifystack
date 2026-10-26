@@ -1,5 +1,7 @@
 "use client";
 
+import { useSoftReload } from "@/lib/soft-reload";
+
 import { useState } from "react";
 import { toast } from "sonner";
 import { Plus, Trash2 } from "lucide-react";
@@ -40,6 +42,7 @@ export function PlanEditor({
   latestStatus: "draft" | "approved" | null;
   canApprove: boolean;
 }) {
+  const { softReload, isRefreshing } = useSoftReload();
   const [factors, setFactors] = useState(
     defs.map((d) => {
       const existing = initial.factors.find((f) => f.key === d.key);
@@ -79,7 +82,7 @@ export function PlanEditor({
       return;
     }
     toast.success(action === "approve" ? `Plan v${json.version} approved` : `Saved as v${json.version}`);
-    window.location.reload();
+    softReload();
   }
 
   return (
@@ -196,13 +199,13 @@ export function PlanEditor({
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <Button disabled={pending} onClick={() => void send("save")}>
+        <Button disabled={pending || isRefreshing} onClick={() => void send("save")}>
           Save as new version
         </Button>
         {canApprove ? (
           <Button
             variant="secondary"
-            disabled={pending || latestStatus !== "draft"}
+            disabled={pending || isRefreshing || latestStatus !== "draft"}
             onClick={() => void send("approve")}
           >
             Approve latest saved version

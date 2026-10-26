@@ -1,5 +1,7 @@
 "use client";
 
+import { useSoftReload } from "@/lib/soft-reload";
+
 import { useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +21,7 @@ export function CitationPanel({
   findingId: string;
   engagementId: string;
 }) {
+  const { softReload } = useSoftReload();
   const hasClause = Boolean(citation.citation_chunk_text);
   const [editing, setEditing] = useState(false);
   const [explanation, setExplanation] = useState(citation.citation_explanation ?? "");
@@ -35,7 +38,7 @@ export function CitationPanel({
       toast.success(
         typeof body.citationState === "string" ? `Citation ${body.citationState}` : "Saved"
       );
-      window.location.reload();
+      softReload();
     }
   }
 
