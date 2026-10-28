@@ -117,6 +117,10 @@ export interface StreamReadiness {
   streamId: string;
   label: string;
   bound: boolean;
+  /** A quantity was found but the stream cannot be priced. A run would drop real consumption. */
+  partial?: boolean;
+  /** The pack names this stream as required for a run. Absent streams are otherwise optional. */
+  required?: boolean;
   reason?: string;
 }
 
@@ -163,6 +167,7 @@ export function assessRunReadiness(
             streamId: binding.streamId,
             label: binding.label,
             bound: false,
+            partial: true,
             reason: `Quantity found, but no calorific value at "${binding.calorificValue.path}"`,
           });
           continue;
@@ -196,7 +201,28 @@ export function assessRunReadiness(
     );
   }
 
+  // A stream is optional unless the pack says otherwise: no consumption, no fact, counted as zero.
+  // Consumption that cannot be priced is different. Dropping it would understate emissions
+  // without a message, so it blocks the run.
+  for (const s of streams) {
+    if (s.partial) blockers.push(`"${s.label}": ${s.reason}. A run would leave this consumption out.`);
+  }
+  if (pack.calculation_method === "GEI") {
+    for (const b of pack.stream_bindings) {
+      const s = streams.find((x) => x.streamId === b.streamId);
+      if (s) s.required = Boolean(b.required);
+      if (b.required && s && !s.bound && !s.partial) {
+        blockers.push(`"${b.label}" is required by the pack and has no fact at "${b.quantity.path}".`);
+      }
+    }
+  }
   const warnings: string[] = [];
+  const unbound = streams.filter((s) => !s.bound && !s.partial && !s.required);
+  if (unbound.length > 0 && streams.some((s) => s.bound)) {
+    warnings.push(
+      `Counted as zero (no fact): ${unbound.map((s) => s.label).join(", ")}. If the plant uses any of these, add the figure before running.`
+    );
+  }
 
   return {
     factCount: facts.length,
@@ -277,12 +303,12 @@ function buildStream(
         `Stream "${binding.streamId}" calorific value`
       );
       if (!cv) {
-        if (binding.required) {
-          throw new CalcError(
-            `Pack requires a calorific value at "${binding.calorificValue.path}" for stream "${binding.streamId}".`
-          );
-        }
-        return null;
+        // Zero consumption needs no calorific value. Anything else cannot be dropped silently.
+        if (!binding.required && resolved.quantity.value === 0) return null;
+        throw new CalcError(
+          `Stream "${binding.streamId}" has a quantity but no calorific value at "${binding.calorificValue.path}". ` +
+            `Add the calorific value, or remove the quantity if the fuel was not used.`
+        );
       }
 
       let basis = binding.calorificBasis;

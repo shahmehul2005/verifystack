@@ -1,5 +1,6 @@
 import type { Unit } from "../units";
 import type { FuelPhase } from "../factors";
+import type { ProformaInput } from "../proforma/types";
 
 /**
  * CBAM and GREEN_HYDROGEN exist as structure only (pack schema v2). They are
@@ -215,6 +216,24 @@ export interface PackCluster {
   cluster: string;
 }
 
+/**
+ * One labelled place in a pack's evidence checklist. Several documents may sit
+ * under one slot (three electricity bills, a PDF and a CSV export). A slot is
+ * ticked once it holds at least one document.
+ *
+ * `gate` says what an empty slot blocks: a calculation run, a submission, or
+ * nothing (corroboration only). The source list in `basis` is what the slot was
+ * proposed from. A slot stays "proposed" until a practitioner confirms it.
+ */
+export interface EvidenceSlot {
+  id: string;
+  label: string;
+  gate: "run" | "submission" | "none";
+  /** Plain-language description of the files this slot takes. */
+  accepts: string;
+  basis: string;
+}
+
 export interface MethodologyPack {
   pack_id: string;
   scheme: PackScheme;
@@ -248,6 +267,24 @@ export interface MethodologyPack {
    * regulatory register, so no pack switches it on without a source.
    */
   technical_review_required?: boolean;
+  /**
+   * Evidence checklist (verification-first intake). When present, a calculation
+   * run is refused until every slot with `gate: "run"` holds a document.
+   */
+  evidence_slots?: EvidenceSlot[];
+  /**
+   * When true, a run uses only accepted spreadsheet-cell and time-series facts
+   * (plus site observations and explicit overrides). PDF readings stay on the
+   * ledger and are left out of the run. Changing this changes run results, so it
+   * is a pack version change. Absent or false keeps the existing behaviour.
+   */
+  workbook_required?: boolean;
+  /**
+   * Where each calculation input sits in the master pro forma workbook. When
+   * present, the inputs a run needs are read from that workbook alone, and
+   * formula cells are recomputed in code. No OCR and no hand-keying.
+   */
+  proforma_inputs?: ProformaInput[];
   /** Submission package outputs (DFD 8.7). Empty or absent means the generic package only. */
   submission_formats?: PackSubmissionFormat[];
   /**

@@ -17,6 +17,9 @@ import { formatBytes, formatIst, humanize } from "@/lib/format";
 import { UploadForm } from "./upload-form";
 import { ExtractButton } from "./extract-button";
 import { TableMapper, type DatasetView } from "./table-mapper";
+import { SlotChecklist } from "./slot-checklist";
+import { SummaryReviewButton } from "./summary-review";
+import { ProformaReviewButton } from "./proforma-review";
 
 export const metadata = { title: "Documents" };
 
@@ -41,6 +44,7 @@ export default async function DocumentsPage({
   }
   const canUpload = hasCapability(session.role, "documents.upload");
   const canExtract = hasCapability(session.role, "documents.extract");
+  const canDecide = hasCapability(session.role, "review.decide");
   const engagement = await getEngagement(id, session.organizationId);
   if (!engagement) notFound();
   const pack = loadPack(engagement.pack_id);
@@ -61,6 +65,8 @@ export default async function DocumentsPage({
 
   const isAdeetie = engagement.scheme === "ADEETIE";
   const targets = packFieldTargets(pack);
+  const slots = pack.evidence_slots ?? [];
+  const hasProforma = (pack.proforma_inputs?.length ?? 0) > 0;
   const datasetsByDoc = new Map<string, DatasetView[]>();
   for (const d of datasets ?? []) {
     const list = datasetsByDoc.get(d.document_id) ?? [];
@@ -76,12 +82,20 @@ export default async function DocumentsPage({
         description={
           isAdeetie && engagement.adeetie_phase
             ? `New uploads are tagged ${engagement.adeetie_phase}. Baseline SEC reads IGEA evidence; post-implementation SEC reads M&V evidence.`
-            : "Upload stores the file under its fingerprint. PDFs and images are read page by page; spreadsheets and SCADA exports are mapped cell by cell or window by window. Every value keeps its source."
+            : "Upload stores each file first and reads nothing. Extract reads a PDF when you ask for it. Spreadsheets and CSV files are mapped cell by cell or window by window. Every value keeps its source."
         }
         actions={
           canUpload ? <UploadForm engagementId={id} disabled={!canStartWork(pack)} /> : undefined
         }
       />
+      {slots.length > 0 ? (
+        <SlotChecklist
+          engagementId={id}
+          slots={slots}
+          documents={(docs ?? []).map((d) => ({ id: d.id, name: d.original_filename, slot: d.slot }))}
+          canEdit={canUpload}
+        />
+      ) : null}
       {!docs?.length ? (
         <EmptyState
           icon={Upload}
@@ -175,6 +189,17 @@ export default async function DocumentsPage({
                   <Td className="whitespace-nowrap text-xs text-mist-600">{formatIst(d.created_at)}</Td>
                   <Td className="text-right">
                     {canExtract && !isTable ? <ExtractButton documentId={d.id} engagementId={id} /> : null}
+                    {canDecide && hasProforma && (d.slot === "proforma_workbook" || /pro-?forma/i.test(d.original_filename)) && d.mime_type === XLSX_MIME ? (
+                      <ProformaReviewButton documentId={d.id} documentName={d.original_filename} engagementId={id} />
+                    ) : null}
+                    {isTable && canDecide ? (
+                      <SummaryReviewButton
+                        documentId={d.id}
+                        documentName={d.original_filename}
+                        engagementId={id}
+                        targets={targets}
+                      />
+                    ) : null}
                   </Td>
                 </DocRow>
               );

@@ -8,6 +8,8 @@ import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { getEngagement, ensureEngagementStatus } from "@verifystack/backend/lib/data/engagements";
 import { factorSetForOrganization } from "@verifystack/backend/lib/data/factors";
 import { resolveMethod } from "@verifystack/backend/domain/calc/dispatch";
+import { evaluateChecklist } from "@verifystack/backend/domain/crosscheck/checklist";
+import { selectRunFacts } from "@verifystack/backend/domain/crosscheck/runFacts";
 import { executeRun, assessRunReadiness, toProvenancedFact, type ProvenancedFact } from "@verifystack/backend/domain/calc/run";
 import { executeSecRun } from "@verifystack/backend/domain/calc/secRun";
 import { assessSavings, type SecResult } from "@verifystack/backend/domain/calc/sec";
@@ -66,6 +68,31 @@ export async function POST(req: Request) {
     const supabase = createServiceClient() ?? (await createServerSupabase());
     if (!supabase) {
       return NextResponse.json({ ok: false, error: "Supabase is not configured" }, { status: 503 });
+    }
+
+    // Evidence checklist: a run waits until every run-gated slot holds a document.
+    // Packs without slots skip this entirely.
+    if (pack.evidence_slots) {
+      const { data: slotDocs } = await supabase
+        .from("documents")
+        .select("id, slot")
+        .eq("engagement_id", engagement.id)
+        .eq("organization_id", organizationId);
+      const checklist = evaluateChecklist(
+        pack.evidence_slots,
+        (slotDocs ?? []).map((d) => ({ documentId: d.id, slot: d.slot }))
+      );
+      if (!checklist.canRun) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: `Upload and assign evidence before calculating. Missing: ${checklist.missingForRun
+              .map((s) => s.label)
+              .join("; ")}.`,
+          },
+          { status: 422 }
+        );
+      }
     }
 
     const { data: factRows } = await supabase
@@ -220,7 +247,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, run: stored });
     }
 
-    const readiness = assessRunReadiness(pack, facts, { draftMode: engagement.draft_mode });
+    // Workbook-only runs: a pack that requires workbook values gets only those facts.
+    // Packs without the flag get every fact, as before.
+    const scoped = selectRunFacts(pack, facts);
+    const readiness = assessRunReadiness(pack, scoped.facts, { draftMode: engagement.draft_mode });
     if (!readiness.canRun) {
       return NextResponse.json(
         { ok: false, error: readiness.blockers.join(" "), readiness },
@@ -236,7 +266,7 @@ export async function POST(req: Request) {
       complianceYear: engagement.compliance_year,
       geiTarget: engagement.gei_target != null ? Number(engagement.gei_target) : undefined,
       draftMode: engagement.draft_mode,
-      facts,
+      facts: scoped.facts,
       previousRunHash,
       factorSet,
     });
@@ -265,7 +295,7 @@ export async function POST(req: Request) {
       reconciliationContextFromFacts({
         complianceYear: engagement.compliance_year,
         calc: run.result,
-        facts,
+        facts: scoped.facts,
       })
     );
     await insertFindings(supabase, organizationId, engagement.id, stored.id, rules.findings, {

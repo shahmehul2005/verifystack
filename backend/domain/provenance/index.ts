@@ -23,6 +23,7 @@ import { BBoxSchema } from "../extraction/schemas";
 export const PROVENANCE_TYPES = [
   "document_page",
   "spreadsheet_cell",
+  "spreadsheet_range",
   "time_series_range",
   "site_observation",
 ] as const;
@@ -32,6 +33,7 @@ export type ProvenanceType = (typeof PROVENANCE_TYPES)[number];
 export const PROVENANCE_LABEL: Record<ProvenanceType, string> = {
   document_page: "Document page",
   spreadsheet_cell: "Spreadsheet cell",
+  spreadsheet_range: "Spreadsheet range (computed)",
   time_series_range: "Time-series range",
   site_observation: "Site observation",
 };
@@ -54,7 +56,46 @@ export const SpreadsheetCellProvenance = z.object({
   cellRef: z.string().regex(/^[A-Z]{1,3}[1-9][0-9]{0,6}$/, "Expected an A1-style cell reference"),
   value: z.union([z.string(), z.number(), z.boolean(), z.null()]),
   formula: z.string().max(2000).optional(),
+  /** Metric name the auditor gave the total, e.g. "Clinker production". Summary extraction only. */
+  label: z.string().max(200).optional(),
+  /**
+   * The period the summed rows cover, when the sheet has a date column. A monthly
+   * total must not be read as an annual figure, so the period travels with the fact.
+   */
+  coverage: z
+    .object({
+      rows: z.number().int().nonnegative(),
+      first: z.string().max(40).nullable(),
+      last: z.string().max(40).nullable(),
+    })
+    .optional(),
 });
+
+/**
+ * A total the server computed from a column range of a workbook, because the file
+ * had no total row. The provenance names the range; it does not name a cell that
+ * the entity typed. The value is the sum of the numbers in that range.
+ */
+export const SpreadsheetRangeProvenance = z
+  .object({
+    type: z.literal("spreadsheet_range"),
+    documentId: z.string().min(1),
+    sheet: z.string().min(1).max(120),
+    column: z.string().regex(/^[A-Z]{1,3}$/, "Expected a column letter"),
+    fromRow: z.number().int().positive(),
+    toRow: z.number().int().positive(),
+    aggregation: z.literal("sum"),
+    rowCount: z.number().int().nonnegative(),
+    label: z.string().max(200).optional(),
+    coverage: z
+      .object({
+        rows: z.number().int().nonnegative(),
+        first: z.string().max(40).nullable(),
+        last: z.string().max(40).nullable(),
+      })
+      .optional(),
+  })
+  .refine((p) => p.toRow >= p.fromRow, { message: "toRow must not be before fromRow", path: ["toRow"] });
 
 export const TIME_SERIES_AGGREGATIONS = ["sum", "mean", "min", "max", "last", "count"] as const;
 
@@ -91,6 +132,7 @@ export const SiteObservationProvenance = z.object({
 export const FactProvenanceSchema = z.discriminatedUnion("type", [
   DocumentPageProvenance,
   SpreadsheetCellProvenance,
+  SpreadsheetRangeProvenance,
   TimeSeriesRangeProvenance,
   SiteObservationProvenance,
 ]);
@@ -100,6 +142,7 @@ export type DocumentPageProvenance = z.infer<typeof DocumentPageProvenance>;
 export type SpreadsheetCellProvenance = z.infer<typeof SpreadsheetCellProvenance>;
 export type TimeSeriesRangeProvenance = z.infer<typeof TimeSeriesRangeProvenance>;
 export type SiteObservationProvenance = z.infer<typeof SiteObservationProvenance>;
+export type SpreadsheetRangeProvenance = z.infer<typeof SpreadsheetRangeProvenance>;
 
 /** The columns a fact or extracted field carries, whatever its provenance type. */
 export interface ProvenanceColumns {
@@ -136,7 +179,7 @@ export function provenanceFromColumns(row: ProvenanceColumns): Provenance | null
   const parsed = FactProvenanceSchema.safeParse({
     ...payload,
     type,
-    ...(type === "spreadsheet_cell" || type === "time_series_range"
+    ...(type === "spreadsheet_cell" || type === "spreadsheet_range" || type === "time_series_range"
       ? { documentId: payload.documentId ?? row.document_id ?? undefined }
       : {}),
   });
@@ -198,6 +241,18 @@ export function provenanceToColumns(p: Provenance): {
         source_text: null,
       };
     }
+    case "spreadsheet_range": {
+      const { type: _t, documentId, ...rest } = p;
+      void _t;
+      return {
+        provenance_type: p.type,
+        provenance: rest,
+        document_id: documentId,
+        page: null,
+        bbox: null,
+        source_text: null,
+      };
+    }
     case "site_observation": {
       const { type: _t, ...rest } = p;
       void _t;
@@ -239,6 +294,14 @@ export function describeProvenance(p: Provenance): ProvenanceDescription {
         type: p.type,
         label,
         detail: `${p.tag}, ${p.aggregation} of ${p.rowCount} rows, ${p.start} to ${p.end}`,
+      };
+    case "spreadsheet_range":
+      return {
+        type: p.type,
+        label,
+        detail: `Sum of ${p.sheet}!${p.column}${p.fromRow}:${p.column}${p.toRow}, ${p.rowCount} number(s)${
+          p.label ? `, as "${p.label}"` : ""
+        }`,
       };
     case "site_observation":
       return {

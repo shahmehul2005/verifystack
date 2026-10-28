@@ -16,6 +16,37 @@ must say which version it bumps. Current versions:
 
 ## [Unreleased]
 
+### Desk review and pro forma inputs
+
+- **Desk review** (new engagement page, `review.decide`). A rule engine over the evidence in its slots.
+  Workbook figures (SCADA, CPP, fuel log, coal lab, pro forma) are read by code; PDF figures are typed
+  by the auditor against a document and page (`desk_readings`). A rule with a missing figure is pending,
+  never passed. Each run is saved with every reading it saw (`desk_reviews`). Migration `0018`.
+- **Run inputs from the pro forma only.** The cement pack declares `proforma_inputs` (label, sheet, unit,
+  scale). A new formula evaluator recomputes the workbook, so formula cells stored as 0 read correctly.
+  "Read inputs" on the pro forma document commits them as facts that point at the cell.
+- **Engine.** A fuel with a quantity but no calorific value now blocks the run and throws, instead of being
+  dropped silently. Streams with no facts stay optional and are listed as counted as zero.
+
+### Changed: evidence packages and spreadsheet totals (ADR 0022)
+
+- **A manifest is optional.** A ZIP with no usable `manifest.json` imports its PDFs, images, Excel and CSV files
+  directly, and hashes each on receipt. A manifest's hash mismatch no longer blocks the import: the file is
+  imported, flagged, and written to the audit log (`evidence_pack.hash_mismatch`). Unlisted or unsupported
+  entries are reported as skipped. The ZIP error for a plain folder is gone.
+- **Totals review.** Each spreadsheet or CSV has a Review totals action. Totals are found on upload, recomputed
+  from the stored file, and shown beside the workbook's stored value. The auditor edits the metric, tag, unit
+  and value, then approves. Approved totals are committed as decided extractions and facts with spreadsheet-cell
+  provenance, plus the label and the period the rows cover. A tag already in the ledger is refused.
+- **Totals without a total row.** A table with a header row and numbers but no total row gets its totals
+  summed on review, one per additive column, named by the column header. Rate, ratio, percentage, quality and
+  identifier columns are not summed. Such a total is recorded with the new provenance type
+  `spreadsheet_range`. Migration `0017_spreadsheet_range_provenance.sql` must be applied.
+- **Upload** takes several files at once and stores them only. Reading stays a separate step.
+- **Restored intake work.** Tracked edits from the evidence checklist, the run gate and the click-to-map
+  mapper had been reverted in the working tree and were re-applied: `evidence_slots` on the cement pack,
+  `documents.slot`, the checklist panel, the run gate, and the workbook-only run filter (off by default).
+
 ### Changed: app navigation feel
 
 - Per-request memoisation of `getSession` / `getEngagement` in Server Components, so shell,

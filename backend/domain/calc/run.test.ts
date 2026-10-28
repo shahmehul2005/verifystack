@@ -98,4 +98,23 @@ describe("calculation run wrapper", () => {
     expect(ready.canRun).toBe(false);
     expect(ready.blockers.join(" ")).toMatch(/production/i);
   });
+
+  it("blocks a run when fuel has a quantity but no calorific value, instead of dropping it", () => {
+    const pack = loadPack("CCTS-CEMENT-v1");
+    const noCv = facts().filter((f) => f.field_path !== "calorificValue");
+    const ready = assessRunReadiness(pack, noCv, { draftMode: true });
+    expect(ready.canRun).toBe(false);
+    expect(ready.blockers.join(" ")).toMatch(/calorific value/i);
+    expect(() =>
+      mapFactsToCalcInput(pack, { engagementId: "e", complianceYear: "FY2025-26", draftMode: true, facts: noCv })
+    ).toThrow(/calorific value/i);
+  });
+
+  it("treats a stream with no facts as optional and says it is counted as zero", () => {
+    const pack = loadPack("CCTS-CEMENT-v1");
+    const only = facts().filter((f) => ["quantity", "calorificValue", "production"].includes(f.field_path));
+    const ready = assessRunReadiness(pack, only, { draftMode: true });
+    expect(ready.canRun).toBe(true);
+    expect(ready.warnings.join(" ")).toMatch(/counted as zero/i);
+  });
 });

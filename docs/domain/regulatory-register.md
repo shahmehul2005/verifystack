@@ -169,6 +169,11 @@ them in from memory.
 | Third-party evidence formats | Only VerifyStack's own evidence-pack format is imported. | A real sample from each external system | Open |
 | Offline capture for fieldwork | A small browser queue with idempotent sync. | Confirm with verifiers that they need it | Open (user validation) |
 | Entity response period | 14-day default, editable per issue. A firm default, not a scheme period. | Scheme period, if one exists | Internal |
+| Coal GCV band, internal lab vs NABL (71.7 kcal/kg) | Desk review rule `gcv_rule` uses it and says its source is the test brief. | The procedure clause that sets the band | Unverified |
+| Desk review comparison band (0.5%) | Reuses the product comparison tolerance for every like-for-like tie-out. Each result names it. | A band the scheme sets, per quantity | Internal |
+| Equivalent product includes a clinker-export term (`B7/B13`) | The pro forma and Form 1 include it; the desk review recomputes it as the workbook defines it. | Confirm the term against the sector procedure | Open |
+| Fuel oil, petcoke and other fuels with no pack stream | The pro forma may carry them (fuel oil does). A run leaves them out and the desk review fails `engine_coverage` until a stream exists. | Domain decision: add streams, or state the pro forma does not carry them | Open |
+| Annual figures resting on one month of evidence | Desk review reports `coverage_*` failures; it does not decide whether annualising is acceptable. | The scheme's rule on data coverage per parameter | Open |
 
 ## 10. Internal controls added with DFD v3.1
 

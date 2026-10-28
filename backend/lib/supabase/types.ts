@@ -43,6 +43,7 @@ export type FindingState =
 export type ProvenanceTypeName =
   | "document_page"
   | "spreadsheet_cell"
+  | "spreadsheet_range"
   | "time_series_range"
   | "site_observation";
 
@@ -258,6 +259,8 @@ export interface Database {
           source: "upload" | "evidence_pack" | "entity_response" | "fieldwork";
           finding_id: string | null;
           scan_assessment: Json | null;
+          // 0016
+          slot: string | null;
         }>;
         Insert: Insert<{
           id?: string;
@@ -277,11 +280,13 @@ export interface Database {
           source?: "upload" | "evidence_pack" | "entity_response" | "fieldwork";
           finding_id?: string | null;
           scan_assessment?: Json | null;
+          slot?: string | null;
         }>;
         Update: Update<{
           page_count?: number | null;
           doc_type?: string | null;
           classification_confidence?: number | null;
+          slot?: string | null;
         }>;
         Relationships: [];
       };
@@ -685,6 +690,70 @@ export interface Database {
           created_at?: string;
         }>;
         Update: Update<Record<string, never>>;
+        Relationships: [];
+      };
+      desk_readings: {
+        Row: Row<{
+          id: string;
+          organization_id: string;
+          engagement_id: string;
+          key: string;
+          value: number;
+          unit: string | null;
+          document_id: string | null;
+          page: number | null;
+          note: string | null;
+          entered_by: string | null;
+          entered_at: string;
+        }>;
+        Insert: Insert<{
+          id?: string;
+          organization_id: string;
+          engagement_id: string;
+          key: string;
+          value: number;
+          unit?: string | null;
+          document_id?: string | null;
+          page?: number | null;
+          note?: string | null;
+          entered_by?: string | null;
+          entered_at?: string;
+        }>;
+        Update: Update<{
+          value?: number;
+          unit?: string | null;
+          document_id?: string | null;
+          page?: number | null;
+          note?: string | null;
+          entered_by?: string | null;
+          entered_at?: string;
+        }>;
+        Relationships: [];
+      };
+      desk_reviews: {
+        Row: Row<{
+          id: string;
+          organization_id: string;
+          engagement_id: string;
+          pack_id: string;
+          results: Json;
+          readings: Json;
+          notes: Json;
+          run_by: string | null;
+          created_at: string;
+        }>;
+        Insert: Insert<{
+          id?: string;
+          organization_id: string;
+          engagement_id: string;
+          pack_id: string;
+          results: Json;
+          readings: Json;
+          notes?: Json;
+          run_by?: string | null;
+          created_at?: string;
+        }>;
+        Update: Update<{ notes?: Json }>;
         Relationships: [];
       };
       tabular_datasets: {

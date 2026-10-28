@@ -103,6 +103,18 @@ export function TableMapper({
     if (t) apply(t.defaultUnit);
   }
 
+  /** Click-to-map: a clicked cell fills the first empty row, or adds one. */
+  function pickCell(sheet: string, cellRef: string) {
+    setCells((cur) => {
+      const already = cur.some((x) => x.sheet === sheet && x.cellRef === cellRef);
+      if (already) return cur.filter((x) => !(x.sheet === sheet && x.cellRef === cellRef));
+      const empty = cur.findIndex((x) => !x.cellRef);
+      if (empty >= 0) return cur.map((x, j) => (j === empty ? { ...x, sheet, cellRef } : x));
+      return [...cur, { sheet, cellRef, fieldPath: "", unit: "" }];
+    });
+  }
+  const chosen = new Set(cells.map((c) => `${c.sheet}!${c.cellRef}`));
+
   async function submit(body: unknown) {
     setPending(true);
     setProblems([]);
@@ -171,11 +183,32 @@ export function TableMapper({
                   {p.rows.map((row, r) => (
                     <tr key={r} className="border-t border-mist-100">
                       <td className="bg-mist-50 px-2 py-1 font-mono text-mist-500">{r + 1}</td>
-                      {row.map((v, c) => (
-                        <td key={c} className="max-w-48 truncate px-2 py-1 text-mist-800">
-                          {v === null ? "" : String(v)}
-                        </td>
-                      ))}
+                      {row.map((v, c) => {
+                        const ref = `${colLetters(c + 1)}${r + 1}`;
+                        const on = chosen.has(`${d.name}!${ref}`);
+                        return (
+                          <td
+                            key={c}
+                            role="button"
+                            tabIndex={0}
+                            aria-pressed={on}
+                            aria-label={`Cell ${ref} on ${d.name}`}
+                            title={`${ref}: ${v === null ? "(empty)" : String(v)}`}
+                            onClick={() => pickCell(d.name, ref)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                pickCell(d.name, ref);
+                              }
+                            }}
+                            className={`max-w-48 cursor-pointer truncate px-2 py-1 text-mist-800 hover:bg-teal-50 ${
+                              on ? "bg-teal-100 font-medium text-teal-900 ring-1 ring-inset ring-teal-500" : ""
+                            }`}
+                          >
+                            {v === null ? "" : String(v)}
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
                 </tbody>
@@ -187,7 +220,13 @@ export function TableMapper({
 
       {sheets.length > 0 ? (
         <div>
-          <p className="mb-2 text-[13px] font-medium text-mist-900">Propose values from cells</p>
+          <p className="mb-1 text-[13px] font-medium text-mist-900">Propose values from cells</p>
+          <p className="mb-3 max-w-2xl text-xs leading-relaxed text-mist-600">
+            Click cells in a sheet above to add them here (click again to remove). Choose the field each cell feeds.
+            <span className="font-medium text-mist-800"> Propose for review</span> sends every row to the review queue
+            as a proposed value, with its sheet and cell as the source. A proposal is not used in any calculation
+            until someone accepts it there. Cells beyond the preview can be typed in by hand.
+          </p>
           <div className="space-y-2">
             {cells.map((row, i) => (
               <div key={i} className="grid grid-cols-2 gap-2 sm:grid-cols-[1fr_6rem_1.4fr_5rem_auto]">

@@ -92,6 +92,7 @@ describe("DFD role capabilities", () => {
     expect(engagementLinksForRole("verifier").map((i) => i.slug)).toEqual([
       "plan",
       "documents",
+      "desk-review",
       "fieldwork",
       "workbench",
       "facts",

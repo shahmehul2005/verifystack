@@ -17,6 +17,7 @@ import { CsvError, parseCsv } from "@verifystack/backend/domain/intake/csv";
 import { XlsxError } from "@verifystack/backend/domain/intake/xlsx";
 import { normaliseTimeSeries, TimeSeriesError } from "@verifystack/backend/domain/intake/timeseries";
 import { csvToSheet, previewSheet, sheetsFromBytes } from "@verifystack/backend/domain/intake/tabular";
+import { scanSheetForSummaries, summaryHeadline } from "@verifystack/backend/domain/intake/summary";
 import type { Json, Tables } from "@verifystack/backend/lib/supabase/types";
 
 export type DocumentSource = Tables<"documents">["source"];
@@ -95,7 +96,11 @@ export async function ingestEvidenceFile(input: IngestInput): Promise<IngestResu
           name: sheet.name,
           columns: [],
           row_count: sheet.rowCount,
-          summary: previewSheet(sheet) as unknown as Json,
+          summary: {
+            ...previewSheet(sheet),
+            // Totals are scanned on upload. The review panel recomputes them from the file.
+            summaryScan: summaryHeadline(scanSheetForSummaries(sheet)),
+          } as unknown as Json,
         });
       }
     } else if (sniffed.kind === "csv") {
@@ -124,7 +129,11 @@ export async function ingestEvidenceFile(input: IngestInput): Promise<IngestResu
           name: sheet.name,
           columns: [],
           row_count: sheet.rowCount,
-          summary: previewSheet(sheet) as unknown as Json,
+          summary: {
+            ...previewSheet(sheet),
+            // Totals are scanned on upload. The review panel recomputes them from the file.
+            summaryScan: summaryHeadline(scanSheetForSummaries(sheet)),
+          } as unknown as Json,
         });
       }
     }

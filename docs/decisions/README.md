@@ -27,6 +27,7 @@ supersedes it and update the status line of the old one.
 | 0019 | [Independent technical review is bound to a snapshot](0019-independent-technical-review.md) | Accepted |
 | 0020 | [Generic submission package, built on demand](0020-generic-submission-package.md) | Accepted |
 | 0021 | [Fieldwork: observer is not accepter; offline capture](0021-fieldwork-observer-is-not-accepter.md) | Accepted |
+| 0022 | [Evidence packages: manifest optional, mismatches flagged; spreadsheet totals approved by a person](0022-optional-manifest-and-reviewed-totals.md) | Accepted |
 
 ## Template
 

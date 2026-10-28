@@ -17,10 +17,11 @@ import type { Json } from "@verifystack/backend/lib/supabase/types";
 export const runtime = "nodejs";
 
 /**
- * Import an evidence pack (DFD 2.6). Every file is hashed and compared with the
- * manifest before anything is stored; one mismatch rejects the whole pack.
- * Declared values are stored as declarations (never facts) for the
- * declared-versus-extracted comparison.
+ * Import an evidence package (DFD 2.6). A manifest is optional: a plain folder of
+ * PDFs and workbooks imports directly. When a manifest is present, mismatched
+ * files are still imported, flagged, and written to the audit log. Nothing is
+ * refused for a manifest problem. Declared values are stored as declarations
+ * (never facts) for the declared-versus-extracted comparison.
  */
 export async function POST(req: Request) {
   try {
@@ -68,8 +69,10 @@ export async function POST(req: Request) {
       throw e;
     }
 
-    const imported: { name: string; documentId: string; deduped: boolean; kind: string }[] = [];
-    const skipped: { name: string; reason: string }[] = [];
+    const imported: { name: string; documentId: string; deduped: boolean; kind: string; integrity: string }[] = [];
+    const skipped: { name: string; reason: string }[] = pack.skipped.map((s) => ({ name: s.path, reason: s.reason }));
+    // A manifest-backed pack keeps its source label; a plain folder is ordinary upload.
+    const source = pack.manifest ? "evidence_pack" : "upload";
     for (const file of pack.files) {
       try {
         const r = await ingestEvidenceFile({
@@ -78,7 +81,7 @@ export async function POST(req: Request) {
           actorUserId: session.user.id,
           filename: file.name,
           bytes: file.bytes,
-          source: "evidence_pack",
+          source,
           allow: ["page", "spreadsheet", "csv"],
         });
         imported.push({
@@ -86,6 +89,7 @@ export async function POST(req: Request) {
           documentId: r.document.id,
           deduped: r.deduped,
           kind: r.kind,
+          integrity: file.integrity.status,
         });
       } catch (e) {
         if (e instanceof IngestError) skipped.push({ name: file.path, reason: e.message });
@@ -93,10 +97,11 @@ export async function POST(req: Request) {
       }
     }
 
+    const declared = pack.manifest?.declared ?? [];
     const admin = createServiceClient() ?? (await createServerSupabase());
-    if (admin && pack.manifest.declared.length > 0) {
+    if (admin && declared.length > 0) {
       const { error } = await admin.from("declared_values").upsert(
-        pack.manifest.declared.map((d) => ({
+        declared.map((d) => ({
           organization_id: organizationId,
           engagement_id: engagementId,
           field_path: d.fieldPath,
@@ -121,10 +126,29 @@ export async function POST(req: Request) {
         files: pack.files.length,
         imported: imported.length,
         skipped: skipped.length,
-        declared: pack.manifest.declared.length,
-        sourceSystem: pack.manifest.source?.system ?? null,
+        declared: declared.length,
+        unlisted: pack.unlisted.length,
+        mismatches: pack.mismatches.length,
+        sourceSystem: pack.manifest?.source?.system ?? null,
       },
     });
+    // A hash mismatch is not a block, but it is a tamper signal the audit trail must hold.
+    if (pack.mismatches.length > 0) {
+      await auditEvent({
+        organizationId,
+        actorUserId: session.user.id,
+        action: "evidence_pack.hash_mismatch",
+        entityType: "engagement",
+        entityId: engagementId,
+        payload: {
+          files: pack.mismatches.map((m) => ({
+            path: m.path,
+            expectedSha256: m.expectedSha256,
+            actualSha256: m.actualSha256,
+          })),
+        },
+      });
+    }
 
     if (imported.length > 0) {
       await ensureEngagementStatus({
@@ -142,7 +166,9 @@ export async function POST(req: Request) {
       imported,
       skipped,
       unlisted: pack.unlisted,
-      declared: pack.manifest.declared.length,
+      mismatches: pack.mismatches.map((m) => ({ name: m.path, expected: m.expectedSha256, actual: m.actualSha256 })),
+      warnings: pack.warnings,
+      declared: declared.length,
     });
   } catch (e) {
     return jsonError(e);

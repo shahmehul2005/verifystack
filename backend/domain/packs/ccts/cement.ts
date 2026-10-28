@@ -1,10 +1,104 @@
-import type { MethodologyPack } from "../types";
+import type { EvidenceSlot, MethodologyPack } from "../types";
+import type { ProformaInput } from "../../proforma/types";
 
 /**
  * CCTS-CEMENT-v1 — runnable pack assembled from existing schemas, rules, and
  * Cement fallback factors. Process 3.0/5.0 load this record; they do not
  * branch on sector.
  */
+/**
+ * Evidence checklist proposed from the Shyamrock Cement Works test set
+ * (do-res/shyamrock_cement_works.zip). Labels and the run gate are PROPOSED:
+ * a practitioner must confirm which slots are mandatory before this gates
+ * real engagements. Normalization evidence (kiln equipment log, SLDC letter)
+ * is deliberately absent. CCTS does not use it.
+ */
+/**
+ * Where the run's inputs sit in the master pro forma (sector-specific workbook,
+ * sheets 3 and 4). Labels are matched, not cell addresses, so a re-ordered copy
+ * still reads. Quantities are the annual figures in the workbook.
+ */
+const CEMENT_PROFORMA_INPUTS: ProformaInput[] = [
+  { fieldPath: "production", sheet: "summary|form ?1", label: "^Total Equivalent Product", unit: "t", description: "Total equivalent product (t)" },
+  { fieldPath: "quantity", sheet: "ghg", label: "^Coal Consumed Total", unit: "t", description: "Coal consumed (t)" },
+  { fieldPath: "calorificValue", sheet: "ghg", label: "^GCV\\s*(of\\s*)?Coal", unit: "kcal/kg", description: "GCV of coal (kcal/kg)" },
+  { fieldPath: "activeEnergy", sheet: "ghg", label: "^Grid Import", unit: "kWh", scale: 100000, description: "Grid import (kWh)", note: "Workbook unit is Lakh kWh." },
+  {
+    fieldPath: null,
+    sheet: "ghg",
+    label: "^Fuel Oil Consumed",
+    unit: "t",
+    description: "Fuel oil consumed (t)",
+    note: "The pro forma counts fuel oil in its GHG total. The cement pack has no fuel-oil stream, so a run leaves it out.",
+  },
+];
+
+const CEMENT_EVIDENCE_SLOTS: EvidenceSlot[] = [
+  {
+    id: "proforma_workbook",
+    label: "Sector pro forma workbook",
+    gate: "run",
+    accepts: "One Excel workbook: the entity's sector-specific pro forma. Cells are mapped, not read.",
+    basis: "Test set file 15_sector_specific_proforma.xlsx",
+  },
+  {
+    id: "production_evidence",
+    label: "Production evidence",
+    gate: "run",
+    accepts: "Monthly production report, SCADA or DCS trend export, daily production report, SAP printout. Several may be attached.",
+    basis: "Test set 01, 02, 03, 04",
+  },
+  {
+    id: "coal_quality",
+    label: "Coal quality",
+    gate: "run",
+    accepts: "Internal lab daily log (Excel or CSV) and the NABL external certificate (PDF).",
+    basis: "Test set 08, 09",
+  },
+  {
+    id: "grid_electricity",
+    label: "Grid electricity bill",
+    gate: "run",
+    accepts: "Electricity bills (PDF, Excel or CSV). Several months may be attached.",
+    basis: "Test set 12",
+  },
+  {
+    id: "cpp_generation",
+    label: "Captive power plant generation",
+    gate: "none",
+    accepts: "CPP daily generation report and monthly generation report.",
+    basis: "Test set 06, 07. Corroboration only; CPP kWh is not a GEI input.",
+  },
+  {
+    id: "coal_purchase",
+    label: "Coal purchase order",
+    gate: "none",
+    accepts: "Purchase order or supplier invoice for coal.",
+    basis: "Test set 10. Corroborates lab and quantity; feeds no pro forma cell.",
+  },
+  {
+    id: "petcoke_log",
+    label: "Petcoke consumption log",
+    gate: "none",
+    accepts: "Daily or monthly petcoke and coal consumption log.",
+    basis: "Test set 11. Petcoke has no pro forma cell yet; see tie-out findings.",
+  },
+  {
+    id: "rec_declaration",
+    label: "REC or renewable declaration",
+    gate: "none",
+    accepts: "Renewable energy certificate status or an onsite / open-access declaration.",
+    basis: "Test set 13. REC purchases are not a renewable claim (procedure p.14, 4(12)(iii)).",
+  },
+  {
+    id: "form1",
+    label: "Form 1 (entity claim)",
+    gate: "submission",
+    accepts: "Form 1 Annual Energy Consumption and GHG Emissions, as submitted by the entity.",
+    basis: "Test set 16. Compared with the pro forma summary; never an input.",
+  },
+];
+
 export const CCTS_CEMENT_V1: MethodologyPack = {
   pack_id: "CCTS-CEMENT-v1",
   scheme: "CCTS",
@@ -42,6 +136,8 @@ export const CCTS_CEMENT_V1: MethodologyPack = {
     production_log: "ProductionLogSchema",
   },
   calculation_method: "GEI",
+  evidence_slots: CEMENT_EVIDENCE_SLOTS,
+  proforma_inputs: CEMENT_PROFORMA_INPUTS,
   emission_or_energy_factors: [
     { factorKey: "cea_grid_ef", vintage: "FY2024-25", role: "grid" },
     { factorKey: "ef_coal_subbituminous", vintage: "IPCC2006", role: "fuel" },
