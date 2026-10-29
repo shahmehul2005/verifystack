@@ -6,9 +6,9 @@ import { Table, Td, Th } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Alert } from "@/components/ui/alert";
 import { Card, CardBody, CardHeader, SectionTitle } from "@/components/ui/card";
-import { StatTile } from "@/components/ui/stat";
 import { CopyText } from "@/components/ui/copy-text";
 import { SecRunView } from "@/components/adeetie/sec-run-view";
+import { GeiRunView } from "@/components/ccts/gei-run-view";
 import {
   ADEETIE_MIN_SAVINGS_PCT,
   pickSecRuns,
@@ -29,7 +29,7 @@ import {
 } from "@verifystack/backend/domain/adeetie/lifecycle";
 import { isAdeetiePhase } from "@verifystack/backend/domain/packs/adeetie/phases";
 import type { AdeetiePhase } from "@verifystack/backend/lib/supabase/types";
-import { formatIn, formatIst } from "@/lib/format";
+import { formatIst } from "@/lib/format";
 import { RunCalcButton } from "./run-button";
 import type { CalcResult } from "@verifystack/backend/domain/calc/engine";
 
@@ -139,22 +139,8 @@ export default async function RunsPage({ params }: { params: Promise<{ id: strin
       ) : (
         <>
           {latestGei ? (
-            <div className="mb-6 grid gap-3 sm:grid-cols-3">
-              <StatTile
-                label="GHG emission intensity (GEI)"
-                value={<span className="font-mono text-xl">{latestGei.gei.toFixed(6)}</span>}
-                hint="Latest run"
-              />
-              <StatTile
-                label="Scope 1"
-                value={formatIn(latestGei.scope1.value / 1000)}
-                hint="tCO₂e"
-              />
-              <StatTile
-                label="Scope 2"
-                value={formatIn(latestGei.scope2.value / 1000)}
-                hint="tCO₂e"
-              />
+            <div className="mb-8">
+              <GeiRunView result={latestGei} facts={facts} engagementId={id} />
             </div>
           ) : null}
           {!rows.length ? (

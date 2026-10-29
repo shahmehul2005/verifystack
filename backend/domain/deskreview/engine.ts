@@ -165,8 +165,48 @@ function indexSheet(sheet: XlsxSheet) {
   return m;
 }
 
+const MONTH_NAMES: Record<string, string> = {
+  jan: "01",
+  feb: "02",
+  mar: "03",
+  apr: "04",
+  may: "05",
+  jun: "06",
+  jul: "07",
+  aug: "08",
+  sep: "09",
+  oct: "10",
+  nov: "11",
+  dec: "12",
+};
+
 export function isoDate(v: unknown): string | null {
-  if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v.trim())) return v.trim().slice(0, 10);
+  if (typeof v === "string") {
+    const s = v.trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+
+    // Match DD/MM/YYYY or DD-MM-YYYY (e.g. 01/11/2023 or 01-11-2023)
+    const dmy = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+    if (dmy) {
+      const day = dmy[1]!.padStart(2, "0");
+      const month = dmy[2]!.padStart(2, "0");
+      const year = dmy[3]!;
+      return `${year}-${month}-${day}`;
+    }
+
+    // Match DD-MMM-YYYY (e.g. 01-Nov-2023 or 1-Apr-2024)
+    const dMmmY = s.match(/^(\d{1,2})[-/ ]([A-Za-z]{3})[-/ ](\d{2,4})/);
+    if (dMmmY) {
+      const day = dMmmY[1]!.padStart(2, "0");
+      const mKey = dMmmY[2]!.toLowerCase();
+      const month = MONTH_NAMES[mKey];
+      if (month) {
+        let year = dMmmY[3]!;
+        if (year.length === 2) year = `20${year}`;
+        return `${year}-${month}-${day}`;
+      }
+    }
+  }
   if (typeof v === "number" && v > 20000 && v < 80000) {
     return new Date(Math.round((v - 25569) * 86400000)).toISOString().slice(0, 10);
   }
@@ -174,14 +214,47 @@ export function isoDate(v: unknown): string | null {
 }
 
 /** Dated rows (dates in column A) of the column under `header`. Null when the header is absent. */
+export function headerMatches(cellValue: unknown, target: string): boolean {
+  if (typeof cellValue !== "string") return false;
+  const c = cellValue.trim().toLowerCase();
+  const t = target.trim().toLowerCase();
+  if (c === t) return true;
+  // Normalized without parenthetical units & punctuation
+  const normC = c.replace(/\([^)]*\)/g, "").replace(/[\-_,\/]/g, " ").replace(/\s+/g, " ").trim();
+  const normT = t.replace(/\([^)]*\)/g, "").replace(/[\-_,\/]/g, " ").replace(/\s+/g, " ").trim();
+  if (normC === normT) return true;
+  if (normC.startsWith(normT) || normT.startsWith(normC)) return true;
+  return false;
+}
+
 export function dailyColumn(sheet: XlsxSheet, header: string): { date: string; value: number | string | boolean | null }[] | null {
-  const want = header.trim().toLowerCase();
-  const h = sheet.cells.find((c) => typeof c.value === "string" && c.value.trim().toLowerCase() === want);
+  const h = sheet.cells.find((c) => headerMatches(c.value, header));
+
   if (!h) return null;
   const idx = indexSheet(sheet);
+  // Auto-detect date column by checking which column has valid dates below the header row
+  const dateColCounts = new Map<number, number>();
+  for (const c of sheet.cells) {
+    if (c.row > h.row && c.col !== h.col) {
+      if (isoDate(c.value) !== null) {
+        dateColCounts.set(c.col, (dateColCounts.get(c.col) ?? 0) + 1);
+      }
+    }
+  }
+
+  // Best candidate date column, fallback to column 1
+  let dateCol = 1;
+  let maxDates = 0;
+  for (const [col, count] of dateColCounts.entries()) {
+    if (count > maxDates) {
+      maxDates = count;
+      dateCol = col;
+    }
+  }
+
   const out: { date: string; value: number | string | boolean | null }[] = [];
   for (const d of sheet.cells) {
-    if (d.col !== 1 || d.row <= h.row) continue;
+    if (d.col !== dateCol || d.row <= h.row) continue;
     const date = isoDate(d.value);
     if (!date) continue;
     out.push({ date, value: idx.get(`${d.row},${h.col}`)?.value ?? null });
