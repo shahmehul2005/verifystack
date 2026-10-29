@@ -12,6 +12,8 @@ import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { canStartWork, loadPack, packFieldTargets } from "@verifystack/backend/domain/packs";
 import { CSV_MIME, XLSX_MIME } from "@verifystack/backend/lib/evidence";
+import { assessRemoval } from "@verifystack/backend/domain/intake/removal";
+import type { Status } from "@verifystack/backend/domain/engagements/status";
 import type { ScanAssessment } from "@verifystack/backend/domain/intake/scan";
 import { formatBytes, formatIst, humanize } from "@/lib/format";
 import { UploadForm } from "./upload-form";
@@ -20,6 +22,7 @@ import { TableMapper, type DatasetView } from "./table-mapper";
 import { SlotChecklist } from "./slot-checklist";
 import { SummaryReviewButton } from "./summary-review";
 import { ProformaReviewButton } from "./proforma-review";
+import { RemoveButton } from "./remove-button";
 
 export const metadata = { title: "Documents" };
 
@@ -198,6 +201,22 @@ export default async function DocumentsPage({
                         documentName={d.original_filename}
                         engagementId={id}
                         targets={targets}
+                      />
+                    ) : null}
+                    {canUpload ? (
+                      <RemoveButton
+                        documentId={d.id}
+                        filename={d.original_filename}
+                        disabledReason={
+                          assessRemoval({
+                            engagementStatus: engagement.status as Status,
+                            source: d.source,
+                            facts: 0,
+                            reviewedFields: 0,
+                            declaredValues: 0,
+                            deskReadings: 0,
+                          }).reasons[0]
+                        }
                       />
                     ) : null}
                   </Td>

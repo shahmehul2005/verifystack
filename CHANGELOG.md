@@ -16,6 +16,14 @@ must say which version it bumps. Current versions:
 
 ## [Unreleased]
 
+### Removing an uploaded document
+
+- **Remove** button on the Documents tab (`documents.upload`), with a confirmation. A file can go while
+  nothing accepted rests on it; the server refuses, and says why, when an accepted fact, a reviewed
+  extraction, a declared figure or a desk-review reading cites it, when the engagement is at sign-off or
+  submitted, or when the file came from the entity's response link or fieldwork. Shared bytes are deleted
+  only when no other document uses them. Audit action `document.removed`. See ADR 0023. No migration.
+
 ### Desk review and pro forma inputs
 
 - **Desk review** (new engagement page, `review.decide`). A rule engine over the evidence in its slots.
