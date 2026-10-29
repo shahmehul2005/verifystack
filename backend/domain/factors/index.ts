@@ -410,6 +410,12 @@ export const SAMPLING_MANDATE = {
 /** Default materiality threshold for GHG assertions. */
 export const DEFAULT_MATERIALITY_PCT = 5;
 
+/**
+ * Statutory materiality threshold for CCTS Designated Consumers.
+ * Detailed Procedure for Compliance Mechanism under CCTS (v1.0, July 2024), Section 6.12.
+ */
+export const CCTS_MATERIALITY_PCT = 2;
+
 export interface FactorSet {
   /** Bumped whenever any factor value changes. Recorded on every calculation run. */
   version: string;

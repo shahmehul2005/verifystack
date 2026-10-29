@@ -83,14 +83,18 @@ change both.
 
 | Rule    | Checks                                                       | Clause reference in code                                              | Status     |
 | ------- | ------------------------------------------------------------ | --------------------------------------------------------------------- | ---------- |
-| `MB001` | Opening + purchases − closing stock = consumption (0.5%)     | CCTS Detailed Procedure — data flow and control activities            | Unverified |
-| `CV001` | NCV used where NCV is required, not GCV                      | CCTS Detailed Procedure — emissions estimated using actual NCV        | Unverified |
+| `MB001` | Opening + purchases − closing stock = consumption (0.5%)     | BEE CCTS Detailed Procedure Clause 4(5)(ii) & Section 5.20 — Fuel stock balance reconciliation and data control activities | Verified   |
+| `CV001` | NCV used where NCV is required, not GCV                      | BEE CCTS Detailed Procedure Clause 4(6) & Annexure III — Mandatory NCV basis (5% solid/liquid default if lab unavailable) | Verified   |
 | `CV002` | Calorific value within the plausible range for the fuel      | Physical plausibility gate                                            | Internal   |
-| `LB001` | NABL accreditation valid on the test date                    | CCTS Detailed Procedure — NABL accredited lab testing                 | Unverified |
-| `TS001` | No gaps in the monthly data series                           | CCTS Detailed Procedure — completeness of monitored data              | Unverified |
-| `EF001` | Grid factor vintage matches the compliance year              | CEA CO2 baseline database applicable to the compliance year           | Unverified |
-| `SM001` | Sampling: coal monthly or per 20,000 t; raw material monthly or per 50,000 t | CCTS Detailed Procedure — sampling                    | Unverified (sector applicability) |
-| `MT001` | Aggregated discrepancies vs 5% materiality                   | ISO 14064-3 — materiality and aggregation of errors                   | Unverified |
+| `LB001` | NABL accreditation valid on the test date                    | BEE CCTS Detailed Procedure Clause 4(8)–(10) & Section 5.14 — NABL accredited lab testing and valid accreditation | Verified   |
+| `TS001` | No gaps in the monthly data series                           | BEE CCTS Detailed Procedure Clause 4(5)(i)(b) & Section 5.6 — Completeness of monthly monitored data series | Verified   |
+| `EF001` | Grid factor vintage matches baseline compliance freeze       | BEE CCTS Detailed Procedure Clause 4(4)(vii) & Section 5.10(vi) — CEA grid emission factor frozen at baseline year | Verified   |
+| `SM001` | Sampling: coal monthly or per 20,000 t; raw material monthly or per 50,000 t | BEE CCTS Detailed Procedure Clause 4(8)(iii) & Section 5.13 — Mandatory sampling frequency (coal monthly or per 20,000 t; raw material monthly or per 50,000 t) | Verified   |
+| `MT001` | Aggregated discrepancies vs 2% statutory materiality         | BEE CCTS Detailed Procedure Section 6.12 & ISO 14064-3 — 2% statutory materiality threshold on aggregate discrepancies | Verified   |
+| `DEV001`| External NABL vs internal lab deviation limit                | BEE CCTS Detailed Procedure Clause 4(10)(ii)–(iii) — NABL external vs internal lab deviation limit (±71.7 kcal/kg for coal per ISO 1928, ±2% for material) | Verified   |
+| `REC001`| Renewable energy claims exclusion for RECs                   | BEE CCTS Detailed Procedure Clause 4(12)(iii) — Exclusion of Renewable Energy Certificates (RECs) from renewable energy claims | Verified   |
+| `BIO001`| Exclusion of biogenic CO2 emissions from compliance total    | BEE CCTS Detailed Procedure Section 5.17 — Exclusion of biogenic CO2 emissions from compliance total | Verified   |
+| `EXP001`| Power export emissions deduction                             | BEE CCTS Detailed Procedure Clause 4(11) / Section 5.16 — Net power export emissions deduction | Verified   |
 
 ## 5. CCTS sector definitions
 

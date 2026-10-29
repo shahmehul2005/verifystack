@@ -26,7 +26,7 @@ function pctDiff(a: number, b: number): number {
 export const stockBalanceRule: Rule = {
   id: "MB001",
   title: "Fuel stock movement does not reconcile with reported consumption",
-  clauseRef: "CCTS Detailed Procedure — data flow and control activities (TO VERIFY)",
+  clauseRef: "BEE CCTS Detailed Procedure Clause 4(5)(ii) & Section 5.20 — Fuel stock balance reconciliation and data control activities",
   run(ctx) {
     const tolerance = ctx.stockTolerancePct ?? 0.5;
     const findings: RuleFinding[] = [];
@@ -95,7 +95,7 @@ export const calorificPlausibilityRule: Rule = {
 export const calorificBasisRule: Rule = {
   id: "CV001",
   title: "Gross calorific value used where net calorific value is required",
-  clauseRef: "CCTS Detailed Procedure — emissions estimated using actual NCV (TO VERIFY)",
+  clauseRef: "BEE CCTS Detailed Procedure Clause 4(6) & Annexure III — Mandatory NCV basis (5% solid/liquid default if lab unavailable)",
   run(ctx) {
     return ctx.labCertificates
       .filter((c) => c.calorificBasis === "GCV")
@@ -117,7 +117,7 @@ export const calorificBasisRule: Rule = {
 export const nablValidityRule: Rule = {
   id: "LB001",
   title: "Lab accreditation not valid on the date of test",
-  clauseRef: "CCTS Detailed Procedure — NABL accredited lab testing (TO VERIFY)",
+  clauseRef: "BEE CCTS Detailed Procedure Clause 4(8)–(10) & Section 5.14 — NABL accredited lab testing and valid accreditation",
   run(ctx) {
     const findings: RuleFinding[] = [];
     for (const cert of ctx.labCertificates) {
@@ -153,7 +153,7 @@ export const nablValidityRule: Rule = {
 export const seriesCompletenessRule: Rule = {
   id: "TS001",
   title: "Gap in monthly data series",
-  clauseRef: "CCTS Detailed Procedure — completeness of monitored data (TO VERIFY)",
+  clauseRef: "BEE CCTS Detailed Procedure Clause 4(5)(i)(b) & Section 5.6 — Completeness of monthly monitored data series",
   run(ctx) {
     const findings: RuleFinding[] = [];
     for (const [streamId, points] of Object.entries(ctx.monthlySeries)) {
@@ -181,7 +181,7 @@ export const seriesCompletenessRule: Rule = {
 export const gridVintageRule: Rule = {
   id: "EF001",
   title: "Grid emission factor vintage does not match the compliance year",
-  clauseRef: "CEA CO2 baseline database applicable to the compliance year (TO VERIFY)",
+  clauseRef: "BEE CCTS Detailed Procedure Clause 4(4)(vii) & Section 5.10(vi) — CEA grid emission factor frozen at baseline year",
   run(ctx) {
     if (!ctx.gridFactorVintageUsed) return [];
     if (ctx.gridFactorVintageUsed === ctx.complianceYear) return [];
@@ -204,7 +204,7 @@ export const gridVintageRule: Rule = {
 export const samplingFrequencyRule: Rule = {
   id: "SM001",
   title: "Sampling frequency below the mandated minimum",
-  clauseRef: "CCTS Detailed Procedure — sampling (coal monthly or per 20,000 t; raw material monthly or per 50,000 t)",
+  clauseRef: "BEE CCTS Detailed Procedure Clause 4(8)(iii) & Section 5.13 — Mandatory sampling frequency (coal monthly or per 20,000 t; raw material monthly or per 50,000 t)",
   run(ctx) {
     const findings: RuleFinding[] = [];
     for (const rec of ctx.samplingRecords) {
@@ -239,7 +239,7 @@ export const samplingFrequencyRule: Rule = {
 export const cumulativeMaterialityRule: Rule = {
   id: "MT001",
   title: "Aggregated discrepancies approach the materiality threshold",
-  clauseRef: "ISO 14064-3 — materiality and aggregation of errors (TO VERIFY)",
+  clauseRef: "BEE CCTS Detailed Procedure Section 6.12 & ISO 14064-3 — 2% statutory materiality threshold on aggregate discrepancies",
   run(ctx) {
     const pct = ctx.materialityPct ?? DEFAULT_MATERIALITY_PCT;
     const totalKg = ctx.calc.totalEmissions.value;

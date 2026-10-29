@@ -1,8 +1,8 @@
 /**
  * Desk review for the CCTS cement pack: which figures are read from workbooks, which
  * are typed from PDFs, and the cross-checks between them. Slot ids are the cement
- * pack's evidence slots. The 71.7 kcal/kg GCV band comes from the test brief and is
- * unconfirmed; it is an open item in docs/domain/regulatory-register.md.
+ * pack's evidence slots. The 71.7 kcal/kg GCV band is confirmed from BEE CCTS Detailed Procedure Clause 4(10)(ii) (citing ISO 1928: 1995 (E)).
+
  */
 
 import { DEFAULT_TOLERANCE } from "../compare/declared";
