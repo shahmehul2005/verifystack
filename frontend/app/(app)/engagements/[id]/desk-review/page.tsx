@@ -100,7 +100,12 @@ export default async function DeskReviewPage({ params }: { params: Promise<{ id:
       <DeskReviewStudio
         engagementId={id}
         packId={engagement.pack_id}
-        rules={def.rules}
+        rules={def.rules.map((r) => ({
+          id: r.id,
+          section: r.section,
+          label: r.label,
+          needs: r.needs,
+        }))}
         manualSpecs={def.manual}
         initialResults={results}
         initialNotes={notes}

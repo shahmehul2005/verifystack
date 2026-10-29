@@ -15,7 +15,7 @@ import {
   Filter,
   Layers,
 } from "lucide-react";
-import type { DeskOutcome, DeskStatus, ManualReadingSpec, DeskRule } from "@verifystack/backend/domain/deskreview";
+import type { DeskOutcome, DeskStatus, ManualReadingSpec } from "@verifystack/backend/domain/deskreview";
 import type { ProformaReading } from "@verifystack/backend/domain/proforma/reader";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -119,10 +119,17 @@ const DEFAULT_PROFORMA_TEMPLATE_CELLS: Omit<ProformaCellDisplay, "index" | "valu
   { cellRef: "—", label: "Renewable Exclusion (Structural Finding)", sheet: "3_GHG_CCTS", unit: "kWh", fieldPath: "pf.renewable_excl" },
 ];
 
+export interface DeskRuleInfo {
+  id: string;
+  section: string;
+  label: string;
+  needs: string[];
+}
+
 interface DeskReviewStudioProps {
   engagementId: string;
   packId: string;
-  rules: DeskRule[];
+  rules: DeskRuleInfo[];
   manualSpecs: ManualReadingSpec[];
   initialResults: DeskOutcome[];
   initialNotes: string[];
