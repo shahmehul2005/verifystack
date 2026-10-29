@@ -14,7 +14,6 @@ import {
   Search,
   Filter,
   Layers,
-  FileSpreadsheet,
 } from "lucide-react";
 import type { DeskOutcome, DeskStatus, ManualReadingSpec, DeskRule } from "@verifystack/backend/domain/deskreview";
 import type { ProformaReading } from "@verifystack/backend/domain/proforma/reader";
@@ -89,6 +88,37 @@ const LEVERAGE_TAGS: Record<string, string> = {
   "pf.petcoke_t": "Structural Gap Risk: Must have dedicated emission line",
 };
 
+interface ProformaCellDisplay {
+  index: number;
+  cellRef: string;
+  label: string;
+  sheet: string;
+  unit: string;
+  fieldPath: string;
+  value: number | null;
+  formula: string | null;
+  isTemplate: boolean;
+}
+
+const DEFAULT_PROFORMA_TEMPLATE_CELLS: Omit<ProformaCellDisplay, "index" | "value" | "formula" | "isTemplate">[] = [
+  { cellRef: "B6", label: "Clinker Production", sheet: "1_Production", unit: "Lakh t", fieldPath: "pf.clinker_t" },
+  { cellRef: "B7", label: "OPC Produced", sheet: "1_Production", unit: "Lakh t", fieldPath: "pf.opc_t" },
+  { cellRef: "B8", label: "PPC Produced", sheet: "1_Production", unit: "Lakh t", fieldPath: "pf.ppc_t" },
+  { cellRef: "B9", label: "PSC Produced", sheet: "1_Production", unit: "Lakh t", fieldPath: "pf.psc_t" },
+  { cellRef: "B12", label: "Clinker Factor OPC", sheet: "1_Production", unit: "ratio", fieldPath: "pf.cf_opc" },
+  { cellRef: "B13", label: "Clinker Factor PPC", sheet: "1_Production", unit: "ratio", fieldPath: "pf.cf_ppc" },
+  { cellRef: "B14", label: "Clinker Factor PSC", sheet: "1_Production", unit: "ratio", fieldPath: "pf.cf_psc" },
+  { cellRef: "B25", label: "Total Equivalent Product", sheet: "4_Summary_Form1_Feed", unit: "t", fieldPath: "pf.eq_product_t" },
+  { cellRef: "B10", label: "CPP Power Generation", sheet: "2_Energy_GtG_SEC", unit: "Lakh kWh", fieldPath: "pf.cpp_kwh" },
+  { cellRef: "B15", label: "Grid Import Electricity", sheet: "3_GHG_CCTS", unit: "Lakh kWh", fieldPath: "pf.grid_kwh" },
+  { cellRef: "B8", label: "Coal Consumed Total", sheet: "3_GHG_CCTS", unit: "t", fieldPath: "pf.coal_t" },
+  { cellRef: "B11", label: "GCV of Coal", sheet: "3_GHG_CCTS", unit: "kcal/kg", fieldPath: "pf.gcv_coal" },
+  { cellRef: "B32", label: "Direct GHG Emissions", sheet: "3_GHG_CCTS", unit: "tCO2e", fieldPath: "pf.direct_co2" },
+  { cellRef: "B35", label: "Indirect GHG Emissions", sheet: "3_GHG_CCTS", unit: "tCO2e", fieldPath: "pf.indirect_co2" },
+  { cellRef: "—", label: "Petcoke Kiln Fuel (Structural Finding)", sheet: "3_GHG_CCTS", unit: "t", fieldPath: "pf.petcoke_t" },
+  { cellRef: "—", label: "Renewable Exclusion (Structural Finding)", sheet: "3_GHG_CCTS", unit: "kWh", fieldPath: "pf.renewable_excl" },
+];
+
 interface DeskReviewStudioProps {
   engagementId: string;
   packId: string;
@@ -106,6 +136,7 @@ interface DeskReviewStudioProps {
 
 export function DeskReviewStudio({
   engagementId,
+  rules,
   manualSpecs,
   initialResults,
   initialNotes,
@@ -117,8 +148,19 @@ export function DeskReviewStudio({
 }: DeskReviewStudioProps) {
   const { softReload, isRefreshing } = useSoftReload();
 
-  // Local state
-  const [results] = useState<DeskOutcome[]>(initialResults);
+  // Initial outcomes: fallback to all rules in pending if empty
+  const [results, setResults] = useState<DeskOutcome[]>(() => {
+    if (initialResults.length > 0) return initialResults;
+    return rules.map((r) => ({
+      id: r.id,
+      section: r.section,
+      label: r.label,
+      status: "pending" as DeskStatus,
+      detail: "Waiting for readings. Enter figures or scan evidence documents to evaluate.",
+      missing: r.needs,
+    }));
+  });
+
   const [running, setRunning] = useState(false);
   const [proposing, setProposing] = useState(false);
   const [suggestions, setSuggestions] = useState<ProposedReadingItem[]>([]);
@@ -170,18 +212,41 @@ export function DeskReviewStudio({
   // Results indexing
   const resultsById = useMemo(() => new Map(results.map((r) => [r.id, r])), [results]);
 
+  // Pro-forma cells to display
+  const cellsToDisplay: ProformaCellDisplay[] = useMemo(() => {
+    if (proforma?.drafts?.length) {
+      return proforma.drafts.map((d) => ({
+        index: d.index,
+        cellRef: d.cellRef ?? "Cell",
+        label: d.label,
+        sheet: d.sheet ?? "General",
+        unit: d.unit,
+        fieldPath: d.fieldPath ?? "",
+        value: d.value,
+        formula: d.formula,
+        isTemplate: false,
+      }));
+    }
+    return DEFAULT_PROFORMA_TEMPLATE_CELLS.map((t, i) => ({
+      ...t,
+      index: i,
+      value: null,
+      formula: null,
+      isTemplate: true,
+    }));
+  }, [proforma]);
+
   // Pro-forma cell tie-out statuses
   const cellStatusMap = useMemo(() => {
     const map = new Map<string, { status: DeskStatus; passCount: number; failCount: number; pendingCount: number }>();
-    if (!proforma) return map;
 
-    for (const draft of proforma.drafts) {
-      if (!draft.fieldPath) continue;
-      const ruleIds = CELL_TO_RULES_MAP[draft.fieldPath] ?? [];
+    for (const cell of cellsToDisplay) {
+      if (!cell.fieldPath) continue;
+      const ruleIds = CELL_TO_RULES_MAP[cell.fieldPath] ?? [];
       const cellRules = ruleIds.map((id) => resultsById.get(id)).filter((r): r is DeskOutcome => r !== undefined);
 
       if (cellRules.length === 0) {
-        map.set(draft.fieldPath, { status: "not_applicable", passCount: 0, failCount: 0, pendingCount: 0 });
+        map.set(cell.fieldPath, { status: "not_applicable", passCount: 0, failCount: 0, pendingCount: 0 });
         continue;
       }
 
@@ -193,10 +258,10 @@ export function DeskReviewStudio({
       if (failCount > 0) status = "fail";
       else if (pendingCount > 0) status = "pending";
 
-      map.set(draft.fieldPath, { status, passCount, failCount, pendingCount });
+      map.set(cell.fieldPath, { status, passCount, failCount, pendingCount });
     }
     return map;
-  }, [proforma, resultsById]);
+  }, [cellsToDisplay, resultsById]);
 
   // Filtered rules
   const filteredRules = useMemo(() => {
@@ -225,17 +290,15 @@ export function DeskReviewStudio({
 
   // Pro-forma sheets
   const proformaSheets = useMemo(() => {
-    if (!proforma) return [];
-    const sheets = new Set(proforma.drafts.map((d) => d.sheet).filter((s): s is string => s !== null));
+    const sheets = new Set(cellsToDisplay.map((d) => d.sheet).filter(Boolean));
     return Array.from(sheets);
-  }, [proforma]);
+  }, [cellsToDisplay]);
 
-  // Filtered pro-forma drafts
-  const filteredDrafts = useMemo(() => {
-    if (!proforma) return [];
-    if (sheetFilter === "all") return proforma.drafts;
-    return proforma.drafts.filter((d) => d.sheet === sheetFilter);
-  }, [proforma, sheetFilter]);
+  // Filtered pro-forma cells
+  const filteredCells = useMemo(() => {
+    if (sheetFilter === "all") return cellsToDisplay;
+    return cellsToDisplay.filter((d) => d.sheet === sheetFilter);
+  }, [cellsToDisplay, sheetFilter]);
 
   // Actions
   async function runDeskReview() {
@@ -245,11 +308,14 @@ export function DeskReviewStudio({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ engagementId }),
     });
-    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; results?: DeskOutcome[] };
     setRunning(false);
     if (!res.ok || !json.ok) {
       toast.error(json.error ?? "Could not run the desk review");
       return;
+    }
+    if (json.results) {
+      setResults(json.results);
     }
     toast.success("Desk review executed successfully");
     softReload();
@@ -568,7 +634,9 @@ export function DeskReviewStudio({
             <CardHeader
               title="Pro-forma Sheet Hub"
               description={
-                proformaFileName ? `Tied to ${proformaFileName}` : "Assign sector pro-forma workbook in Documents"
+                proformaFileName
+                  ? `Tied to ${proformaFileName}`
+                  : "CCTS Sector Pro-forma Template Scheme (Upload workbook in Documents to bind cells)"
               }
               actions={
                 activeCellKey ? (
@@ -604,82 +672,72 @@ export function DeskReviewStudio({
                 </div>
               ) : null}
 
-              {!proforma ? (
-                <div className="p-6 text-center text-sm text-mist-600">
-                  <FileSpreadsheet className="mx-auto mb-2 h-8 w-8 text-mist-400" />
-                  <p className="font-medium text-mist-800">No Pro-forma workbook attached</p>
-                  <p className="mt-1 text-xs text-mist-500">
-                    Upload and assign the sector pro-forma in the Documents tab to unlock live spreadsheet cell tie-outs.
-                  </p>
-                </div>
-              ) : (
-                <div className="divide-y divide-mist-100 max-h-[700px] overflow-y-auto">
-                  {filteredDrafts.map((draft) => {
-                    const isSelected = activeCellKey === draft.fieldPath;
-                    const cellTie = draft.fieldPath ? cellStatusMap.get(draft.fieldPath) : null;
-                    const leverage = draft.fieldPath ? LEVERAGE_TAGS[draft.fieldPath] : null;
-                    const statusInfo = cellTie ? STATUS_CONFIG[cellTie.status] : null;
+              <div className="divide-y divide-mist-100 max-h-[700px] overflow-y-auto">
+                {filteredCells.map((cell) => {
+                  const isSelected = activeCellKey === cell.fieldPath;
+                  const cellTie = cell.fieldPath ? cellStatusMap.get(cell.fieldPath) : null;
+                  const leverage = cell.fieldPath ? LEVERAGE_TAGS[cell.fieldPath] : null;
+                  const statusInfo = cellTie ? STATUS_CONFIG[cellTie.status] : null;
 
-                    return (
-                      <div
-                        key={draft.index}
-                        onClick={() => {
-                          if (draft.fieldPath) {
-                            setActiveCellKey(isSelected ? null : draft.fieldPath);
-                          }
-                        }}
-                        className={`cursor-pointer p-3 transition-colors hover:bg-mist-50/80 ${
-                          isSelected ? "bg-mist-100/70 border-l-4 border-mist-900" : ""
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-mono text-xs font-semibold text-mist-700">
-                                {draft.cellRef ?? "Cell"}
-                              </span>
-                              <span className="text-xs font-medium text-mist-900">{draft.label}</span>
-                            </div>
-                            <span className="text-[11px] text-mist-500">{draft.sheet ?? "Sheet"}</span>
-                          </div>
-
-                          {statusInfo ? (
-                            <Badge tone={statusInfo.tone} dot className="text-[10px]">
-                              {statusInfo.label}
-                            </Badge>
-                          ) : (
-                            <Badge tone="neutral" className="text-[10px]">
-                              {draft.status}
-                            </Badge>
-                          )}
-                        </div>
-
-                        <div className="mt-2 flex items-baseline justify-between text-xs">
-                          <span className="font-mono font-medium text-mist-900">
-                            {draft.value !== null ? draft.value.toLocaleString() : "—"}{" "}
-                            <span className="text-mist-500 font-normal">{draft.unit}</span>
-                          </span>
-                          {draft.formula ? (
-                            <span className="truncate max-w-[180px] font-mono text-[10px] text-mist-500" title={draft.formula}>
-                              f: {draft.formula}
+                  return (
+                    <div
+                      key={cell.index}
+                      onClick={() => {
+                        if (cell.fieldPath) {
+                          setActiveCellKey(isSelected ? null : cell.fieldPath);
+                        }
+                      }}
+                      className={`cursor-pointer p-3 transition-colors hover:bg-mist-50/80 ${
+                        isSelected ? "bg-mist-100/70 border-l-4 border-mist-900" : ""
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono text-xs font-semibold text-mist-700">
+                              {cell.cellRef}
                             </span>
-                          ) : (
-                            <span className="text-[10px] text-amber-700 font-medium">Yellow Input</span>
-                          )}
+                            <span className="text-xs font-medium text-mist-900">{cell.label}</span>
+                          </div>
+                          <span className="text-[11px] text-mist-500">{cell.sheet}</span>
                         </div>
 
-                        {/* Downstream leverage warning pill */}
-                        {leverage ? (
-                          <div className="mt-1.5 flex items-center gap-1 text-[10px] text-indigo-700 font-medium">
-                            <Layers className="h-3 w-3 shrink-0" />
-                            <span className="truncate">{leverage}</span>
-                          </div>
-                        ) : null}
+                        {statusInfo ? (
+                          <Badge tone={statusInfo.tone} dot className="text-[10px]">
+                            {statusInfo.label}
+                          </Badge>
+                        ) : (
+                          <Badge tone="neutral" className="text-[10px]">
+                            Pending
+                          </Badge>
+                        )}
                       </div>
-                    );
-                  })}
-                </div>
-              )}
+
+                      <div className="mt-2 flex items-baseline justify-between text-xs">
+                        <span className="font-mono font-medium text-mist-900">
+                          {cell.value !== null ? cell.value.toLocaleString() : "—"}{" "}
+                          <span className="text-mist-500 font-normal">{cell.unit}</span>
+                        </span>
+                        {cell.formula ? (
+                          <span className="truncate max-w-[180px] font-mono text-[10px] text-mist-500" title={cell.formula}>
+                            f: {cell.formula}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-amber-700 font-medium">Yellow Input</span>
+                        )}
+                      </div>
+
+                      {/* Downstream leverage warning pill */}
+                      {leverage ? (
+                        <div className="mt-1.5 flex items-center gap-1 text-[10px] text-indigo-700 font-medium">
+                          <Layers className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{leverage}</span>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
             </CardBody>
           </Card>
         </div>
