@@ -120,6 +120,7 @@ export default async function FindingsPage({ params }: { params: Promise<{ id: s
             return (
               <li
                 key={f.id}
+                id={`finding-${f.id}`}
                 className={cn(
                   "overflow-hidden rounded-lg border border-l-4 border-mist-200 bg-white shadow-xs",
                   sev.edge
@@ -150,6 +151,18 @@ export default async function FindingsPage({ params }: { params: Promise<{ id: s
                   <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-mist-700">{f.body ?? f.detail}</p>
                   {f.clause_ref ? (
                     <p className="mt-2 text-xs text-mist-500">Clause: {f.clause_ref}</p>
+                  ) : null}
+                  {f.rule_id.startsWith("DESK-") && Array.isArray(f.evidence_refs) && f.evidence_refs.length > 0 ? (
+                    <div className="mt-3">
+                      <p className="text-xs font-medium uppercase tracking-wide text-mist-500">Evidence the check used</p>
+                      <ul className="mt-1 space-y-0.5 text-xs text-mist-700">
+                        {(f.evidence_refs as unknown[])
+                          .filter((line): line is string => typeof line === "string")
+                          .map((line) => (
+                            <li key={line}>{line}</li>
+                          ))}
+                      </ul>
+                    </div>
                   ) : null}
                   <CitationPanel
                     citation={readFindingCitation(f)}

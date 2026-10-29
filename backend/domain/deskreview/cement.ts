@@ -1,14 +1,13 @@
 /**
- * Desk review for the CCTS cement pack: which figures are read from workbooks, which
- * are typed from PDFs, and the cross-checks between them. Slot ids are the cement
- * pack's evidence slots. The 71.7 kcal/kg GCV band is confirmed from BEE CCTS Detailed Procedure Clause 4(10)(ii) (citing ISO 1928: 1995 (E)).
-
+ * Desk review for the CCTS cement pack: workbook readings, figures the auditor
+ * types from PDFs, and the cross-checks between them. Slot ids are the cement
+ * pack's evidence slots. An emission factor, a calcination factor, or a stock
+ * figure is never invented here. A missing figure stays missing.
  */
 
 import { DEFAULT_TOLERANCE } from "../compare/declared";
 import {
   checkEvidenceCoverage,
-  checkGcvRule,
   checkMassBalance,
   checkProductionDays,
   checkRecomputed,
@@ -18,12 +17,33 @@ import {
   clinkerConsumedForCement,
   type CheckResult,
 } from "../crosscheck/tieout";
+import type { XlsxWorkbook } from "../intake/xlsx";
+import { evaluateWorkbook } from "../proforma/formula";
 import type { ProformaInput } from "../proforma/types";
-import { dailyColumn, months, num, series, type DeskReviewDef, type DeskRule, type Readings, type WorkbookReader } from "./engine";
+import {
+  dailyColumn,
+  months,
+  num,
+  series,
+  type DeskReviewDef,
+  type DeskRule,
+  type MaterialityPosition,
+  type Readings,
+  type WorkbookReader,
+} from "./engine";
 
 const T = DEFAULT_TOLERANCE;
 const T_SRC = "DEFAULT_TOLERANCE (product comparison tolerance)";
 const LAKH = 100000;
+const TONNE_BAND = 0.5;
+const KWH_BAND = 1;
+const MATERIALITY = 0.02;
+const MATERIALITY_SOURCE =
+  "CCTS Detailed Procedure: materiality threshold of 2% of total reported emissions for the reporting period (ICAI-hosted copy; confirm against the BEE original).";
+const GCV_SAMPLE_SOURCE =
+  "CCTS Detailed Procedure, solid fuel sampling (every 20,000 t or monthly, whichever is more often), as read from the ICAI-hosted copy.";
+const FORMULA_NOTE = "This is the formula set taken from the sector pro forma structure, not a BEE-issued blank file.";
+const NOT_CONSUMPTION = "The purchase order is not consumption.";
 
 const pf = (key: string, sheet: string, label: string, unit: string, scale = 1): ProformaInput => ({
   fieldPath: key,
@@ -46,15 +66,131 @@ const PROFORMA_CELLS: ProformaInput[] = [
   pf("pf.cpp_kwh", "energy", "^CPP Power", "kWh", LAKH),
   pf("pf.grid_kwh", "ghg", "^Grid Import", "kWh", LAKH),
   pf("pf.coal_t", "ghg", "^Coal Consumed Total", "t"),
+  pf("pf.fuel_oil_t", "ghg", "^Fuel Oil Consumed", "t"),
   pf("pf.gcv_coal", "ghg", "^GCV\\s*(of\\s*)?Coal", "kcal/kg"),
+  pf("pf.coal_energy_tj", "ghg", "^Coal Energy", "TJ"),
+  pf("pf.fuel_oil_energy_tj", "ghg", "^Fuel Oil Energy", "TJ"),
+  pf("pf.ef_coal", "ghg", "^EF Coal", "tCO2e/TJ"),
+  pf("pf.ef_fuel_oil", "ghg", "^EF Fuel Oil", "tCO2e/TJ"),
   pf("pf.direct_co2", "ghg", "^Direct GHG", "tCO2e"),
   pf("pf.indirect_co2", "ghg", "^Indirect GHG", "tCO2e"),
+  pf("pf.total_co2", "ghg", "^TOTAL Direct\\s*&\\s*Indirect", "tCO2e"),
+  pf("pf.s2_process_coal_t", "energy", "^Coal Consumed.*Process", "t", LAKH),
+  pf("pf.s2_power_coal_t", "energy", "^Coal Consumed.*Power", "t", LAKH),
+  pf("pf.s2_fuel_oil_t", "energy", "^Fuel Oil Consumed", "t", LAKH),
+  pf("pf.s2_grid_import_kwh", "energy", "^Import from Grid", "kWh", LAKH),
+  pf("pf.s2_grid_export_kwh", "energy", "^Export(?:ed)? to Grid", "kWh", LAKH),
   // Rows that may not exist. Their absence is the finding.
   pf("pf.petcoke_t", ".", "petcoke|pet coke", "t"),
   pf("pf.renewable_excl", ".", "renewable|exclu", "kWh"),
 ];
 
+/** Green-cell formulas observed on the Shyamrock sector pro forma. Not a BEE blank. */
+export const CEMENT_PROFORMA_FORMULAS: { sheet: string; ref: string; formula: string }[] = [
+  { sheet: "1_Production", ref: "B17", formula: "B9*B12/B13" },
+  { sheet: "1_Production", ref: "B18", formula: "B10*B13/B13" },
+  { sheet: "1_Production", ref: "B19", formula: "B11*B14/B13" },
+  { sheet: "1_Production", ref: "B20", formula: "B7/B13" },
+  { sheet: "1_Production", ref: "B21", formula: "B17+B18+B19+B20" },
+  { sheet: "3_GHG_CCTS", ref: "B18", formula: "B6*1000*B8*B10*B13" },
+  { sheet: "3_GHG_CCTS", ref: "B19", formula: "B7*1000*B9*B10*B13" },
+  { sheet: "3_GHG_CCTS", ref: "B20", formula: "B18*B11+B19*B12" },
+  { sheet: "3_GHG_CCTS", ref: "B21", formula: "B14*100000/1000*B15" },
+  { sheet: "3_GHG_CCTS", ref: "B22", formula: "B20+B21" },
+  { sheet: "4_Summary_Form1_Feed", ref: "B5", formula: "'1_Production'!B21*100000" },
+  { sheet: "4_Summary_Form1_Feed", ref: "B8", formula: "'3_GHG_CCTS'!B20" },
+  { sheet: "4_Summary_Form1_Feed", ref: "B9", formula: "'3_GHG_CCTS'!B21" },
+  { sheet: "4_Summary_Form1_Feed", ref: "B10", formula: "'3_GHG_CCTS'!B22" },
+  { sheet: "4_Summary_Form1_Feed", ref: "B11", formula: "B10/B5" },
+];
+
 const sum = (rows: { value: unknown }[]) => rows.reduce((a, r) => a + Number(r.value ?? 0), 0);
+const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
+
+function plain(n: number): string {
+  if (!Number.isFinite(n)) return String(n);
+  return String(Math.round(n * 1000) / 1000);
+}
+
+function normFormula(formula: string): string {
+  return formula.trim().replace(/^=/, "").replace(/\s+/g, "");
+}
+
+function mentionsCell(formula: string, ref: string): boolean {
+  if (!formula || !ref) return false;
+  const cell = ref.replace(/\$/g, "").toUpperCase();
+  return new RegExp(`(?:^|[^A-Z0-9_])\\$?${cell}(?![A-Z0-9])`, "i").test(normFormula(formula));
+}
+
+function subtractsCell(formula: string, formulaSheet: string, targetSheet: string, targetRef: string): boolean {
+  if (!formula || !targetRef) return false;
+  const f = normFormula(formula);
+  const cell = targetRef.replace(/\$/g, "").toUpperCase();
+  const same = !targetSheet || !formulaSheet || targetSheet.toLowerCase() === formulaSheet.toLowerCase();
+  if (same) return new RegExp(`-\\$?${cell}(?![A-Z0-9])`, "i").test(f);
+  const name = targetSheet.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`-(?:'${name}'!|${name}!)\\$?${cell}(?![A-Z0-9])`, "i").test(f);
+}
+
+interface LabelHit {
+  sheet: string;
+  ref: string;
+  label: string;
+  formula: string | null;
+}
+
+function labelHits(wb: XlsxWorkbook, sheetRe: RegExp | null, labelRe: RegExp): LabelHit[] {
+  const hits: LabelHit[] = [];
+  for (const s of wb.sheets) {
+    if (sheetRe && !sheetRe.test(s.name)) continue;
+    for (const labelCell of s.cells) {
+      if (labelCell.col !== 1 || typeof labelCell.value !== "string" || !labelRe.test(labelCell.value)) continue;
+      const cell = s.cells
+        .filter((c) => c.row === labelCell.row && c.col > 1 && (typeof c.value === "number" || c.formula))
+        .sort((a, b) => a.col - b.col)[0];
+      if (!cell) continue;
+      hits.push({ sheet: s.name, ref: cell.ref.toUpperCase(), label: labelCell.value, formula: cell.formula ?? null });
+    }
+  }
+  return hits;
+}
+
+function annotateCementProforma(wb: XlsxWorkbook): Readings {
+  const out: Readings = {};
+  const first = (sheetRe: RegExp | null, labelRe: RegExp) => labelHits(wb, sheetRe, labelRe)[0] ?? null;
+  const coalEnergy = first(/ghg/i, /^Coal Energy\b/i);
+  const ncv = first(/ghg/i, /GCV\s*->\s*NCV/i);
+  const indirect = first(/ghg/i, /^Indirect GHG\b/i);
+  const gridImport = first(/ghg/i, /^Grid Import\b/i);
+  const gridExport = first(/energy/i, /^Export(?:ed)? to Grid\b/i);
+  out["pf.coal_energy_formula"] = coalEnergy?.formula ?? "";
+  out["pf.gcv_ncv_ref"] = ncv?.ref ?? "";
+  out["pf.indirect_formula"] = indirect?.formula ?? "";
+  out["pf.indirect_sheet"] = indirect?.sheet ?? "";
+  out["pf.grid_import_ref"] = gridImport?.ref ?? "";
+  out["pf.grid_export_ref"] = gridExport?.ref ?? "";
+  out["pf.grid_export_sheet"] = gridExport?.sheet ?? "";
+
+  const ev = evaluateWorkbook(wb);
+  const calc = first(null, /calcination/i);
+  const calcValue = calc ? ev.value(calc.sheet, calc.ref) : null;
+  if (calc && calcValue !== null) {
+    out["pf.calcination_state"] = "quantified";
+    out["pf.calcination_co2"] = calcValue;
+  } else {
+    out["pf.calcination_state"] = "missing";
+  }
+
+  const petcokeCo2 = labelHits(wb, null, /pet\s*coke/i).find((hit) => /co2|emission/i.test(hit.label));
+  const petValue = petcokeCo2 ? ev.value(petcokeCo2.sheet, petcokeCo2.ref) : null;
+  if (petcokeCo2 && petValue !== null) {
+    out["pf.petcoke_has_emission"] = 1;
+    out["pf.petcoke_co2"] = petValue;
+  } else {
+    out["pf.petcoke_has_emission"] = 0;
+  }
+  return out;
+}
 
 /** Sum and month count of one dated column, as readings `<prefix>.<name>_sum`. */
 function column(sheet: Parameters<WorkbookReader["read"]>[0], header: string, key: string, out: Readings, keepDaily = false) {
@@ -104,9 +240,14 @@ const READERS: WorkbookReader[] = [
     read(sheet) {
       const rows = dailyColumn(sheet, "GCV (kcal/kg)");
       if (!rows) return {};
-      const vals = rows.map((r) => Number(r.value)).filter((v) => Number.isFinite(v) && v > 0);
+      const dated = rows.filter((r) => Number.isFinite(Number(r.value)) && Number(r.value) > 0);
+      const vals = dated.map((r) => Number(r.value));
       const out: Readings = {};
-      if (vals.length) out["lab.gcv_mean"] = Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10;
+      if (vals.length) {
+        out["lab.gcv_mean"] = Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10;
+        out["lab.gcv_n"] = vals.length;
+        out["lab.gcv_months"] = months(dated.map((r) => r.date));
+      }
       return out;
     },
   },
@@ -119,6 +260,59 @@ const one = (id: string, section: string, label: string, needs: string[], f: (r:
   needs,
   evaluate: f,
 });
+
+function emissionPortions(r: Readings) {
+  const coal = round6(num(r, "pf.coal_energy_tj") * num(r, "pf.ef_coal"));
+  const fuelOil = round6(num(r, "pf.fuel_oil_energy_tj") * num(r, "pf.ef_fuel_oil"));
+  const direct = round6(num(r, "pf.direct_co2"));
+  const indirect = round6(num(r, "pf.indirect_co2"));
+  return { coal, fuelOil, direct, indirect, misstatement: round6(direct - coal) };
+}
+
+function reportedTotal(r: Readings): number {
+  if ("pf.total_co2" in r && Number.isFinite(num(r, "pf.total_co2"))) return num(r, "pf.total_co2");
+  return num(r, "pf.direct_co2") + num(r, "pf.indirect_co2");
+}
+
+function sourceGaps(r: Readings) {
+  const logged = "petcoke.petcoke_t_sum" in r ? num(r, "petcoke.petcoke_t_sum") : 0;
+  const cell = "pf.petcoke_t" in r ? num(r, "pf.petcoke_t") : 0;
+  const petcokeT = Math.max(logged, cell);
+  const petcokeCo2 = num(r, "pf.petcoke_has_emission") === 1 && Number.isFinite(num(r, "pf.petcoke_co2")) ? num(r, "pf.petcoke_co2") : null;
+  const calcinationCo2 =
+    r["pf.calcination_state"] === "quantified" && Number.isFinite(num(r, "pf.calcination_co2")) ? num(r, "pf.calcination_co2") : null;
+  return {
+    petcokeT,
+    petcokeCo2,
+    petcokeGap: petcokeT > 0 && petcokeCo2 === null,
+    calcinationCo2,
+    calcinationGap: calcinationCo2 === null,
+  };
+}
+
+/**
+ * The aggregate position, in one place for the check and the page banner.
+ * Fuel oil has an engine stream, so it is not a misstatement. What is left is
+ * whatever the workbook's direct total holds beyond coal and fuel oil.
+ */
+function materialityPosition(r: Readings) {
+  const { fuelOil, misstatement } = emissionPortions(r);
+  const remainder = round6(misstatement - fuelOil);
+  const quantified = Math.abs(remainder) > TONNE_BAND ? Math.abs(remainder) : 0;
+  const total = round6(reportedTotal(r));
+  return { quantified, total, threshold: round6(total * MATERIALITY) };
+}
+
+function cementMateriality(r: Readings): MaterialityPosition | null {
+  const need = ["pf.direct_co2", "pf.indirect_co2", "pf.coal_energy_tj", "pf.ef_coal", "pf.fuel_oil_energy_tj", "pf.ef_fuel_oil"];
+  if (need.some((k) => !(k in r))) return null;
+  const { quantified, total, threshold } = materialityPosition(r);
+  const gaps = sourceGaps(r);
+  const limitations: string[] = [];
+  if (gaps.calcinationGap) limitations.push("Calcination CO2 is missing: no workbook cell and no fact. Process emissions are not in the total.");
+  if (gaps.petcokeGap) limitations.push(`Petcoke is ${plain(gaps.petcokeT)} t with no emission calculation.`);
+  return { reportedTotal: total, fraction: MATERIALITY, threshold, quantified, limitations };
+}
 
 const PRODUCT_TIES = [
   ["clinker", "Clinker"],
@@ -187,8 +381,24 @@ const RULES: DeskRule[] = [
   one("form1_eq_product", "Form 1 against the pro forma", "Form 1 total equivalent product", ["pf.eq_product_t", "form1.eq_product_t"], (r) =>
     checkRecomputed({ id: "form1_eq_product", label: "Form 1 equivalent product vs pro forma (recomputed)", claimed: num(r, "form1.eq_product_t"), recomputed: num(r, "pf.eq_product_t"), relTolerance: T, thresholdSource: T_SRC })
   ),
-  one("form1_direct", "Form 1 against the pro forma", "Form 1 direct energy CO2", ["pf.direct_co2", "form1.direct_co2_t"], (r) =>
-    checkRecomputed({ id: "form1_direct", label: "Form 1 direct CO2 vs pro forma (recomputed)", claimed: num(r, "form1.direct_co2_t"), recomputed: num(r, "pf.direct_co2"), relTolerance: T, thresholdSource: T_SRC })
+  one(
+    "form1_direct",
+    "Form 1 against the pro forma",
+    "Form 1 direct energy CO2",
+    ["pf.direct_co2", "form1.direct_co2_t", "pf.coal_energy_tj", "pf.ef_coal", "pf.fuel_oil_energy_tj", "pf.ef_fuel_oil"],
+    (r) => {
+      // The two direct streams the pack carries: coal and furnace oil. Both come from the
+      // workbook's own energy and factor cells, recomputed by code.
+      const { coal, fuelOil } = emissionPortions(r);
+      return checkRecomputed({
+        id: "form1_direct",
+        label: "Form 1 direct CO2 vs the coal and fuel-oil recalculation",
+        claimed: num(r, "form1.direct_co2_t"),
+        recomputed: round6(coal + fuelOil),
+        relTolerance: T,
+        thresholdSource: `${T_SRC}. Recalculation: coal ${plain(coal)} t + fuel oil ${plain(fuelOil)} t, from the pro forma's own factors.`,
+      });
+    }
   ),
   one("form1_indirect", "Form 1 against the pro forma", "Form 1 indirect energy CO2", ["pf.indirect_co2", "form1.indirect_co2_t"], (r) =>
     checkRecomputed({ id: "form1_indirect", label: "Form 1 indirect CO2 vs pro forma (recomputed)", claimed: num(r, "form1.indirect_co2_t"), recomputed: num(r, "pf.indirect_co2"), relTolerance: T, thresholdSource: T_SRC })
@@ -202,11 +412,48 @@ const RULES: DeskRule[] = [
   one("coverage_grid", "Annual figures and evidence coverage", "Grid import: months of evidence", ["grid.bill_months", "pf.grid_kwh", "grid.bill_kwh"], (r) =>
     checkEvidenceCoverage({ id: "cov_grid", label: "Grid electricity", monthsEvidenced: num(r, "grid.bill_months"), periodMonths: 12, annualCell: num(r, "pf.grid_kwh"), monthlyReading: num(r, "grid.bill_kwh") })
   ),
-  one("coverage_coal", "Annual figures and evidence coverage", "Coal: months of evidence", ["coal.po_months", "pf.coal_t", "coal.po_t"], (r) =>
-    checkEvidenceCoverage({ id: "cov_coal", label: "Coal consumed", monthsEvidenced: num(r, "coal.po_months"), periodMonths: 12, annualCell: num(r, "pf.coal_t"), monthlyReading: num(r, "coal.po_t") })
+  one("coverage_coal", "Annual figures and evidence coverage", "Coal: months of evidence from the consumption log", ["petcoke.months", "pf.coal_t", "petcoke.coal_t_sum"], (r) =>
+    checkEvidenceCoverage({ id: "cov_coal", label: "Coal consumed", monthsEvidenced: num(r, "petcoke.months"), periodMonths: 12, annualCell: num(r, "pf.coal_t"), monthlyReading: num(r, "petcoke.coal_t_sum") })
   ),
-  one("coal_log_vs_po", "Fuels and power", "Coal in the fuel log vs purchase order", ["petcoke.coal_t_sum", "coal.po_t"], (r) =>
-    checkSumMatches({ id: "coal_log_po", label: "Coal log vs PO", parts: [num(r, "petcoke.coal_t_sum")], target: num(r, "coal.po_t"), relTolerance: T, thresholdSource: T_SRC })
+  one(
+    "coal_stock_balance",
+    "Fuels and power",
+    "Coal stock identity against the consumption log",
+    ["coal.opening_t", "coal.receipts_t", "coal.issues_t", "coal.closing_t", "petcoke.coal_t_sum"],
+    (r) => {
+      const opening = num(r, "coal.opening_t");
+      const receipts = num(r, "coal.receipts_t");
+      const issues = num(r, "coal.issues_t");
+      const closing = num(r, "coal.closing_t");
+      const log = num(r, "petcoke.coal_t_sum");
+      // The ledger closes when opening + receipts − issues − closing is 0. Issues are the consumption.
+      const residual = round6(opening + receipts - issues - closing);
+      const diff = round6(issues - log);
+      const pass = Math.abs(residual) <= TONNE_BAND + 1e-9 && Math.abs(diff) <= TONNE_BAND + 1e-9;
+      return {
+        id: "coal_stock_balance",
+        label: "Coal stock identity against the consumption log",
+        status: pass ? "pass" : "fail",
+        detail:
+          `Opening ${plain(opening)} t + receipts ${plain(receipts)} t − issues ${plain(issues)} t − closing ${plain(closing)} t = ${plain(residual)} t. ` +
+          `Issues compared with the petcoke-log coal sum ${plain(log)} t for the evidenced period; difference ${plain(diff)} t. ` +
+          `Allowed band ${plain(TONNE_BAND)} t. ${NOT_CONSUMPTION}`,
+        actual: issues,
+        expected: log,
+        diff,
+        thresholdSource: "Rounding band 0.5 t",
+      };
+    }
+  ),
+  one("coal_weighfeeder", "Fuels and power", "Weigh-feeder total against the consumption log", ["coal.weighfeeder_t", "petcoke.coal_t_sum"], (r) =>
+    checkSumMatches({
+      id: "coal_weighfeeder",
+      label: "Weigh-feeder vs consumption log",
+      parts: [num(r, "coal.weighfeeder_t")],
+      target: num(r, "petcoke.coal_t_sum"),
+      absTolerance: TONNE_BAND,
+      thresholdSource: "Rounding band 0.5 t",
+    })
   ),
   one("cpp_report_vs_proforma", "Fuels and power", "CPP report generation vs pro forma", ["cpp.report_lakh_kwh", "pf.cpp_kwh"], (r) =>
     checkSumMatches({ id: "cpp_report", label: "CPP report vs pro forma", parts: [num(r, "cpp.report_lakh_kwh") * LAKH], target: num(r, "pf.cpp_kwh"), relTolerance: T, thresholdSource: T_SRC })
@@ -214,19 +461,258 @@ const RULES: DeskRule[] = [
   one("petcoke_cell", "Fuels and power", "Petcoke logged but absent from the pro forma", ["petcoke.petcoke_t_sum", "pf.eq_product_t"], (r) =>
     checkUnmappedFuel({ id: "petcoke", label: "Petcoke", tonnes: num(r, "petcoke.petcoke_t_sum"), workbookHasCell: "pf.petcoke_t" in r })
   ),
-  one("gcv_rule", "Fuels and power", "Coal GCV: internal lab vs NABL, and the workbook's value", ["lab.gcv_mean", "coal.nabl_gcv", "pf.gcv_coal"], (r) => {
+  one("gcv_samples", "Fuels and power", "Coal GCV sample frequency", ["lab.gcv_n", "lab.gcv_months", "pf.coal_t"], (r) => {
+    const samples = num(r, "lab.gcv_n");
+    const covered = num(r, "lab.gcv_months");
+    const tonnes = num(r, "pf.coal_t");
+    if (!Number.isFinite(samples) || !Number.isFinite(covered) || !Number.isFinite(tonnes)) {
+      return { id: "gcv_samples", label: "Coal GCV sample frequency", status: "not_applicable", detail: "The lab sample count or the GHG-sheet coal tonnes could not be read." };
+    }
+    const byTonnes = Math.ceil(tonnes / 20_000);
+    const monthsShort = covered < 12;
+    const samplesShort = samples < byTonnes;
+    const fail = monthsShort || samplesShort;
+    return {
+      id: "gcv_samples",
+      label: "Coal GCV sample frequency",
+      status: fail ? "fail" : "pass",
+      detail:
+        `The lab file has ${plain(samples)} dated GCV sample(s) in ${plain(covered)} distinct month(s). ` +
+        `Coal on the GHG sheet is ${plain(tonnes)} t. Required frequency is at least once a month and at least once per 20,000 t, whichever is more often, over a 12-month period: ` +
+        `${plain(covered)} of 12 month(s), and ${plain(samples)} sample(s) against ceil(annual tonnes / 20000) = ${plain(byTonnes)}. ` +
+        (monthsShort ? "The lab file covers fewer months than 12. " : "") +
+        (samplesShort ? "The lab file has fewer samples than the throughput rule. " : "") +
+        (fail ? "" : "Both the monthly coverage and the throughput count are met."),
+      actual: samples,
+      expected: byTonnes,
+      thresholdSource: GCV_SAMPLE_SOURCE,
+    };
+  }),
+  one("gcv_ncv_used", "Fuels and power", "Coal energy formula uses the GCV-to-NCV factor", ["pf.proforma_opened", "pf.coal_energy_formula", "pf.gcv_ncv_ref"], (r) => {
+    const formula = String(r["pf.coal_energy_formula"] ?? "");
+    const ref = String(r["pf.gcv_ncv_ref"] ?? "");
+    if (!formula) {
+      return { id: "gcv_ncv_used", label: "Coal energy uses GCV-to-NCV", status: "not_applicable", detail: "The coal energy formula cell cannot be read." };
+    }
+    if (!ref) {
+      return {
+        id: "gcv_ncv_used",
+        label: "Coal energy uses GCV-to-NCV",
+        status: "not_applicable",
+        detail: "The GCV-to-NCV factor cell cannot be read, so the coal energy formula cannot be checked against it.",
+      };
+    }
+    const used = mentionsCell(formula, ref);
+    return {
+      id: "gcv_ncv_used",
+      label: "Coal energy uses GCV-to-NCV",
+      status: used ? "pass" : "fail",
+      detail: used
+        ? `The coal energy formula ${formula} references the GCV-to-NCV cell ${ref}.`
+        : `The coal energy formula ${formula} uses GCV only. It does not reference the GCV-to-NCV cell ${ref}.`,
+    };
+  }),
+  one("gcv_nabl_corroboration", "Fuels and power", "NABL coal GCV corroboration", ["lab.gcv_mean", "coal.nabl_gcv", "pf.gcv_coal"], (r) => {
     const internal = num(r, "lab.gcv_mean");
     const external = num(r, "coal.nabl_gcv");
     const cell = num(r, "pf.gcv_coal");
-    // The workbook holds a rounded figure. Treat it as the expected one when it is within the band.
-    const expected = Math.abs(external - internal) > 71.7 ? external : internal;
-    const snapped = Math.abs(cell - expected) <= expected * T ? expected : cell;
-    const res = checkGcvRule({ internal, external, cell: snapped, thresholdKcal: 71.7, thresholdSource: "Test brief (71.7 kcal/kg). Not found in the procedure pages read; unconfirmed." });
-    return snapped !== cell ? { ...res, detail: `${res.detail} The workbook's ${cell} is within ${T * 100}% of the expected value, so it is taken as that value.` } : res;
+    const deviation = round6(Math.abs(external - internal));
+    return {
+      id: "gcv_nabl_corroboration",
+      label: "NABL coal GCV corroboration",
+      status: "not_applicable",
+      detail:
+        `Internal lab mean ${plain(internal)} kcal/kg, NABL ${plain(external)} kcal/kg, deviation ${plain(deviation)} kcal/kg. ` +
+        `Workbook GCV cell ${plain(cell)} kcal/kg. The NABL value corroborates the internal samples. It does not replace the sample-frequency rule.`,
+    };
   }),
   one("renewable_claim", "Fuels and power", "Renewable claim and REC declaration", ["rec.claim_mwh", "rec.purchases_mwh"], (r) =>
     checkRenewableClaim({ renewableClaimMwh: num(r, "rec.claim_mwh"), recPurchasesMwh: num(r, "rec.purchases_mwh"), workbookHasExclusion: Number(r["pf.renewable_excl"] ?? 0) > 0 })
   ),
+  one("sheet2_coal_tie", "Sheet 2 completeness", "Process plus power coal vs GHG-sheet coal", ["pf.s2_process_coal_t", "pf.s2_power_coal_t", "pf.coal_t"], (r) =>
+    checkSumMatches({
+      id: "sheet2_coal_tie",
+      label: "Sheet 2 process plus power coal vs GHG coal",
+      parts: [num(r, "pf.s2_process_coal_t"), num(r, "pf.s2_power_coal_t")],
+      target: num(r, "pf.coal_t"),
+      absTolerance: TONNE_BAND,
+      thresholdSource: "Rounding band 0.5 t",
+    })
+  ),
+  one("sheet2_fuel_oil_tie", "Sheet 2 completeness", "Sheet 2 fuel oil vs GHG-sheet fuel oil", ["pf.s2_fuel_oil_t", "pf.fuel_oil_t"], (r) =>
+    checkSumMatches({
+      id: "sheet2_fuel_oil_tie",
+      label: "Sheet 2 fuel oil vs GHG fuel oil",
+      parts: [num(r, "pf.s2_fuel_oil_t")],
+      target: num(r, "pf.fuel_oil_t"),
+      absTolerance: TONNE_BAND,
+      thresholdSource: "Rounding band 0.5 t",
+    })
+  ),
+  one("sheet2_grid_tie", "Sheet 2 completeness", "Sheet 2 grid import vs GHG-sheet grid import", ["pf.s2_grid_import_kwh", "pf.grid_kwh"], (r) =>
+    checkSumMatches({
+      id: "sheet2_grid_tie",
+      label: "Sheet 2 grid import vs GHG grid import",
+      parts: [num(r, "pf.s2_grid_import_kwh")],
+      target: num(r, "pf.grid_kwh"),
+      absTolerance: KWH_BAND,
+      thresholdSource: "Rounding band 1 kWh",
+    })
+  ),
+  one(
+    "sheet2_export",
+    "Sheet 2 completeness",
+    "Grid export and the indirect GHG formula",
+    ["pf.proforma_opened", "pf.indirect_formula", "pf.indirect_sheet", "pf.grid_import_ref", "pf.grid_export_ref", "pf.grid_export_sheet"],
+    (r) => {
+      if (!("pf.s2_grid_export_kwh" in r)) {
+        return { id: "sheet2_export", label: "Grid export deduction", status: "not_applicable", detail: "Sheet 2 grid export is missing, so this check cannot see an export figure." };
+      }
+      const exp = num(r, "pf.s2_grid_export_kwh");
+      if (!(exp > 0)) {
+        return { id: "sheet2_export", label: "Grid export deduction", status: "not_applicable", detail: `Sheet 2 grid export is ${plain(exp)} kWh, so there is no export to deduct.` };
+      }
+      const formula = String(r["pf.indirect_formula"] ?? "");
+      if (!formula) {
+        return { id: "sheet2_export", label: "Grid export deduction", status: "not_applicable", detail: "The GHG indirect formula cell cannot be read." };
+      }
+      const deducted = subtractsCell(formula, String(r["pf.indirect_sheet"] ?? ""), String(r["pf.grid_export_sheet"] ?? ""), String(r["pf.grid_export_ref"] ?? ""));
+      const importRef = String(r["pf.grid_import_ref"] ?? "");
+      if (!deducted) {
+        const usesImport = mentionsCell(formula, importRef);
+        return {
+          id: "sheet2_export",
+          label: "Grid export deduction",
+          status: "fail",
+          detail:
+            `Sheet 2 grid export is ${plain(exp)} kWh. The GHG indirect formula ${formula} ` +
+            (usesImport && importRef ? `uses the grid import cell ${importRef} and does not subtract export. ` : "does not subtract export. ") +
+            "Export was not deducted. The plant must confirm whether the procedure requires deduction.",
+          actual: exp,
+        };
+      }
+      return {
+        id: "sheet2_export",
+        label: "Grid export deduction",
+        status: "pass",
+        detail: `Sheet 2 grid export is ${plain(exp)} kWh and the GHG indirect formula ${formula} subtracts that export cell.`,
+        actual: exp,
+      };
+    }
+  ),
+  one(
+    "source_profile",
+    "Source profile",
+    "Sources the workbook and the run can see",
+    ["pf.coal_energy_tj", "pf.ef_coal", "pf.fuel_oil_energy_tj", "pf.ef_fuel_oil", "pf.indirect_co2", "pf.calcination_state", "pf.petcoke_has_emission", "petcoke.petcoke_t_sum"],
+    (r) => {
+      const { coal, fuelOil, indirect } = emissionPortions(r);
+      const gaps = sourceGaps(r);
+      const ranked = [
+        { label: `coal combustion ${plain(coal)} tCO2 (GHG sheet formula result)`, co2: coal },
+        { label: `fuel oil ${plain(fuelOil)} tCO2 (workbook formula result)`, co2: fuelOil },
+        { label: `grid indirect ${plain(indirect)} tCO2 (workbook formula result)`, co2: indirect },
+      ];
+      if (gaps.petcokeCo2 !== null) ranked.push({ label: `petcoke ${plain(gaps.petcokeCo2)} tCO2 (workbook formula result)`, co2: gaps.petcokeCo2 });
+      if (gaps.calcinationCo2 !== null) ranked.push({ label: `calcination ${plain(gaps.calcinationCo2)} tCO2 (workbook formula result)`, co2: gaps.calcinationCo2 });
+      ranked.sort((a, b) => b.co2 - a.co2);
+      const tail: string[] = [];
+      if (gaps.petcokeCo2 === null) {
+        tail.push(gaps.petcokeT > 0 ? `petcoke ${plain(gaps.petcokeT)} t, unquantified, no emission factor` : "petcoke is absent or zero");
+      }
+      if (gaps.calcinationGap) tail.push("calcination is missing: no workbook cell and no fact");
+      let detail = `Sources, largest quantified CO2 first: ${ranked.map((s) => s.label).join("; ")}.`;
+      if (tail.length) detail += ` ${tail.join(". ")}.`;
+      if (gaps.petcokeGap || gaps.calcinationGap) {
+        detail += " They cannot be counted as zero because either is large enough to move a 2% materiality threshold, and no factor was invented.";
+      }
+      return {
+        id: "source_profile",
+        label: "Sources the workbook and the run can see",
+        status: gaps.petcokeGap || gaps.calcinationGap ? "fail" : "pass",
+        detail,
+      };
+    }
+  ),
+  one(
+    "workbook_vs_engine",
+    "Recalculation",
+    "Workbook direct CO2 against the streams the engine takes",
+    ["pf.direct_co2", "pf.indirect_co2", "pf.coal_energy_tj", "pf.ef_coal", "pf.fuel_oil_energy_tj", "pf.ef_fuel_oil"],
+    (r) => {
+      // The engine takes coal and furnace oil. Direct CO2 in the workbook should be those two and
+      // nothing else. A remainder is a source the run cannot see.
+      const { coal, fuelOil, direct, indirect } = emissionPortions(r);
+      const taken = round6(coal + fuelOil);
+      const remainder = round6(direct - taken);
+      const ok = Math.abs(remainder) <= Math.abs(direct) * T + 1e-6;
+      return {
+        id: "workbook_vs_engine",
+        label: "Workbook direct CO2 against the streams the engine takes",
+        status: ok ? "pass" : "fail",
+        detail:
+          `Workbook direct CO2 is ${plain(direct)} t. Coal ${plain(coal)} t plus fuel oil ${plain(fuelOil)} t is ${plain(taken)} t, both streams the calculation takes. ` +
+          (ok
+            ? "Nothing else sits inside the direct total. "
+            : `The remaining ${plain(remainder)} t is not from either stream, so a run would not see it. `) +
+          "The run prices both fuels with the engine's factor set, which is not the workbook's own factor, so the two totals differ slightly. " +
+          `Workbook indirect CO2 is ${plain(indirect)} t.`,
+        actual: direct,
+        expected: taken,
+        diff: remainder,
+        thresholdSource: T_SRC,
+      };
+    }
+  ),
+  one(
+    "materiality_aggregate",
+    "Materiality",
+    "Quantified misstatements against 2% of reported emissions",
+    ["pf.direct_co2", "pf.indirect_co2", "pf.coal_energy_tj", "pf.ef_coal", "pf.fuel_oil_energy_tj", "pf.ef_fuel_oil", "pf.calcination_state", "pf.petcoke_has_emission", "petcoke.petcoke_t_sum"],
+    (r) => {
+      const { quantified, total, threshold } = materialityPosition(r);
+      const gaps = sourceGaps(r);
+      const over = quantified > threshold + 1e-9;
+      const fail = over || gaps.petcokeGap || gaps.calcinationGap;
+      const reasons: string[] = [];
+      if (over) reasons.push("The quantified sum exceeds 2% of reported emissions.");
+      if (gaps.calcinationGap) reasons.push("Calcination is missing, so the aggregate is incomplete and cannot pass.");
+      if (gaps.petcokeGap) reasons.push(`Petcoke is ${plain(gaps.petcokeT)} t with no emission calculation, so the aggregate is incomplete and cannot pass.`);
+      if (!over && (gaps.petcokeGap || gaps.calcinationGap)) reasons.unshift("The quantified sum does not by itself exceed 2%.");
+      return {
+        id: "materiality_aggregate",
+        label: "Quantified misstatements against 2% of reported emissions",
+        status: fail ? "fail" : "pass",
+        detail:
+          `Quantified misstatements sum to ${plain(quantified)} tCO2. Reported total direct and indirect GHG is ${plain(total)} tCO2. ` +
+          `The 2% threshold is ${plain(threshold)} tCO2. No calcination number was added. ${reasons.join(" ")}`,
+        actual: quantified,
+        expected: threshold,
+        diff: round6(quantified - threshold),
+        thresholdSource: MATERIALITY_SOURCE,
+      };
+    }
+  ),
+  one("formula_integrity", "Formula integrity", "Sector pro forma green cells still hold their formulas", ["pf.proforma_opened"], (r) => {
+    const problems: string[] = [];
+    for (const spec of CEMENT_PROFORMA_FORMULAS) {
+      const got = r[`pf.formula@${spec.sheet}!${spec.ref}`];
+      const ref = `${spec.sheet}!${spec.ref}`;
+      if (typeof got !== "string") problems.push(`${ref} missing`);
+      else if (normFormula(got) !== normFormula(spec.formula)) problems.push(`${ref} overwritten`);
+    }
+    return {
+      id: "formula_integrity",
+      label: "Sector pro forma green cells still hold their formulas",
+      status: problems.length === 0 ? "pass" : "fail",
+      detail:
+        problems.length === 0
+          ? `All ${CEMENT_PROFORMA_FORMULAS.length} green-cell formulas match. ${FORMULA_NOTE}`
+          : `${problems.length} formula cell(s) overwritten or missing: ${problems.join(", ")}. ${FORMULA_NOTE}`,
+      actual: problems.length,
+      expected: 0,
+    };
+  }),
   one("engine_coverage", "Run inputs", "Pro forma inputs the calculation cannot take", ["pf.unmapped_count"], (r) => {
     const n = num(r, "pf.unmapped_count");
     return {
@@ -245,6 +731,15 @@ export const CEMENT_DESK_REVIEW: DeskReviewDef = {
   proformaCells: PROFORMA_CELLS,
   readers: READERS,
   rules: RULES,
+  proformaAnnotations: annotateCementProforma,
+  monthsEvidence: {
+    production_evidence: "scada.months",
+    cpp_generation: "cpp.months",
+    petcoke_log: "petcoke.months",
+    coal_quality: "lab.gcv_months",
+    grid_electricity: "grid.bill_months",
+  },
+  materiality: (r) => cementMateriality(r),
   manual: [
     m("mpr.clinker_t", "Monthly report: clinker produced", "t", "production_evidence"),
     m("mpr.opc_t", "Monthly report: OPC produced", "t", "production_evidence"),
@@ -261,8 +756,13 @@ export const CEMENT_DESK_REVIEW: DeskReviewDef = {
     m("cpp.report_lakh_kwh", "CPP report: gross generation as stated", "Lakh kWh", "cpp_generation", "Enter the figure as printed, and note whether it is monthly or annual"),
     m("grid.bill_kwh", "Grid bill: units consumed", "kWh", "grid_electricity"),
     m("grid.bill_months", "Grid bills: number of months covered", "months", "grid_electricity", "Count the months the bills in the pack cover"),
-    m("coal.po_t", "Coal purchase order: quantity", "t", "coal_purchase"),
-    m("coal.po_months", "Coal purchase orders: number of months covered", "months", "coal_purchase"),
+    m("coal.po_t", "Coal purchase order: quantity", "t", "coal_purchase", `${NOT_CONSUMPTION} The ordered quantity is not the quantity consumed.`),
+    m("coal.po_months", "Coal purchase orders: number of months covered", "months", "coal_purchase", `${NOT_CONSUMPTION} Months on the purchase order are not the months of consumption evidence.`),
+    m("coal.opening_t", "Coal stock: opening", "t", "coal_purchase", `${NOT_CONSUMPTION} Enter opening stock for the evidenced period.`),
+    m("coal.receipts_t", "Coal stock: receipts", "t", "coal_purchase", `${NOT_CONSUMPTION} Enter receipts for the evidenced period.`),
+    m("coal.issues_t", "Coal stock: issues", "t", "coal_purchase", `${NOT_CONSUMPTION} Enter issues, the stock-ledger consumption, for the evidenced period.`),
+    m("coal.closing_t", "Coal stock: closing", "t", "coal_purchase", `${NOT_CONSUMPTION} Enter closing stock for the evidenced period.`),
+    m("coal.weighfeeder_t", "Coal weigh-feeder total", "t", "coal_purchase", `${NOT_CONSUMPTION} Enter the weigh-feeder total for the evidenced period.`),
     m("coal.nabl_gcv", "NABL certificate: coal GCV", "kcal/kg", "coal_quality"),
     m("rec.claim_mwh", "REC declaration: renewable claim", "MWh", "rec_declaration", "Enter 0 for a nil declaration"),
     m("rec.purchases_mwh", "REC declaration: certificates purchased", "MWh", "rec_declaration"),

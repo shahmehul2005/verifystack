@@ -9,6 +9,7 @@ import { SubmissionError } from "@verifystack/backend/domain/submission/package"
 import { StageError } from "@verifystack/backend/domain/stages/stages";
 import { PlanError } from "@verifystack/backend/domain/planning/plan";
 import { MethodNotImplementedError } from "@verifystack/backend/domain/calc/dispatch";
+import { ResolutionError } from "@verifystack/backend/domain/deskreview/resolution";
 import { rateLimit, type LIMITS } from "@verifystack/backend/lib/rateLimit";
 
 export function jsonError(err: unknown, fallback = 500) {
@@ -24,6 +25,7 @@ export function jsonError(err: unknown, fallback = 500) {
     err instanceof SubmissionError ||
     err instanceof StageError ||
     err instanceof PlanError ||
+    err instanceof ResolutionError ||
     err instanceof MethodNotImplementedError
   ) {
     return NextResponse.json({ ok: false, error: err.message }, { status: 422 });

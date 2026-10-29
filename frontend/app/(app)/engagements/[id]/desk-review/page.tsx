@@ -6,15 +6,35 @@ import { hasCapability } from "@verifystack/backend/lib/auth/capabilities";
 import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
-import { deskReviewFor, inferSlot, readWorkbooks, runDeskReview, type DeskOutcome, type DeskWorkbook, type Readings } from "@verifystack/backend/domain/deskreview";
+import { Badge, type BadgeTone } from "@/components/ui/badge";
+import { Alert } from "@/components/ui/alert";
+import { Card, CardBody, CardHeader } from "@/components/ui/card";
+import { StatTile } from "@/components/ui/stat";
+import {
+  PERIOD_MONTHS,
+  deskReviewFor,
+  inferSlot,
+  readWorkbooks,
+  runDeskReview,
+  slotCoverage,
+  type DeskOutcome,
+  type DeskWorkbook,
+  type Readings,
+  type ResolutionState,
+  type SlotCoverage,
+} from "@verifystack/backend/domain/deskreview";
+import { BLOCK_IDS } from "@verifystack/backend/domain/deskreview/toFindings";
 import { parseXlsx } from "@verifystack/backend/domain/intake/xlsx";
 import { readProforma, type ProformaReading } from "@verifystack/backend/domain/proforma/reader";
 import { loadPack } from "@verifystack/backend/domain/packs";
 import { XLSX_MIME } from "@verifystack/backend/lib/evidence";
-import { DeskReviewStudio } from "./desk-review-client";
+import { DeskReviewStudio, type TriageFinding, type TriageResolution } from "./desk-review-client";
 
 export const metadata = { title: "Desk review" };
 
+const COVERAGE_TONE: Record<SlotCoverage["state"], BadgeTone> = { present: "ok", partial: "draft", missing: "neutral" };
+
+const tonnes = (n: number) => `${n.toLocaleString("en-IN", { maximumFractionDigits: 1 })} tCO2e`;
 export default async function DeskReviewPage({ params }: { params: Promise<{ id: string }> }) {
   if (!isSupabaseConfigured()) return <ConfigureSupabase />;
   const { id } = await params;
@@ -23,17 +43,18 @@ export default async function DeskReviewPage({ params }: { params: Promise<{ id:
   if (!hasCapability(session.role, "review.decide")) {
     return <ForbiddenState body="Desk review is for verifiers and the lead verifier." />;
   }
-  const canDecide = true;
+  // The decision route also needs findings.decide, because a decision lands on a finding.
+  const canDecide = hasCapability(session.role, "findings.decide");
   const engagement = await getEngagement(id, session.organizationId);
   if (!engagement) notFound();
   const def = deskReviewFor(engagement.pack_id);
   if (!def) notFound();
 
   const supabase = createServiceClient() ?? (await createServerSupabase());
-  const [{ data: review }, { data: readings }, { data: docs }] = await Promise.all([
+  const [{ data: review }, { data: readings }, { data: docs }, resolutionRows, { data: deskFindings }] = await Promise.all([
     supabase!
       .from("desk_reviews")
-      .select("id, results, notes, created_at")
+      .select("id, results, readings, notes, created_at")
       .eq("engagement_id", id)
       .eq("organization_id", session.organizationId)
       .order("created_at", { ascending: false })
@@ -41,7 +62,26 @@ export default async function DeskReviewPage({ params }: { params: Promise<{ id:
       .maybeSingle(),
     supabase!.from("desk_readings").select("key, value, document_id, page").eq("engagement_id", id).eq("organization_id", session.organizationId),
     supabase!.from("documents").select("id, original_filename, slot, doc_type, storage_path, mime_type").eq("engagement_id", id).eq("organization_id", session.organizationId),
+    supabase!
+      .from("desk_resolutions")
+      .select("rule_id, resolution_state, reason, decided_at")
+      .eq("engagement_id", id)
+      .eq("organization_id", session.organizationId),
+    supabase!
+      .from("findings")
+      .select("id, rule_id, state, severity")
+      .eq("engagement_id", id)
+      .eq("organization_id", session.organizationId)
+      .like("rule_id", "DESK-%"),
   ]);
+  // Without migration 0019 the table is absent. The checks still show; decisions wait.
+  const resolutionsAvailable = !resolutionRows.error;
+  const resolutions: Record<string, TriageResolution> = {};
+  for (const r of resolutionRows.data ?? []) {
+    resolutions[r.rule_id] = { state: r.resolution_state as ResolutionState, reason: r.reason, decidedAt: r.decided_at };
+  }
+  const findingFor: Record<string, TriageFinding> = {};
+  for (const f of deskFindings ?? []) findingFor[f.rule_id] = { id: f.id, state: f.state, severity: f.severity };
 
   let results = ((review?.results ?? []) as unknown as DeskOutcome[]) ?? [];
   let notes = ((review?.notes ?? []) as unknown as string[]) ?? [];
@@ -95,6 +135,19 @@ export default async function DeskReviewPage({ params }: { params: Promise<{ id:
     results = runDeskReview(def, allReadings);
   }
 
+  const seen = (review?.readings ?? {}) as unknown as Readings;
+  const pack = loadPack(engagement.pack_id);
+  const coverage = slotCoverage(
+    def,
+    (pack.evidence_slots ?? []).map((s) => ({ id: s.id, label: s.label, gate: s.gate })),
+    resolvedDocs.map((d) => ({ slot: d.effectiveSlot })),
+    seen
+  );
+  const materiality = review ? (def.materiality?.(seen, results) ?? null) : null;
+  const unresolvedHolds = (deskFindings ?? []).filter(
+    (f) => f.severity === "block" && f.state !== "closed" && f.state !== "rejected"
+  ).length;
+
   return (
     <>
       <PageHeader
@@ -102,6 +155,58 @@ export default async function DeskReviewPage({ params }: { params: Promise<{ id:
         title="Desk review"
         description="Cross-checks between primary evidence and sector pro-forma inputs. Code recomputes formulas deterministically; AI proposes readings with mandatory auditor sign-off."
       />
+
+      <Card>
+        <CardHeader
+          title="Materiality and completeness"
+          description="What the checks could put a number on, against 2% of what the entity reported, and which evidence is missing or covers only part of the year."
+        />
+        <CardBody className="space-y-4">
+          {materiality ? (
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <StatTile label="Reported total" value={tonnes(materiality.reportedTotal)} />
+              <StatTile label={`${materiality.fraction * 100}% threshold`} value={tonnes(materiality.threshold)} />
+              <StatTile
+                label="Quantified misstatement"
+                value={tonnes(materiality.quantified)}
+                tone={materiality.quantified > materiality.threshold ? "block" : "ok"}
+              />
+              <StatTile
+                label="Sign-off held by"
+                value={unresolvedHolds === 0 ? "Nothing" : `${unresolvedHolds} finding${unresolvedHolds === 1 ? "" : "s"}`}
+                tone={unresolvedHolds === 0 ? "ok" : "block"}
+              />
+            </div>
+          ) : (
+            <p className="text-sm text-mist-600">The pro forma was not read in this run, so there is no materiality position yet.</p>
+          )}
+          {materiality && materiality.limitations.length > 0 ? (
+            <Alert tone="warn" title="The total is incomplete">
+              <ul className="list-disc space-y-0.5 pl-4">
+                {materiality.limitations.map((l) => (
+                  <li key={l}>{l}</li>
+                ))}
+              </ul>
+            </Alert>
+          ) : null}
+          <ul className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {coverage.map((c) => (
+              <li key={c.slot} className="flex items-center justify-between gap-3 rounded-md border border-mist-200 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="truncate text-sm text-mist-900">{c.label}</p>
+                  <p className="text-[11px] text-mist-500">
+                    {c.documents} document{c.documents === 1 ? "" : "s"}
+                    {c.months !== null ? ` · ${c.months} of ${PERIOD_MONTHS} months` : ""}
+                  </p>
+                </div>
+                <Badge tone={c.state === "missing" && c.gate === "run" ? "block" : COVERAGE_TONE[c.state]} dot>
+                  {c.state === "missing" ? "Missing" : c.state === "partial" ? "Part of the year" : "Present"}
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        </CardBody>
+      </Card>
 
       <DeskReviewStudio
         engagementId={id}
@@ -131,6 +236,11 @@ export default async function DeskReviewPage({ params }: { params: Promise<{ id:
         proformaFileName={proformaFileName}
         lastRunAt={review?.created_at ?? null}
         canDecide={canDecide}
+        resolutions={resolutions}
+        deskFindings={findingFor}
+        blockIds={[...BLOCK_IDS]}
+        resolutionsAvailable={resolutionsAvailable}
+        hasSavedRun={Boolean(review)}
       />
     </>
   );

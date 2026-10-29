@@ -23,6 +23,13 @@ import { Table, Td, Th } from "@/components/ui/table";
 import type { DeskOutcome, DeskStatus, ManualReadingSpec } from "@verifystack/backend/domain/deskreview";
 import type { ProformaReading } from "@verifystack/backend/domain/proforma/reader";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
+import {
+  DECIDABLE_STATES,
+  MIN_REASON_LENGTH,
+  RESOLUTION_HELP,
+  RESOLUTION_LABEL,
+  type ResolutionState,
+} from "@verifystack/backend/domain/deskreview/resolution";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
@@ -146,6 +153,16 @@ interface DeskReviewStudioProps {
   proformaFileName: string | null;
   lastRunAt: string | null;
   canDecide: boolean;
+  /** The verifier's decision on each check, by check id. */
+  resolutions: Record<string, TriageResolution>;
+  /** The finding raised for each check, by rule id (DESK-<check id>). */
+  deskFindings: Record<string, TriageFinding>;
+  /** Checks whose finding holds sign-off by design. */
+  blockIds: string[];
+  /** False until migration 0019 is applied. */
+  resolutionsAvailable: boolean;
+  /** Decisions land on a saved run's findings, so they wait for one. */
+  hasSavedRun: boolean;
 }
 
 export function DeskReviewStudio({
@@ -159,6 +176,11 @@ export function DeskReviewStudio({
   proforma,
   proformaFileName,
   canDecide,
+  resolutions,
+  deskFindings,
+  blockIds,
+  resolutionsAvailable,
+  hasSavedRun,
 }: DeskReviewStudioProps) {
   const { softReload, isRefreshing } = useSoftReload();
 
@@ -1432,7 +1454,7 @@ export function DeskReviewStudio({
                             })()}
 
                             {/* Contextual actions */}
-                            {isFail ? (
+                            {isFail && !deskFindings[`DESK-${r.id}`] ? (
                               <div className="flex items-center justify-between border-t border-red-100 pt-2 text-xs">
                                 <span className="text-red-700 font-medium">Discrepancy exceeds tolerance</span>
                                 <Button
@@ -1478,6 +1500,18 @@ export function DeskReviewStudio({
                                   Open Drawer to Fill
                                 </Button>
                               </div>
+                            ) : null}
+
+                            {canDecide && hasSavedRun && (isFail || isPending) ? (
+                              <TriageBar
+                                engagementId={engagementId}
+                                ruleId={r.id}
+                                status={r.status}
+                                inherentBlock={blockIds.includes(r.id)}
+                                resolution={resolutions[r.id] ?? null}
+                                finding={deskFindings[`DESK-${r.id}`] ?? null}
+                                available={resolutionsAvailable}
+                              />
                             ) : null}
                           </li>
                         );
@@ -1525,6 +1559,141 @@ export function RunDeskReviewButton({ engagementId }: { engagementId: string }) 
   );
 }
 
+type Decidable = (typeof DECIDABLE_STATES)[number];
+
+export interface TriageResolution {
+  state: ResolutionState;
+  reason: string;
+  decidedAt: string;
+}
+
+export interface TriageFinding {
+  id: string;
+  state: string;
+  severity: string;
+}
+
+/**
+ * The verifier's decision on one check. A decision that holds sign-off goes onto
+ * the linked finding, where the plant is asked and the answer is verified, so
+ * there is one place the question is asked and one place it is closed.
+ */
+export function TriageBar({
+  engagementId,
+  ruleId,
+  status,
+  inherentBlock,
+  resolution,
+  finding,
+  available,
+}: {
+  engagementId: string;
+  ruleId: string;
+  status: "fail" | "pending" | "pass" | "not_applicable";
+  /** The finding for this check holds sign-off by design, so "immaterial" is not offered. */
+  inherentBlock: boolean;
+  resolution: TriageResolution | null;
+  finding: TriageFinding | null;
+  /** False until migration 0019 is applied. */
+  available: boolean;
+}) {
+  const { softReload, isRefreshing } = useSoftReload();
+  const [open, setOpen] = useState(false);
+  const offered: readonly Decidable[] = status === "pending" ? ["scope_limitation"] : DECIDABLE_STATES;
+  const options = offered.filter((s) => !(inherentBlock && s === "unresolved_immaterial"));
+  const [state, setState] = useState<Decidable>(
+    resolution && resolution.state !== "resolved" ? resolution.state : options[0]!
+  );
+  const [reason, setReason] = useState(resolution && resolution.state !== "resolved" ? resolution.reason : "");
+  const [busy, setBusy] = useState(false);
+
+  const findingLink = finding ? (
+    <a
+      href={`/engagements/${engagementId}/findings#finding-${finding.id}`}
+      className="text-xs font-medium text-teal-700 underline-offset-2 hover:underline"
+    >
+      Open the finding to query the plant
+    </a>
+  ) : null;
+
+  async function save() {
+    setBusy(true);
+    const res = await fetch("/api/desk-review/resolve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ engagementId, ruleId, state, reason: reason.trim() }),
+    });
+    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; blocksSignOff?: boolean };
+    setBusy(false);
+    if (!res.ok || !json.ok) {
+      toast.error(json.error ?? "Could not save the decision");
+      return;
+    }
+    toast.success(json.blocksSignOff ? "Recorded. This holds sign-off." : "Decision recorded");
+    setOpen(false);
+    softReload();
+  }
+
+  const decided = resolution && resolution.state !== "resolved";
+  return (
+    <div className="mt-2 space-y-2">
+      {decided ? (
+        <p className="text-xs text-mist-700">
+          <span className="font-medium text-mist-900">{RESOLUTION_LABEL[resolution.state]}.</span> {resolution.reason}
+        </p>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-3">
+        <Button size="sm" variant={decided ? "ghost" : "secondary"} disabled={!available || isRefreshing} onClick={() => setOpen((v) => !v)}>
+          {decided ? "Change decision" : status === "pending" ? "Record a scope limitation" : "Decide"}
+        </Button>
+        {findingLink}
+        {!available ? <span className="text-xs text-mist-500">Apply migration 0019 to record decisions.</span> : null}
+      </div>
+      {open ? (
+        <div className="space-y-2 rounded-md border border-mist-200 bg-mist-50/60 p-3">
+          {options.length > 1 ? (
+            <select
+              aria-label="Resolution"
+              className="h-9 w-full rounded-md border border-mist-300 bg-white px-2 text-sm"
+              value={state}
+              onChange={(e) => setState(e.target.value as Decidable)}
+            >
+              {options.map((s) => (
+                <option key={s} value={s}>
+                  {RESOLUTION_LABEL[s]}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <p className="text-sm font-medium text-mist-900">{RESOLUTION_LABEL[options[0]!]}</p>
+          )}
+          <p className="text-xs text-mist-600">{RESOLUTION_HELP[state]}</p>
+          <textarea
+            aria-label="Reason"
+            rows={3}
+            className="w-full rounded-md border border-mist-300 bg-white px-2 py-1.5 text-sm"
+            placeholder="Why. At least 10 characters. This is kept with the finding."
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+          <div className="flex justify-end">
+            <Button size="sm" disabled={busy || reason.trim().length < MIN_REASON_LENGTH} onClick={() => void save()}>
+              <Save />
+              Save decision
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const DAILY_LINE = /^(\d{4}-\d{2}-\d{2})\s*[,:\s]\s*(-?\d+(?:\.\d+)?)\s*$/;
+
+/**
+ * The figures that sit in PDFs. The auditor types each against the document and page
+ * it was read from. Workbook figures are never typed here; they are read by code.
+ */
 export function ReadingsForm({
   engagementId,
   specs,

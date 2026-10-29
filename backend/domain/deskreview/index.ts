@@ -3,6 +3,8 @@ import type { DeskReviewDef } from "./engine";
 
 export * from "./engine";
 export * from "./propose";
+export * from "./summary";
+export * from "./resolution";
 
 const DEFS: Record<string, DeskReviewDef> = {
   [CEMENT_DESK_REVIEW.packId]: CEMENT_DESK_REVIEW,

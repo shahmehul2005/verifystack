@@ -756,6 +756,53 @@ export interface Database {
         Update: Update<{ notes?: Json }>;
         Relationships: [];
       };
+      desk_resolutions: {
+        Row: Row<{
+          id: string;
+          organization_id: string;
+          engagement_id: string;
+          rule_id: string;
+          resolution_state:
+            | "resolved"
+            | "accepted_with_explanation"
+            | "unresolved_immaterial"
+            | "unresolved_material"
+            | "scope_limitation";
+          reason: string;
+          finding_id: string | null;
+          decided_by: string | null;
+          decided_at: string;
+        }>;
+        Insert: Insert<{
+          id?: string;
+          organization_id: string;
+          engagement_id: string;
+          rule_id: string;
+          resolution_state:
+            | "resolved"
+            | "accepted_with_explanation"
+            | "unresolved_immaterial"
+            | "unresolved_material"
+            | "scope_limitation";
+          reason?: string;
+          finding_id?: string | null;
+          decided_by?: string | null;
+          decided_at?: string;
+        }>;
+        Update: Update<{
+          resolution_state?:
+            | "resolved"
+            | "accepted_with_explanation"
+            | "unresolved_immaterial"
+            | "unresolved_material"
+            | "scope_limitation";
+          reason?: string;
+          finding_id?: string | null;
+          decided_by?: string | null;
+          decided_at?: string;
+        }>;
+        Relationships: [];
+      };
       tabular_datasets: {
         Row: Row<{
           id: string;
@@ -1040,6 +1087,8 @@ export interface Database {
         }>;
         Update: Update<{
           state?: FindingState;
+          severity?: "block" | "warn" | "info";
+          evidence_refs?: Json;
           heading?: string | null;
           body?: string | null;
           required_response?: string | null;

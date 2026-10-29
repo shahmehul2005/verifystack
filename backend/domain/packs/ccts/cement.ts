@@ -63,12 +63,19 @@ const CEMENT_PROFORMA_INPUTS: ProformaInput[] = [
     note: "Optional petcoke line for plants co-firing petcoke in kiln.",
   },
   {
-    fieldPath: null,
+    fieldPath: "furnaceOil.quantity",
     sheet: "ghg",
     label: "^Fuel Oil Consumed",
     unit: "t",
     description: "Fuel oil consumed (t)",
-    note: "The pro forma counts fuel oil in its GHG total. The cement pack has no fuel-oil stream, so a run leaves it out.",
+    note: "Feeds the furnace-oil stream. The engine prices it with the IPCC 2006 default (verified:false), not the workbook's own factor.",
+  },
+  {
+    fieldPath: "furnaceOil.calorificValue",
+    sheet: "ghg",
+    label: "^GCV\\s*(of\\s*)?Fuel Oil",
+    unit: "kcal/kg",
+    description: "GCV of fuel oil (kcal/kg)",
   },
 ];
 
@@ -298,6 +305,11 @@ export const CCTS_CEMENT_V1: MethodologyPack = {
       role: "fuel",
     },
     {
+      factorKey: "ef_furnace_oil",
+      vintage: "IPCC2006",
+      role: "fuel",
+    },
+    {
       factorKey: "ef_petcoke",
       vintage: "IPCC2006",
       role: "fuel",
@@ -323,9 +335,10 @@ export const CCTS_CEMENT_V1: MethodologyPack = {
       role: "process",
     },
   ],
-  // The first two streams are pinned: they reproduce the pre-refactor Cement
-  // mapping exactly (see calc/golden.test.ts). Additional kiln fuels and
-  // calcination are optional and omitted when facts are absent.
+  // Kiln coal and HT electricity reproduce the pre-refactor Cement mapping
+  // (see calc/golden.test.ts). Other kiln fuels are optional and omitted when
+  // facts are absent. Clinker calcination is required: a missing process
+  // emission blocks the run instead of being counted as zero.
   stream_bindings: [
     {
       kind: "fuel_combustion",
@@ -348,6 +361,20 @@ export const CCTS_CEMENT_V1: MethodologyPack = {
       quantity: { path: "activeEnergy", units: ["kWh", "MWh"], defaultUnit: "MWh" },
       factorKey: "cea_grid_ef",
       factorVintage: "FY2024-25",
+    },
+    {
+      kind: "fuel_combustion",
+      streamId: "furnace-oil",
+      label: "Furnace oil (captive power and start-up)",
+      quantity: { path: "furnaceOil.quantity", units: ["kg", "t"], defaultUnit: "t" },
+      calorificValue: {
+        path: "furnaceOil.calorificValue",
+        units: ["kcal/kg", "MJ/kg"],
+        defaultUnit: "kcal/kg",
+      },
+      factorKey: "ef_furnace_oil",
+      factorVintage: "IPCC2006",
+      phase: "liquid",
     },
     {
       kind: "fuel_combustion",
@@ -409,6 +436,7 @@ export const CCTS_CEMENT_V1: MethodologyPack = {
       kind: "process_direct",
       streamId: "clinker-calcination",
       label: "Clinker calcination process CO2 (output-based method)",
+      required: true,
       quantity: {
         path: "process.calcinationEmissions",
         units: ["tCO2e", "kgCO2e"],
@@ -526,5 +554,5 @@ export const CCTS_CEMENT_V1: MethodologyPack = {
   ],
   report_template: "ccts-gei-form-ab-v1",
   notes:
-    "Runnable. Grounded in BEE Detailed Procedure for Compliance Mechanism under CCTS (v1.0, July 2024). Sub-sectors: 'Cement Integrated' (kiln combustion, calcination, CPP, WHRS, finish grinding) vs 'Cement Grinding' (imported grid HT electricity and inbound clinker; kiln fuels and calcination are not applicable). Pinned kiln coal + HT electricity reproduce the original Cement mapping byte-for-byte. Process calcination offers output-based (Eq. IX–XIII) and input-based (raw meal carbonates) methods. Grid emission factor is frozen at baseline year vintage per Section 5.10(vi). Biogenic CO2 from AFR/biomass is excluded from compliance total per Section 5.17.",
+    "Runnable. Grounded in BEE Detailed Procedure for Compliance Mechanism under CCTS (v1.0, July 2024). Sub-sectors: 'Cement Integrated' (kiln combustion, calcination, CPP, WHRS, finish grinding) vs 'Cement Grinding' (imported grid HT electricity and inbound clinker; kiln fuels and calcination are not applicable). Pinned kiln coal + HT electricity reproduce the original Cement mapping byte-for-byte. Process calcination offers output-based (Eq. IX–XIII) and input-based (raw meal carbonates) methods. Grid emission factor is frozen at baseline year vintage per Section 5.10(vi). Biogenic CO2 from AFR/biomass is excluded from compliance total per Section 5.17. Furnace oil (IPCC 2006 default factor, unverified) is optional and omitted when facts are absent. Clinker calcination is required; a run with no process.calcinationEmissions fact does not proceed.",
 };

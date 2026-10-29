@@ -11,6 +11,8 @@ import { getEngagement } from "@/lib/session";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { canStartWork, loadPack, packFieldTargets } from "@verifystack/backend/domain/packs";
+import type { DeskOutcome } from "@verifystack/backend/domain/deskreview";
+import { siteVisitQuestions } from "@verifystack/backend/domain/deskreview/questions";
 import { OBSERVATION_KIND_LABEL, captureDelayHours } from "@verifystack/backend/domain/fieldwork/observation";
 import { PlanContentSchema } from "@verifystack/backend/domain/planning/plan";
 import { formatIst, humanize } from "@/lib/format";
@@ -33,33 +35,42 @@ export default async function FieldworkPage({ params }: { params: Promise<{ id: 
   const canPlan = hasCapability(session.role, "plan.manage");
 
   const db = createServiceClient() ?? (await createServerSupabase());
-  const [{ data: visits }, { data: observations }, { data: members }, { data: plans }] = await Promise.all([
-    db!
-      .from("site_visits")
-      .select("*")
-      .eq("engagement_id", id)
-      .eq("organization_id", session.organizationId)
-      .order("created_at", { ascending: false }),
-    db!
-      .from("site_observations")
-      .select("*")
-      .eq("engagement_id", id)
-      .eq("organization_id", session.organizationId)
-      .order("observed_at", { ascending: false })
-      .limit(100),
-    db!
-      .from("memberships")
-      .select("user_id, display_name, role")
-      .eq("organization_id", session.organizationId),
-    db!
-      .from("verification_plans")
-      .select("content, status, version")
-      .eq("engagement_id", id)
-      .eq("organization_id", session.organizationId)
-      .eq("status", "approved")
-      .order("version", { ascending: false })
-      .limit(1),
-  ]);
+  const [{ data: visits }, { data: observations }, { data: members }, { data: plans }, { data: deskReview }] =
+    await Promise.all([
+      db!
+        .from("site_visits")
+        .select("*")
+        .eq("engagement_id", id)
+        .eq("organization_id", session.organizationId)
+        .order("created_at", { ascending: false }),
+      db!
+        .from("site_observations")
+        .select("*")
+        .eq("engagement_id", id)
+        .eq("organization_id", session.organizationId)
+        .order("observed_at", { ascending: false })
+        .limit(100),
+      db!
+        .from("memberships")
+        .select("user_id, display_name, role")
+        .eq("organization_id", session.organizationId),
+      db!
+        .from("verification_plans")
+        .select("content, status, version")
+        .eq("engagement_id", id)
+        .eq("organization_id", session.organizationId)
+        .eq("status", "approved")
+        .order("version", { ascending: false })
+        .limit(1),
+      db!
+        .from("desk_reviews")
+        .select("results")
+        .eq("engagement_id", id)
+        .eq("organization_id", session.organizationId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
 
   const nameOf = new Map((members ?? []).map((m) => [m.user_id, m.display_name ?? humanize(m.role)]));
   const open = (visits ?? []).filter((v) => v.status === "planned" || v.status === "in_progress");
@@ -68,6 +79,8 @@ export default async function FieldworkPage({ params }: { params: Promise<{ id: 
     ? planContent.data.visits.map((v) => ({ plannedFor: v.plannedFor, location: v.location, scope: v.scope }))
     : [];
   const visitLabel = new Map((visits ?? []).map((v) => [v.id, `${v.location}${v.planned_for ? ` (${v.planned_for})` : ""}`]));
+  const deskOutcomes = Array.isArray(deskReview?.results) ? (deskReview.results as unknown as DeskOutcome[]) : [];
+  const deskQuestions = siteVisitQuestions(deskOutcomes);
 
   return (
     <>
@@ -86,6 +99,26 @@ export default async function FieldworkPage({ params }: { params: Promise<{ id: 
           Fieldwork can be recorded, but values from it cannot feed a calculation until the pack is runnable.
         </Alert>
       ) : null}
+
+      <Card className="mb-6">
+        <CardHeader
+          title="Questions from desk review"
+          description="Failed cross-checks from the latest desk review, for the site team to ask."
+        />
+        <CardBody>
+          {deskQuestions.length === 0 ? (
+            <p className="text-[13px] text-mist-600">The desk review has not raised a question yet.</p>
+          ) : (
+            <ul className="divide-y divide-mist-100 text-[13px]">
+              {deskQuestions.map((q) => (
+                <li key={q.id} className="py-2 text-mist-800">
+                  {q.question}
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardBody>
+      </Card>
 
       <Card className="mb-6">
         <CardHeader title="Record an observation" />

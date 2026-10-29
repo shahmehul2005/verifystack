@@ -109,8 +109,63 @@ function num(v: unknown): number | null {
   return null;
 }
 
+function factsMatching(facts: ProvenancedFact[], path: string): ProvenancedFact[] {
+  return facts.filter((f) => matchFactPath(f.field_path, path));
+}
+
+/** First match for SEC energy rows and calorific basis. GEI quantities do not use this. */
 function factByPath(facts: ProvenancedFact[], path: string) {
-  return facts.find((f) => matchFactPath(f.field_path, path));
+  return factsMatching(facts, path)[0];
+}
+
+function distinctNumericValues(matched: ProvenancedFact[]): number[] {
+  const values: number[] = [];
+  for (const fact of matched) {
+    const value = num(fact.value_json);
+    if (value === null || values.includes(value)) continue;
+    values.push(value);
+  }
+  return values;
+}
+
+/**
+ * More than one fact on a calculation tag. Lists the distinct numbers and
+ * refuses to pick one. A single match returns null.
+ */
+function acceptedValueConflict(tag: string, matched: ProvenancedFact[]): string | null {
+  if (matched.length <= 1) return null;
+  const values = distinctNumericValues(matched);
+  const listed = values.length > 0 ? ` (${values.join(", ")})` : "";
+  return `Calculation tag "${tag}" has more than one accepted value${listed}. The run will not choose one.`;
+}
+
+function assertAtMostOne(facts: ProvenancedFact[], path: string): ProvenancedFact | null {
+  const matched = factsMatching(facts, path);
+  const conflict = acceptedValueConflict(path, matched);
+  if (conflict) throw new CalcError(conflict);
+  return matched[0] ?? null;
+}
+
+function requiredFactMessage(binding: PackStreamBinding): string {
+  return `Pack requires a fact at "${binding.quantity.path}" for stream "${binding.streamId}".`;
+}
+
+/** Quantity and calorific-value conflicts for one stream. Does not pick a row. */
+function ambiguousStreamProblems(facts: ProvenancedFact[], binding: PackStreamBinding): string[] {
+  const problems: string[] = [];
+  const quantity = acceptedValueConflict(
+    binding.quantity.path,
+    factsMatching(facts, binding.quantity.path)
+  );
+  if (quantity) problems.push(quantity);
+  if (binding.kind === "fuel_combustion") {
+    const calorific = acceptedValueConflict(
+      binding.calorificValue.path,
+      factsMatching(facts, binding.calorificValue.path)
+    );
+    if (calorific) problems.push(calorific);
+  }
+  return problems;
 }
 
 export interface StreamReadiness {
@@ -145,12 +200,44 @@ export function assessRunReadiness(
   _opts?: { draftMode?: boolean }
 ): RunReadiness {
   const productionPath = pack.production_binding?.path ?? null;
-  const productionBound = productionPath ? Boolean(factByPath(facts, productionPath)) : false;
+  const productionMatches = productionPath ? factsMatching(facts, productionPath) : [];
+  const productionConflict = productionPath
+    ? acceptedValueConflict(productionPath, productionMatches)
+    : null;
+  // One matching fact binds production. Several facts do not: the run will not choose.
+  const productionBound = productionMatches.length === 1;
   const streams: StreamReadiness[] = [];
+  const conflictedStreamIds = new Set<string>();
+  const ambiguityBlockers: string[] = [];
 
   if (pack.calculation_method === "GEI") {
     for (const binding of pack.stream_bindings) {
-      const qtyFact = factByPath(facts, binding.quantity.path);
+      const qtyMatches = factsMatching(facts, binding.quantity.path);
+      const qtyConflict = acceptedValueConflict(binding.quantity.path, qtyMatches);
+      let cvConflict: string | null = null;
+      let cvMatches: ProvenancedFact[] = [];
+      if (binding.kind === "fuel_combustion") {
+        cvMatches = factsMatching(facts, binding.calorificValue.path);
+        cvConflict = acceptedValueConflict(binding.calorificValue.path, cvMatches);
+      }
+      if (qtyConflict && !ambiguityBlockers.includes(qtyConflict)) ambiguityBlockers.push(qtyConflict);
+      if (cvConflict && !ambiguityBlockers.includes(cvConflict)) ambiguityBlockers.push(cvConflict);
+
+      if (qtyConflict || cvConflict) {
+        conflictedStreamIds.add(binding.streamId);
+        const reason = [qtyConflict, cvConflict]
+          .filter((part): part is string => part !== null)
+          .join(" ");
+        streams.push({
+          streamId: binding.streamId,
+          label: binding.label,
+          bound: false,
+          reason,
+        });
+        continue;
+      }
+
+      const qtyFact = qtyMatches[0];
       if (!qtyFact) {
         streams.push({
           streamId: binding.streamId,
@@ -161,7 +248,7 @@ export function assessRunReadiness(
         continue;
       }
       if (binding.kind === "fuel_combustion") {
-        const cvFact = factByPath(facts, binding.calorificValue.path);
+        const cvFact = cvMatches[0];
         if (!cvFact) {
           streams.push({
             streamId: binding.streamId,
@@ -195,7 +282,9 @@ export function assessRunReadiness(
   if (facts.length === 0) {
     blockers.push("No D4 facts yet. Upload evidence, extract, and accept fields on the workbench.");
   }
-  if (productionPath && !productionBound) {
+  if (productionConflict) {
+    blockers.push(productionConflict);
+  } else if (productionPath && !productionBound) {
     blockers.push(
       `Production is required at "${productionPath}". Accept that field from an equivalent-product log.`
     );
@@ -203,21 +292,24 @@ export function assessRunReadiness(
 
   // A stream is optional unless the pack says otherwise: no consumption, no fact, counted as zero.
   // Consumption that cannot be priced is different. Dropping it would understate emissions
-  // without a message, so it blocks the run.
+  // without a message, so it blocks the run. Two accepted values on one tag block as well.
   for (const s of streams) {
     if (s.partial) blockers.push(`"${s.label}": ${s.reason}. A run would leave this consumption out.`);
   }
+  for (const message of ambiguityBlockers) blockers.push(message);
   if (pack.calculation_method === "GEI") {
     for (const b of pack.stream_bindings) {
       const s = streams.find((x) => x.streamId === b.streamId);
       if (s) s.required = Boolean(b.required);
-      if (b.required && s && !s.bound && !s.partial) {
+      if (b.required && s && !s.bound && !s.partial && !conflictedStreamIds.has(b.streamId)) {
         blockers.push(`"${b.label}" is required by the pack and has no fact at "${b.quantity.path}".`);
       }
     }
   }
   const warnings: string[] = [];
-  const unbound = streams.filter((s) => !s.bound && !s.partial && !s.required);
+  const unbound = streams.filter(
+    (s) => !s.bound && !s.partial && !s.required && !conflictedStreamIds.has(s.streamId)
+  );
   if (unbound.length > 0 && streams.some((s) => s.bound)) {
     warnings.push(
       `Counted as zero (no fact): ${unbound.map((s) => s.label).join(", ")}. If the plant uses any of these, add the figure before running.`
@@ -256,7 +348,7 @@ function resolveQuantity(
   binding: PackQuantityBinding,
   what: string
 ): { quantity: ReturnType<typeof qty>; fact: ProvenancedFact } | null {
-  const fact = factByPath(facts, binding.path);
+  const fact = assertAtMostOne(facts, binding.path);
   if (!fact) return null;
   const value = num(fact.value_json);
   if (value === null) {
@@ -281,6 +373,10 @@ function buildStream(
   facts: ProvenancedFact[],
   binding: PackStreamBinding
 ): StreamInput | null {
+  const ambiguous = ambiguousStreamProblems(facts, binding);
+  if (ambiguous.length > 0) {
+    throw new CalcError(ambiguous.join(" "));
+  }
   const resolved = resolveQuantity(
     facts,
     binding.quantity,
@@ -288,9 +384,7 @@ function buildStream(
   );
   if (!resolved) {
     if (binding.required) {
-      throw new CalcError(
-        `Pack requires a fact at "${binding.quantity.path}" for stream "${binding.streamId}".`
-      );
+      throw new CalcError(requiredFactMessage(binding));
     }
     return null;
   }
@@ -374,6 +468,7 @@ function buildProduction(
   facts: ProvenancedFact[],
   binding: PackProductionBinding
 ): CalcInput["production"] {
+  assertAtMostOne(facts, binding.path);
   const resolved = resolveQuantity(facts, binding, "Production");
   if (!resolved) {
     throw new CalcError(
@@ -423,10 +518,34 @@ export function mapFactsToCalcInput(
   const { facts } = req;
   for (const f of facts) requireProvenance(f);
 
+  // Walk every binding so one bad tag does not hide another. A single CalcError
+  // lists each conflict and each missing required fact.
   const streams: StreamInput[] = [];
+  const problems: string[] = [];
+  const note = (err: unknown) => {
+    if (!(err instanceof CalcError)) throw err;
+    if (!problems.includes(err.message)) problems.push(err.message);
+  };
   for (const binding of pack.stream_bindings) {
-    const stream = buildStream(facts, binding);
-    if (stream) streams.push(stream);
+    try {
+      const stream = buildStream(facts, binding);
+      if (stream) streams.push(stream);
+    } catch (err) {
+      note(err);
+    }
+  }
+
+  let production: CalcInput["production"] | undefined;
+  try {
+    production = buildProduction(facts, pack.production_binding);
+  } catch (err) {
+    note(err);
+  }
+  if (problems.length > 0) throw new CalcError(problems.join(" "));
+  if (!production) {
+    throw new CalcError(
+      `Production fact at "${pack.production_binding.path}" is required to compute an intensity.`
+    );
   }
 
   return {
@@ -438,7 +557,7 @@ export function mapFactsToCalcInput(
     allowUnverifiedFactors: true,
     geiTarget: req.geiTarget,
     streams,
-    production: buildProduction(facts, pack.production_binding),
+    production,
   };
 }
 
