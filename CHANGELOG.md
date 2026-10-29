@@ -24,6 +24,25 @@ must say which version it bumps. Current versions:
   submitted, or when the file came from the entity's response link or fieldwork. Shared bytes are deleted
   only when no other document uses them. Audit action `document.removed`. See ADR 0023. No migration.
 
+### Desk review: fuel oil stream, evidence trail and decisions
+
+- **Cement pack: fuel oil is a stream.** `furnace-oil` (optional) binds `furnaceOil.quantity` and
+  `furnaceOil.calorificValue`, read from the pro forma's GHG sheet, priced with `ef_furnace_oil`
+  (IPCC 2006, `verified:false`). The desk review's Form 1, workbook and materiality checks now compare
+  against coal plus fuel oil instead of reporting fuel oil as a misstatement. A cement run with fuel-oil
+  facts now includes the stream, so its result differs from earlier runs on the same plant.
+- **Each check shows where its figures came from.** Every desk-review outcome lists the readings it used
+  with value, unit, document and cell or PDF page (`DeskOutcome.sources`), linked to the file. The same
+  lines are written to the finding's `evidence_refs` and shown on the Findings page.
+- **Materiality and completeness strip** at the top of the page: reported total, 2% threshold, quantified
+  misstatement, what the total could not count (calcination, petcoke), and which evidence slots are
+  missing or cover fewer than 12 months.
+- **Decisions on each check.** Accept with explanation, unresolved immaterial, unresolved material, scope
+  limitation (`POST /api/desk-review/resolve`). Material and scope limitation raise the linked finding to
+  block, so sign-off waits; accepting with an explanation walks the finding to closed through the
+  lifecycle and logs the reason as a verifier response. A check that agrees on re-run is marked resolved
+  by code. Migration `0019_desk_resolutions.sql`; apply it before deciding checks.
+
 ### Desk review and pro forma inputs
 
 - **Desk review** (new engagement page, `review.decide`). A rule engine over the evidence in its slots.

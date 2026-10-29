@@ -48,6 +48,16 @@ describe("Aravalli synthetic facts", () => {
       bbox: { x: 0.1, y: 0.2, width: 0.3, height: 0.05 },
       source_text: f.source_text,
     }));
+    facts.push({
+      id: "demo-process",
+      field_path: "process.calcinationEmissions",
+      value_json: 1,
+      unit: "tCO2e",
+      document_id: "doc-demo",
+      page: 1,
+      bbox: { x: 0.1, y: 0.2, width: 0.3, height: 0.05 },
+      source_text: "Supplied process CO2 so the required stream is bound. Not a clinker factor.",
+    });
     const input = mapFactsToCalcInput(pack, {
       engagementId: "eng-demo",
       complianceYear: "FY2025-26",
@@ -55,8 +65,8 @@ describe("Aravalli synthetic facts", () => {
       draftMode: true,
       facts,
     });
-    expect(input.streams).toHaveLength(2);
-    expect(input.streams.map((s) => s.streamId)).toEqual(["coal-kiln", "grid-ht"]);
+    expect(input.streams).toHaveLength(3);
+    expect(input.streams.map((s) => s.streamId)).toEqual(["coal-kiln", "grid-ht", "clinker-calcination"]);
     expect(input.production.quantity.value).toBe(1_850_000);
   });
 });

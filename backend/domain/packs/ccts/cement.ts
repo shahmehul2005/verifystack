@@ -24,12 +24,19 @@ const CEMENT_PROFORMA_INPUTS: ProformaInput[] = [
   { fieldPath: "calorificValue", sheet: "ghg", label: "^GCV\\s*(of\\s*)?Coal", unit: "kcal/kg", description: "GCV of coal (kcal/kg)" },
   { fieldPath: "activeEnergy", sheet: "ghg", label: "^Grid Import", unit: "kWh", scale: 100000, description: "Grid import (kWh)", note: "Workbook unit is Lakh kWh." },
   {
-    fieldPath: null,
+    fieldPath: "furnaceOil.quantity",
     sheet: "ghg",
     label: "^Fuel Oil Consumed",
     unit: "t",
     description: "Fuel oil consumed (t)",
-    note: "The pro forma counts fuel oil in its GHG total. The cement pack has no fuel-oil stream, so a run leaves it out.",
+    note: "Feeds the furnace-oil stream. The engine prices it with the IPCC 2006 default (verified:false), not the workbook's own factor.",
+  },
+  {
+    fieldPath: "furnaceOil.calorificValue",
+    sheet: "ghg",
+    label: "^GCV\\s*(of\\s*)?Fuel Oil",
+    unit: "kcal/kg",
+    description: "GCV of fuel oil (kcal/kg)",
   },
 ];
 
@@ -141,15 +148,17 @@ export const CCTS_CEMENT_V1: MethodologyPack = {
   emission_or_energy_factors: [
     { factorKey: "cea_grid_ef", vintage: "FY2024-25", role: "grid" },
     { factorKey: "ef_coal_subbituminous", vintage: "IPCC2006", role: "fuel" },
+    { factorKey: "ef_furnace_oil", vintage: "IPCC2006", role: "fuel" },
     { factorKey: "ef_petcoke", vintage: "IPCC2006", role: "fuel" },
     { factorKey: "ef_lignite", vintage: "IPCC2006", role: "fuel" },
     { factorKey: "ef_natural_gas", vintage: "IPCC2006", role: "fuel" },
     { factorKey: "ef_charcoal", vintage: "IPCC2006", role: "fuel" },
     { factorKey: "ef_clinker_calcination", vintage: "TO-VERIFY", role: "process" },
   ],
-  // The first two streams are pinned: they reproduce the pre-refactor Cement
-  // mapping exactly (see calc/golden.test.ts). Additional kiln fuels and
-  // calcination are optional and omitted when facts are absent.
+  // Kiln coal and HT electricity reproduce the pre-refactor Cement mapping
+  // (see calc/golden.test.ts). Other kiln fuels are optional and omitted when
+  // facts are absent. Clinker calcination is required: a missing process
+  // emission blocks the run instead of being counted as zero.
   stream_bindings: [
     {
       kind: "fuel_combustion",
@@ -172,6 +181,20 @@ export const CCTS_CEMENT_V1: MethodologyPack = {
       quantity: { path: "activeEnergy", units: ["kWh", "MWh"], defaultUnit: "MWh" },
       factorKey: "cea_grid_ef",
       factorVintage: "FY2024-25",
+    },
+    {
+      kind: "fuel_combustion",
+      streamId: "furnace-oil",
+      label: "Furnace oil (captive power and start-up)",
+      quantity: { path: "furnaceOil.quantity", units: ["kg", "t"], defaultUnit: "t" },
+      calorificValue: {
+        path: "furnaceOil.calorificValue",
+        units: ["kcal/kg", "MJ/kg"],
+        defaultUnit: "kcal/kg",
+      },
+      factorKey: "ef_furnace_oil",
+      factorVintage: "IPCC2006",
+      phase: "liquid",
     },
     {
       kind: "fuel_combustion",
@@ -233,6 +256,7 @@ export const CCTS_CEMENT_V1: MethodologyPack = {
       kind: "process_direct",
       streamId: "clinker-calcination",
       label: "Clinker calcination process CO2",
+      required: true,
       quantity: {
         path: "process.calcinationEmissions",
         units: ["tCO2e", "kgCO2e"],
@@ -296,5 +320,5 @@ export const CCTS_CEMENT_V1: MethodologyPack = {
   ],
   report_template: "ccts-gei-form-ab-v1",
   notes:
-    "Runnable. Kiln coal + HT electricity reproduce the original Cement mapping. Petcoke, lignite, gas, AFR and calcination are optional and omitted when facts are absent — a run without calcination understates Scope 1. Factors remain verified:false. Captive power and clinker/cement conversion ratios are not yet separate streams.",
+    "Runnable. Kiln coal + HT electricity reproduce the original Cement mapping. Furnace oil (IPCC 2006 default factor, unverified) is optional and omitted when facts are absent. Petcoke, lignite, gas and AFR are optional and omitted when facts are absent. Clinker calcination is required; a run with no process.calcinationEmissions fact does not proceed. Factors remain verified:false. Captive power and clinker/cement conversion ratios are not yet separate streams.",
 };

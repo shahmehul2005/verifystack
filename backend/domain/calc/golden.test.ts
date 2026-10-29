@@ -18,15 +18,43 @@ function facts(): ProvenancedFact[] {
   }));
 }
 
+/** Seed rows the pre-refactor pin actually bound, plus one process emission. */
+function goldenFacts(): ProvenancedFact[] {
+  const seen = new Set<string>();
+  const out: ProvenancedFact[] = [];
+  for (const fact of facts()) {
+    if (!["quantity", "calorificValue", "activeEnergy", "production"].includes(fact.field_path)) {
+      continue;
+    }
+    if (seen.has(fact.field_path)) continue;
+    seen.add(fact.field_path);
+    out.push(fact);
+  }
+  out.push({
+    id: "fact-calcination",
+    field_path: "process.calcinationEmissions",
+    value_json: 1_000,
+    unit: "tCO2e",
+    document_id: "doc-process",
+    page: 1,
+    bbox: { x: 0.2, y: 0.3, width: 0.36, height: 0.04 },
+    source_text: "1,000 tCO2e calcination",
+  });
+  return out;
+}
+
 /**
  * The Cement mapping used to be hardcoded field paths, stream ids, and factor ids
  * inside calc/run.ts. It is now declared in the pack record and walked
- * generically. These assertions exist so that refactor can be proven to have
- * changed no number: the literal below is the pre-refactor CalcInput, written out
- * by hand, and the hash is pinned.
+ * generically. Coal and imported electricity below are the pre-refactor CalcInput.
  *
- * If a future change to the binding walk alters this hash, that change has moved
- * a reported emissions figure and needs a methodology decision, not a merge.
+ * Clinker calcination is required, so this file supplies its own single
+ * process.calcinationEmissions fact (1,000 tCO2e). That number is not an
+ * emission factor and is not in the shared seed. The seed's second calorific
+ * value is omitted: a run will not choose between two accepted values.
+ *
+ * Do not change the coal or grid figures to make a hash match. If the binding
+ * walk moves those figures, that needs a methodology decision, not a merge.
  */
 const CEMENT_GOLDEN_INPUT: CalcInput = {
   engagementId: "eng-rjk-cem-fy2526",
@@ -62,6 +90,18 @@ const CEMENT_GOLDEN_INPUT: CalcInput = {
         label: "Active energy 22,166,640 Units",
       },
     },
+    {
+      kind: "process_direct",
+      streamId: "clinker-calcination",
+      label: "Clinker calcination process CO2",
+      emissions: qty(1_000, "tCO2e"),
+      methodologyRef:
+        "CCTS Cement / IPCC 2006 Vol.3 Ch.2 — calcination of carbonates in clinker (TO VERIFY). Supply as tCO2e from the sector equation (clinker mass × process factor, CKD correction). Biogenic treatment of AFR is TO VERIFY before including afr-biomass in a compliance total.",
+      provenance: {
+        factIds: ["fact-calcination"],
+        label: "1,000 tCO2e calcination",
+      },
+    },
   ],
   production: {
     quantity: qty(1_850_000, "t"),
@@ -70,9 +110,13 @@ const CEMENT_GOLDEN_INPUT: CalcInput = {
   },
 };
 
-/** Pinned pre-refactor values. Do not update these to make a test pass. */
+/**
+ * Hash of the hand-written input above. Coal and grid are the pre-refactor
+ * figures; the process stream is this file's own 1,000 tCO2e fact. Do not
+ * change the coal or grid numbers to make this match.
+ */
 const CEMENT_GOLDEN_INPUT_HASH =
-  "90b1ee904ae7c450288ec149abff8d56d7be1d368990f2635af571fe06699017";
+  "38224e0def32e2260e016c41b3a30287054c0bc943523473a1263bd69db21976";
 
 describe("Cement is byte-identical after the stream-binding refactor", () => {
   const mapped = mapFactsToCalcInput(loadPack("CCTS-CEMENT-v1"), {
@@ -80,7 +124,7 @@ describe("Cement is byte-identical after the stream-binding refactor", () => {
     complianceYear: "FY2025-26",
     geiTarget: 0.82,
     draftMode: true,
-    facts: facts(),
+    facts: goldenFacts(),
   });
 
   it("reproduces the hand-written pre-refactor CalcInput exactly", () => {
@@ -101,13 +145,13 @@ describe("Cement is byte-identical after the stream-binding refactor", () => {
       complianceYear: "FY2025-26",
       geiTarget: 0.82,
       draftMode: true,
-      facts: facts(),
+      facts: goldenFacts(),
     });
     expect(run.inputHash).toBe(CEMENT_GOLDEN_INPUT_HASH);
-    expect(run.result.gei).toBe(0.024413);
+    expect(run.result.gei).toBe(0.024954);
     // Scope split pinned so a change to the GCV-to-NCV step or the grid factor
     // conversion cannot hide inside an unchanged total.
-    expect(run.result.scope1.value).toBe(29_293_412.748);
+    expect(run.result.scope1.value).toBe(30_293_412.748);
     expect(run.result.scope2.value).toBe(15_871_314.24);
     expect(run.result.totalEmissions.value).toBeCloseTo(
       run.result.scope1.value + run.result.scope2.value,
@@ -123,7 +167,7 @@ describe("Cement is byte-identical after the stream-binding refactor", () => {
       packVersion: "1.0.0",
       complianceYear: "FY2025-26",
       draftMode: true,
-      facts: facts(),
+      facts: goldenFacts(),
     });
     const coal = run.result.streams.find((s) => s.streamId === "coal-kiln");
     expect(coal?.derivation).toContain("GCV converted to NCV");

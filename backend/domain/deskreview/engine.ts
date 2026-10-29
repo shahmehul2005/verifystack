@@ -52,9 +52,54 @@ export interface DeskReviewDef {
   readers: WorkbookReader[];
   manual: ManualReadingSpec[];
   rules: DeskRule[];
+  /** Evidence slot to the reading that counts the months its documents cover. Drives the completeness strip. */
+  monthsEvidence?: Record<string, string>;
+  /** The materiality position from the same readings the aggregate check used. Null when the readings are not there. */
+  materiality?(r: Readings, outcomes: DeskOutcome[]): MaterialityPosition | null;
+  /**
+   * Extra readings from the pro forma workbook after labelled cells are stored.
+   * Formula text is stored separately as `pf.formula@Sheet!REF`.
+   */
+  proformaAnnotations?(wb: XlsxWorkbook): Readings;
+}
+
+export interface MaterialityPosition {
+  /** Total direct and indirect emissions the entity reported, tCO2e. */
+  reportedTotal: number;
+  /** The share of the reported total that counts as material, as a fraction. */
+  fraction: number;
+  /** `reportedTotal` times `fraction`. */
+  threshold: number;
+  /** The misstatements the checks could put a number on, summed. */
+  quantified: number;
+  /** Sources the aggregate could not count. Each one stops it passing. */
+  limitations: string[];
 }
 
 export type DeskStatus = CheckStatus | "pending";
+
+/** Where one reading came from: the document, and the cell, sheet or page inside it. */
+export interface ReadingOrigin {
+  slot: string;
+  documentId: string | null;
+  filename: string | null;
+  /** `Sheet!B20` for a cell, a sheet name for a table, `p. 2` for a PDF page. */
+  location: string | null;
+  /** The label printed beside the figure in its own document, when there is one. */
+  label?: string;
+}
+
+/** One input of a check, with its value and where it was read from. */
+export interface DeskSourceRef {
+  key: string;
+  label: string;
+  value: Reading;
+  unit?: string;
+  slot?: string;
+  documentId?: string | null;
+  filename?: string | null;
+  location?: string | null;
+}
 
 export interface DeskOutcome {
   id: string;
@@ -68,6 +113,8 @@ export interface DeskOutcome {
   thresholdSource?: string;
   /** Readings still needed, for a pending rule. */
   missing?: string[];
+  /** The readings this check used, each with its document and location. Absent on runs saved before this was recorded. */
+  sources?: DeskSourceRef[];
 }
 
 export const num = (r: Readings, k: string) => Number(r[k]);
@@ -82,10 +129,35 @@ export function series(r: Readings, name: string): { date: string; value: Readin
 
 const has = (r: Readings, k: string) => (k.endsWith("@*") ? series(r, k.slice(0, -2)).length > 0 : k in r);
 
-export function runDeskReview(def: DeskReviewDef, readings: Readings): DeskOutcome[] {
+/** The readings a rule used, with the document and location each came from. Missing readings are left out. */
+function sourcesFor(def: DeskReviewDef, rule: DeskRule, readings: Readings, origins: Record<string, ReadingOrigin>): DeskSourceRef[] {
+  const manual = new Map(def.manual.map((m) => [m.key, m]));
+  const out: DeskSourceRef[] = [];
+  for (const need of rule.needs) {
+    const isSeries = need.endsWith("@*");
+    const name = isSeries ? need.slice(0, -2) : need;
+    const points = isSeries ? series(readings, name) : [];
+    const key = isSeries ? (points[0] ? `${name}@${points[0].date}` : null) : need in readings ? need : null;
+    if (key === null) continue;
+    const origin = origins[key];
+    const spec = manual.get(name);
+    const cell = def.proformaCells.find((c) => c.fieldPath === name);
+    out.push({
+      key: need,
+      label: spec?.label ?? origin?.label ?? name,
+      value: isSeries ? `${points.length} dated reading${points.length === 1 ? "" : "s"}` : readings[key]!,
+      ...(spec?.unit || cell?.unit ? { unit: (spec?.unit ?? cell?.unit) as string } : {}),
+      ...(origin ? { slot: origin.slot, documentId: origin.documentId, filename: origin.filename, location: origin.location } : spec ? { slot: spec.slot } : {}),
+    });
+  }
+  return out;
+}
+
+export function runDeskReview(def: DeskReviewDef, readings: Readings, origins: Record<string, ReadingOrigin> = {}): DeskOutcome[] {
   return def.rules.map((rule) => {
     const missing = rule.needs.filter((k) => !has(readings, k));
-    const base = { id: rule.id, section: rule.section, label: rule.label };
+    const sources = sourcesFor(def, rule, readings, origins);
+    const base = { id: rule.id, section: rule.section, label: rule.label, ...(sources.length > 0 ? { sources } : {}) };
     if (missing.length > 0) {
       return { ...base, status: "pending" as const, detail: "Waiting for readings.", missing };
     }
@@ -110,17 +182,27 @@ export interface DeskWorkbook {
   slot: string;
   name: string;
   bytes: Uint8Array;
+  /** The stored document, so a reading can link back to it. */
+  documentId?: string;
 }
 
-/** Workbook readings for every spreadsheet in a slot, plus the notes a reader leaves. */
+/** Workbook readings for every spreadsheet in a slot, the notes a reader leaves, and where each reading came from. */
 export function readWorkbooks(
   def: DeskReviewDef,
   files: DeskWorkbook[],
   runInputs: readonly ProformaInput[]
-): { readings: Readings; notes: string[] } {
+): { readings: Readings; notes: string[]; origins: Record<string, ReadingOrigin> } {
   const readings: Readings = {};
   const notes: string[] = [];
+  const origins: Record<string, ReadingOrigin> = {};
   for (const f of files) {
+    const at = (location: string | null, label?: string): ReadingOrigin => ({
+      slot: f.slot,
+      documentId: f.documentId ?? null,
+      filename: f.name,
+      location,
+      ...(label ? { label } : {}),
+    });
     let wb: XlsxWorkbook;
     try {
       wb = parseXlsx(f.bytes);
@@ -129,9 +211,13 @@ export function readWorkbooks(
       continue;
     }
     if (f.slot === "proforma_workbook") {
+      const before = new Set(Object.keys(readings));
       const cells = readProforma(wb, def.proformaCells);
       for (const d of cells.drafts) {
-        if (d.fieldPath && d.value !== null && (d.status === "found" || d.status === "zero")) readings[d.fieldPath] = d.value;
+        if (d.fieldPath && d.value !== null && (d.status === "found" || d.status === "zero")) {
+          readings[d.fieldPath] = d.value;
+          origins[d.fieldPath] = at(d.sheet && d.cellRef ? `${d.sheet}!${d.cellRef.toUpperCase()}` : d.sheet, d.label);
+        }
       }
       const unmapped = readProforma(wb, runInputs).drafts.filter((d) => d.status === "unmapped" && (d.value ?? 0) > 0);
       readings["pf.unmapped_count"] = unmapped.length;
@@ -139,6 +225,18 @@ export function readWorkbooks(
       if (cells.staleFormulaCells > 0) {
         notes.push(`${f.name}: ${cells.staleFormulaCells} formula cell(s) stored a result that differs from the formula; values here are recomputed.`);
       }
+      readings["pf.proforma_opened"] = 1;
+      for (const sheet of wb.sheets) {
+        for (const cell of sheet.cells) {
+          if (!cell.formula) continue;
+          const fkey = `pf.formula@${sheet.name}!${cell.ref.toUpperCase()}`;
+          readings[fkey] = cell.formula;
+          origins[fkey] = at(`${sheet.name}!${cell.ref.toUpperCase()}`);
+        }
+      }
+      if (def.proformaAnnotations) Object.assign(readings, def.proformaAnnotations(wb));
+      // Derived readings (counts, formula text, flags) belong to the workbook as a whole.
+      for (const k of Object.keys(readings)) if (!before.has(k) && !origins[k]) origins[k] = at(null);
       continue;
     }
     let found = false;
@@ -147,6 +245,7 @@ export function readWorkbooks(
         const got = reader.read(sheet);
         if (Object.keys(got).length > 0) {
           Object.assign(readings, got);
+          for (const k of Object.keys(got)) origins[k] = at(sheet.name);
           found = true;
         }
       }
@@ -155,7 +254,7 @@ export function readWorkbooks(
       notes.push(`${f.name}: no table this review knows how to read. Its figures need manual entry or a different slot.`);
     }
   }
-  return { readings, notes };
+  return { readings, notes, origins };
 }
 
 /** Index a sheet's cells by row and column. */
