@@ -20,7 +20,7 @@ export interface DocumentPage {
 
 /** Everything needed to reproduce or audit a single model call. */
 export interface AiActionLog {
-  tool: "classify_document" | "extract_fields";
+  tool: "classify_document" | "classify_batch" | "extract_fields";
   provider: string;
   model: string;
   promptVersion: string;
@@ -49,6 +49,16 @@ export interface TaxonomyOption {
   notes?: string;
 }
 
+/** The answer to one batched classification call: one slot per page sent, in order. */
+export interface BatchClassifyResult {
+  /** At least one page was answered. */
+  ok: boolean;
+  items: (Classification | null)[];
+  /** Why a slot is empty, or what went wrong with the call. */
+  errors: string[];
+  log: AiActionLog;
+}
+
 export interface ExtractionProvider {
   readonly name: string;
   readonly model: string;
@@ -57,6 +67,9 @@ export interface ExtractionProvider {
     page: DocumentPage,
     options?: { allowedDocTypes?: TaxonomyOption[] }
   ): Promise<ExtractionResult<Classification>>;
+
+  /** Classify the first pages of several documents in one call. Optional: a provider without it is called once per page. */
+  classifyBatch?(pages: DocumentPage[], options: { allowedDocTypes: TaxonomyOption[] }): Promise<BatchClassifyResult>;
 
   extract<T extends z.ZodTypeAny>(
     page: DocumentPage,

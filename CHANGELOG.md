@@ -16,6 +16,25 @@ must say which version it bumps. Current versions:
 
 ## [Unreleased]
 
+### Documents: suggest a type for every unassigned file, in batches
+
+- **One button.** "Suggest types for all unassigned" on the Documents tab names every PDF, PNG and JPEG that has
+  no type yet. It shows progress, waits out a rate limit, and has a Stop button; a stopped run leaves the rest
+  for the next one. A type that is already set, by hand or earlier, is never changed, even if someone sets one
+  while the model is working.
+- **Batches sized to the limits.** One model call carries the first page of up to 8 files and returns a type for
+  each, so thirty files take four calls. A call is capped at 9 MB of page data (about 12 MB on the wire, under
+  the model's inline cap). The server decides what fits and hands the rest back for the next call, so a browser
+  cannot overrun it. A first page over 12 MB, a WebP and spreadsheets are named in the summary and not sent.
+- **What is sent.** The first page of each file as data, and the methodology's document types. No filename or other
+  metadata. Each call is recorded in `ai_action_logs` (`classify_batch`, with the input hash) and in the audit log
+  (`documents.classified_batch`).
+- **A suggestion is not a decision.** The type is saved with the model's confidence, shown on the row as before.
+  The evidence slot follows only when confidence is 0.9 or more, the same floor extraction uses for review, so
+  an unsure suggestion does not mark a checklist slot as filled.
+- Calls count against the existing per-user model-call limit (30 a minute). A busy or rate-limited model is retried
+  after the wait it names, or 2, 4 and 8 seconds. No migration.
+
 ### Desk review: findings, the lead schedule, snips and the binder
 
 - **One clause registry.** The desk review cites each check to the clause in the register (stock balance,

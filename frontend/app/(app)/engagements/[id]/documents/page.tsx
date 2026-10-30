@@ -6,7 +6,8 @@ import { Table, Td, Th } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { getSession } from "@/lib/session";
 import { hasCapability } from "@verifystack/backend/lib/auth/capabilities";
-import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
+import { isGeminiConfigured, isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
+import { isBatchable } from "@verifystack/backend/domain/extraction/classifyBatch";
 import { getEngagement } from "@/lib/session";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
@@ -15,6 +16,7 @@ import { CSV_MIME, XLSX_MIME } from "@verifystack/backend/lib/evidence";
 import type { ScanAssessment } from "@verifystack/backend/domain/intake/scan";
 import { formatBytes, formatIst } from "@/lib/format";
 import { UploadForm } from "./upload-form";
+import { ClassifyAllButton } from "./classify-all-button";
 import { ExtractButton } from "./extract-button";
 import { TableMapper, type DatasetView } from "./table-mapper";
 import { SlotChecklist } from "./slot-checklist";
@@ -66,6 +68,11 @@ export default async function DocumentsPage({
       .eq("organization_id", session.organizationId),
   ]);
 
+  // Files with no type yet that the model can read: PDF, PNG and JPEG. Spreadsheets are typed by hand.
+  const unassigned = (docs ?? [])
+    .filter((d) => !d.doc_type && isBatchable(d.mime_type))
+    .map((d) => ({ id: d.id, mimeType: d.mime_type, byteSize: d.byte_size }));
+
   const isAdeetie = engagement.scheme === "ADEETIE";
   const targets = packFieldTargets(pack);
   const slots = pack.evidence_slots ?? [];
@@ -88,7 +95,12 @@ export default async function DocumentsPage({
             : "Upload stores each file first and reads nothing. Extract reads a PDF when you ask for it. Spreadsheets and CSV files are mapped cell by cell or window by window. Every value keeps its source."
         }
         actions={
-          canUpload ? <UploadForm engagementId={id} disabled={!canStartWork(pack)} /> : undefined
+          canUpload ? (
+            <div className="flex flex-wrap items-start justify-end gap-3">
+              {unassigned.length > 0 ? <ClassifyAllButton engagementId={id} candidates={unassigned} configured={isGeminiConfigured()} /> : null}
+              <UploadForm engagementId={id} disabled={!canStartWork(pack)} />
+            </div>
+          ) : undefined
         }
       />
       {slots.length > 0 ? (
