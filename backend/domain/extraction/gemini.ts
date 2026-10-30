@@ -176,20 +176,27 @@ export class GeminiExtractionProvider implements ExtractionProvider {
     }
   }
 
-  async classify(page: DocumentPage): Promise<ExtractionResult<Classification>> {
+  async classify(
+    page: DocumentPage,
+    options?: { allowedDocTypes?: Array<{ id: string; label: string; notes?: string }> }
+  ): Promise<ExtractionResult<Classification>> {
+    const typesToUse = options?.allowedDocTypes && options.allowedDocTypes.length > 0
+      ? options.allowedDocTypes
+      : DOC_TYPES.map((id) => ({ id, label: id, notes: "" }));
+
+    const typeList = typesToUse.map((t) => `"${t.id}"`).concat(`"unknown"`).join(", ");
+    const guidelines = typesToUse
+      .map((t) => `- "${t.id}": ${t.label}${t.notes ? ` — ${t.notes}` : ""}`)
+      .join("\n");
+
     const instruction = `${SHARED_RULES}
 
-Task: classify this page into exactly one document type.
+Task: classify this page into exactly one document type from the allowed list.
 
-Allowed values for docType: ${DOC_TYPES.map((d) => `"${d}"`).join(", ")}.
+Allowed values for docType: ${typeList}.
 
-How to choose:
-- "fuel_invoice": sale or delivery of coal, coke, furnace oil, diesel, PNG, LPG or similar fuel. Includes a GST tax invoice / e-invoice / delivery challan whose goods line is fuel (e.g. Coal, HSN 2701). The heading "TAX INVOICE" does not make it tax_invoice when the goods are fuel.
-- "electricity_bill": utility / DISCOM bill with kWh, kVA, consumer number.
-- "lab_certificate": NABL or other lab test certificate.
-- "production_log": plant production / equivalent-product log with a period total in tonnes.
-- "tax_invoice": GST / commercial invoice whose goods are not fuel and which is not a utility bill.
-- "gst_registration": GST registration certificate, not an invoice.
+Taxonomy definitions:
+${guidelines}
 - "unknown": blank, illegible, or not a business evidence page.
 
 Use "unknown" only when the page does not clearly match any type.
@@ -277,6 +284,20 @@ function validate<T extends z.ZodTypeAny>(
     : parsed;
   const result = schema.safeParse(payload);
   if (!result.success) {
+    if (opts.soften && payload && typeof payload === "object") {
+      return {
+        ok: true,
+        data: payload as z.infer<T>,
+        validationErrors: result.error.issues.map(
+          (i) => `${i.path.join(".") || "(root)"}: ${i.message}`
+        ),
+        log: {
+          ...log,
+          ok: true,
+          error: `Partial extraction with validation warnings: ${result.error.issues.map((i) => i.message).slice(0, 3).join("; ")}`,
+        },
+      };
+    }
     return {
       ok: false,
       validationErrors: result.error.issues.map(

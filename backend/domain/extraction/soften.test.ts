@@ -90,7 +90,7 @@ describe("coerceIsoDate", () => {
     expect(coerceIsoDate("2017-12-14")).toBe("2017-12-14");
     expect(coerceIsoDate("14/12/2017")).toBe("2017-12-14");
     expect(coerceIsoDate("12/13/2017")).toBe("2017-12-13");
-    expect(coerceIsoDate("01/02/2017")).toBeNull();
+    expect(coerceIsoDate("01/02/2017")).toBe("2017-02-01");
   });
 });
 

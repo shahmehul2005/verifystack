@@ -13,13 +13,14 @@ import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { canStartWork, loadPack, packFieldTargets } from "@verifystack/backend/domain/packs";
 import { CSV_MIME, XLSX_MIME } from "@verifystack/backend/lib/evidence";
 import type { ScanAssessment } from "@verifystack/backend/domain/intake/scan";
-import { formatBytes, formatIst, humanize } from "@/lib/format";
+import { formatBytes, formatIst } from "@/lib/format";
 import { UploadForm } from "./upload-form";
 import { ExtractButton } from "./extract-button";
 import { TableMapper, type DatasetView } from "./table-mapper";
 import { SlotChecklist } from "./slot-checklist";
 import { SummaryReviewButton } from "./summary-review";
 import { ProformaReviewButton } from "./proforma-review";
+import { DocTypeSelector } from "./doc-type-selector";
 
 export const metadata = { title: "Documents" };
 
@@ -155,15 +156,14 @@ export default async function DocumentsPage({
                     </span>
                   </Td>
                   <Td>
-                    {isTable ? (
-                      <Badge tone="ink">
-                        {ds.some((x) => x.kind === "time_series") ? "Time series" : "Spreadsheet"}
-                      </Badge>
-                    ) : d.doc_type ? (
-                      <Badge>{humanize(d.doc_type)}</Badge>
-                    ) : (
-                      <Badge tone="draft">Not classified</Badge>
-                    )}
+                    <DocTypeSelector
+                      documentId={d.id}
+                      currentType={d.doc_type}
+                      confidence={d.classification_confidence ? Number(d.classification_confidence) : null}
+                      taxonomy={pack.document_taxonomy ?? []}
+                      canEdit={canUpload}
+                      isTable={isTable}
+                    />
                   </Td>
                   <Td className="text-right tabular">{isTable ? "—" : (d.page_count ?? "—")}</Td>
                   {isAdeetie ? (

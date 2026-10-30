@@ -182,7 +182,7 @@ export async function runDocumentExtraction(
   }
 
   try {
-    loadPack(input.packId);
+    const pack = loadPack(input.packId);
     const { data: file, error: fileErr } = await admin.storage.from("evidence").download(doc.storage_path);
     if (fileErr || !file) throw new Error(fileErr?.message ?? "Storage object missing");
 
@@ -200,39 +200,59 @@ export async function runDocumentExtraction(
       model: process.env.GEMINI_MODEL || undefined,
     });
 
-    const classified = await classifyBestPage(provider, pages, doc.sha256, admin, input.organizationId);
-
-    if (!classified.ok || !classified.data) {
-      await admin
-        .from("extraction_jobs")
-        .update({
-          status: "failed",
-          error: classified.validationErrors?.join("; ") ?? classified.log.error ?? "classify failed",
-          finished_at: new Date().toISOString(),
-        })
-        .eq("id", job.id);
-      return {
-        ok: false,
-        jobId: job.id,
-        extracted: 0,
-        dropped: 0,
-        pages: pages.length,
-        error: classified.validationErrors?.length
-          ? `Classification failed. ${classified.validationErrors.slice(0, 4).join("; ")}`
-          : classified.log.error
-            ? `Classification failed. ${classified.log.error}`
-            : "Classification failed. The model could not identify this document type.",
-      };
+    let docType: DocType | null = (doc.doc_type as DocType) || null;
+    if (!docType && doc.slot && isExtractable(doc.slot as DocType)) {
+      docType = doc.slot as DocType;
     }
 
-    const docType = classified.data.docType as DocType;
-    await admin
-      .from("documents")
-      .update({
-        doc_type: docType,
-        classification_confidence: classified.data.confidence,
-      })
-      .eq("id", input.documentId);
+    if (!docType) {
+      const allowedTaxonomy = (pack.document_taxonomy ?? []).map((t) => ({
+        id: t.id,
+        label: t.label,
+        notes: t.notes,
+      }));
+
+      const classified = await classifyBestPage(
+        provider,
+        pages,
+        doc.sha256,
+        admin,
+        input.organizationId,
+        allowedTaxonomy
+      );
+
+      if (!classified.ok || !classified.data) {
+        await admin
+          .from("extraction_jobs")
+          .update({
+            status: "failed",
+            error: classified.validationErrors?.join("; ") ?? classified.log.error ?? "classify failed",
+            finished_at: new Date().toISOString(),
+          })
+          .eq("id", job.id);
+        return {
+          ok: false,
+          jobId: job.id,
+          extracted: 0,
+          dropped: 0,
+          pages: pages.length,
+          error: classified.validationErrors?.length
+            ? `Classification failed. ${classified.validationErrors.slice(0, 4).join("; ")}`
+            : classified.log.error
+              ? `Classification failed. ${classified.log.error}`
+              : "Classification failed. The model could not identify this document type.",
+        };
+      }
+
+      docType = classified.data.docType as DocType;
+      await admin
+        .from("documents")
+        .update({
+          doc_type: docType,
+          classification_confidence: classified.data.confidence,
+        })
+        .eq("id", input.documentId);
+    }
 
     if (!isExtractable(docType)) {
       await admin
@@ -380,13 +400,14 @@ async function classifyBestPage(
   pages: SplitPage[],
   evidenceId: string,
   admin: NonNullable<ReturnType<typeof createServiceClient>>,
-  organizationId: string
+  organizationId: string,
+  allowedDocTypes?: Array<{ id: string; label: string; notes?: string }>
 ): Promise<ExtractionResult<Classification>> {
-  const first = await provider.classify(toDocumentPage(pages[0]!, evidenceId));
+  const first = await provider.classify(toDocumentPage(pages[0]!, evidenceId), { allowedDocTypes });
   await insertAiLog(admin, organizationId, first.log);
   if (classificationScore(first) >= 0.5) return first;
   if (!pages[1]) return first;
-  const second = await provider.classify(toDocumentPage(pages[1], evidenceId));
+  const second = await provider.classify(toDocumentPage(pages[1], evidenceId), { allowedDocTypes });
   await insertAiLog(admin, organizationId, second.log);
   return classificationScore(second) > classificationScore(first) ? second : first;
 }

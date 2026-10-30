@@ -43,11 +43,20 @@ export interface ExtractionResult<T> {
   log: AiActionLog;
 }
 
+export interface TaxonomyOption {
+  id: string;
+  label: string;
+  notes?: string;
+}
+
 export interface ExtractionProvider {
   readonly name: string;
   readonly model: string;
 
-  classify(page: DocumentPage): Promise<ExtractionResult<Classification>>;
+  classify(
+    page: DocumentPage,
+    options?: { allowedDocTypes?: TaxonomyOption[] }
+  ): Promise<ExtractionResult<Classification>>;
 
   extract<T extends z.ZodTypeAny>(
     page: DocumentPage,

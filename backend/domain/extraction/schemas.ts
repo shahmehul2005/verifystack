@@ -39,7 +39,7 @@ export function provenanced<T extends z.ZodTypeAny>(value: T) {
 
 const PString = provenanced(z.string().min(1));
 const PNumber = provenanced(z.number());
-const PDate = provenanced(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected ISO date YYYY-MM-DD"));
+const PDate = provenanced(z.string().min(1));
 
 /** A measured amount plus the unit exactly as printed on the document. */
 const PMeasure = z.object({
@@ -80,7 +80,7 @@ export const DOC_TYPES = [
 export type DocType = (typeof DOC_TYPES)[number];
 
 export const ClassificationSchema = z.object({
-  docType: z.enum(DOC_TYPES),
+  docType: z.string(),
   confidence: z.number().min(0).max(1),
   reasoning: z.string().max(500),
 });
@@ -141,45 +141,31 @@ export const ADEETIE_FUEL_KINDS = FUEL_KINDS;
 export type FuelKind = (typeof FUEL_KINDS)[number];
 
 export const FuelInvoiceSchema = z.object({
-  supplierName: PString,
-  invoiceNumber: PString,
-  invoiceDate: PDate,
-  fuelDescription: PString,
+  supplierName: PString.nullish(),
+  invoiceNumber: PString.nullish(),
+  invoiceDate: PDate.nullish(),
+  fuelDescription: PString.nullish(),
   /** Grade as printed, e.g. "G-10". Left as a raw string; grade mapping is a separate step. */
   fuelGrade: PString.nullish(),
   quantity: PMeasure,
   /** Calorific value if the invoice states one. Often absent — that is normal, not an error. */
   calorificValue: PMeasure.nullish(),
-  calorificBasis: provenanced(z.enum(["NCV", "GCV"])).nullish(),
-  /**
-   * Discrete fuel kind. When present, Process 3.4 prefixes quantity / CV paths
-   * (`coke.quantity`) so a multi-fuel pack can bind without sector code.
-   */
-  fuelKind: provenanced(z.enum(FUEL_KINDS)).nullish(),
+  calorificBasis: provenanced(z.string()).nullish(),
+  fuelKind: provenanced(z.string()).nullish(),
   deliveryPeriodStart: PDate.nullish(),
   deliveryPeriodEnd: PDate.nullish(),
 });
 export type FuelInvoice = z.infer<typeof FuelInvoiceSchema>;
 
 export const ElectricityBillSchema = z.object({
-  utilityName: PString,
-  consumerNumber: PString,
-  billingPeriodStart: PDate,
-  billingPeriodEnd: PDate,
-  /** Active energy consumed. Indian HT bills often label this "units". */
+  utilityName: PString.nullish(),
+  consumerNumber: PString.nullish(),
+  billingPeriodStart: PDate.nullish(),
+  billingPeriodEnd: PDate.nullish(),
   activeEnergy: PMeasure,
   maximumDemand: PMeasure.nullish(),
-  /** Present when the connection has on-site or open-access generation to separate out. */
   renewableEnergy: PMeasure.nullish(),
-  /**
-   * Sanctioned/contracted demand, printed in kVA on an Indian HT bill.
-   *
-   * Kept as a measure with the unit as printed so the unit registry can refuse to
-   * treat it as energy. A large share of ADEETIE-eligible savings is demand-side,
-   * so the field matters — it simply must never be summed into a consumption total.
-   */
   contractedDemand: PMeasure.nullish(),
-  /** Unit cost as billed, in rupees per unit. Drives the DPR savings valuation. */
   unitCostINRPerKWh: PNumber.nullish(),
 });
 export type ElectricityBill = z.infer<typeof ElectricityBillSchema>;
@@ -231,16 +217,16 @@ export const UdyamCertificateSchema = z.object({
 export type UdyamCertificate = z.infer<typeof UdyamCertificateSchema>;
 
 export const LabCertificateSchema = z.object({
-  certificateNumber: PString,
-  labName: PString,
+  certificateNumber: PString.nullish(),
+  labName: PString.nullish(),
   nablAccreditationNo: PString.nullish(),
   nablValidUntil: PDate.nullish(),
   sampleId: PString.nullish(),
   sampleDate: PDate.nullish(),
-  testDate: PDate,
-  materialDescription: PString,
+  testDate: PDate.nullish(),
+  materialDescription: PString.nullish(),
   calorificValue: PMeasure,
-  calorificBasis: provenanced(z.enum(["NCV", "GCV"])),
+  calorificBasis: provenanced(z.string()).nullish(),
   moisturePct: PNumber.nullish(),
   ashPct: PNumber.nullish(),
 });
