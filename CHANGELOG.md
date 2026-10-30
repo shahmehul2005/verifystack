@@ -16,6 +16,15 @@ must say which version it bumps. Current versions:
 
 ## [Unreleased]
 
+### Documents: extract every uploaded file with one button
+
+- **Extract all.** The Documents tab has "Extract all (N)", which reads every PDF and image that has not been
+  read yet, one after another, using the same request as each file's own Extract button. A file with a finished,
+  running or waiting extraction job is skipped, so nothing is read twice; a failed one is tried again. It shows
+  progress and the file being read, waits out a rate limit (the wait the server names, or 2, 4 and 8 seconds), and
+  has a Stop button. A stopped run leaves the rest for the next one, and the summary links to the workbench. Files
+  are read one at a time because each is a long model job. No new server route and no migration.
+
 ### Review workbench: snip a value straight into the facts ledger
 
 - **Snip from the document panel.** The workbench's left panel has "Open any uploaded document", a list of every

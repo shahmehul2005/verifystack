@@ -8,6 +8,7 @@ import { getSession } from "@/lib/session";
 import { hasCapability } from "@verifystack/backend/lib/auth/capabilities";
 import { isGeminiConfigured, isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
 import { isBatchable } from "@verifystack/backend/domain/extraction/classifyBatch";
+import { needsExtraction } from "@verifystack/backend/domain/extraction/extractRunner";
 import { getEngagement } from "@/lib/session";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
@@ -17,6 +18,7 @@ import type { ScanAssessment } from "@verifystack/backend/domain/intake/scan";
 import { formatBytes, formatIst } from "@/lib/format";
 import { UploadForm } from "./upload-form";
 import { ClassifyAllButton } from "./classify-all-button";
+import { ExtractAllButton } from "./extract-all-button";
 import { ExtractButton } from "./extract-button";
 import { TableMapper, type DatasetView } from "./table-mapper";
 import { SlotChecklist } from "./slot-checklist";
@@ -68,6 +70,17 @@ export default async function DocumentsPage({
       .eq("organization_id", session.organizationId),
   ]);
 
+  // Files still to read: PDFs and images with no finished, running or waiting extraction job. A failed one is tried again.
+  const readable = (docs ?? []).filter((d) => d.mime_type === "application/pdf" || d.mime_type.startsWith("image/"));
+  const { data: jobs } = readable.length
+    ? await supabase!
+        .from("extraction_jobs")
+        .select("document_id, status")
+        .eq("organization_id", session.organizationId)
+        .in("document_id", readable.map((d) => d.id))
+    : { data: [] };
+  const toExtract = needsExtraction(readable, jobs ?? []).map((d) => ({ id: d.id, name: d.original_filename }));
+
   // Files with no type yet that the model can read: PDF, PNG and JPEG. Spreadsheets are typed by hand.
   const unassigned = (docs ?? [])
     .filter((d) => !d.doc_type && isBatchable(d.mime_type))
@@ -97,6 +110,7 @@ export default async function DocumentsPage({
         actions={
           canUpload ? (
             <div className="flex flex-wrap items-start justify-end gap-3">
+              {canExtract && toExtract.length > 0 ? <ExtractAllButton engagementId={id} candidates={toExtract} configured={isGeminiConfigured()} /> : null}
               {unassigned.length > 0 ? <ClassifyAllButton engagementId={id} candidates={unassigned} configured={isGeminiConfigured()} /> : null}
               <UploadForm engagementId={id} disabled={!canStartWork(pack)} />
             </div>
