@@ -1,20 +1,32 @@
 /**
- * Propose candidate readings for desk review from evidence documents in each slot.
+ * Propose candidate readings for desk review from the text layer of evidence PDFs.
  *
- * Adheres to Principle 3: "AI proposes, humans decide."
- * Suggestions never become facts or readings automatically; the auditor must
- * review and accept them.
+ * Adheres to Principle 3: "AI proposes, humans decide." A suggestion is never a fact
+ * and never a reading until the auditor accepts it. This module is deterministic: it
+ * matches printed labels on the page against a table of extractors and returns the
+ * number that was printed, with its page and the exact line it came from.
+ *
+ * What it will not do, on purpose:
+ *   - It carries no figures. Every value comes from the document in front of it, so a
+ *     document that was edited after the fact produces the edited figure, not a
+ *     remembered one.
+ *   - It does not OCR. A page with no text layer yields nothing, and the route reports
+ *     that so the auditor types the figure from the page instead.
+ *   - It does not reach across slots. A reading is proposed only from a document that
+ *     sits in the slot the reading belongs to.
  */
 
 import type { DeskReviewDef } from "./engine";
 import { inferSlot } from "./engine";
+import type { PdfPageText } from "../extraction/pdfText";
 
 export interface EvidenceDocumentCandidate {
   id: string;
   name: string;
   slot: string | null;
   docType?: string | null;
-  text?: string | null;
+  /** Text layer by page. Null or empty means the document has no readable text layer. */
+  pages?: PdfPageText[] | null;
 }
 
 export interface ProposedReading {
@@ -27,204 +39,280 @@ export interface ProposedReading {
   documentName: string;
   page?: number;
   confidence: number;
+  /** The exact printed line the value was read from. */
   sourceText: string;
   note?: string;
 }
 
-const SHYAMROCK_DAILY_READINGS: Record<
-  string,
-  {
-    rawText: string;
-    sampleValue: number;
-    filenamePattern: RegExp;
-    page: number;
-    sourceText: string;
-  }
-> = {
-  "dpr.clinker": {
-    rawText: "2023-11-01 400.0\n2023-11-02 435.4\n2023-11-03 391.1\n2023-11-04 408.8\n2023-11-05 390.3",
-    sampleValue: 400.0,
-    filenamePattern: /02.*daily.*prod/i,
-    page: 1,
-    sourceText: "Nov 1-5 sample days: Nov 1: 400.0 t, Nov 2: 435.4 t, Nov 3: 391.1 t, Nov 4: 408.8 t, Nov 5: 390.3 t",
-  },
-};
+/** A document the proposer could not read, so the auditor knows why nothing came back. */
+export interface UnreadableDocument {
+  documentId: string;
+  documentName: string;
+  reason: "no_text_layer" | "not_a_pdf";
+}
 
-const SHYAMROCK_KNOWN_READINGS: Record<string, { value: number; filenamePattern: RegExp; page: number; sourceText: string }> = {
-  "mpr.clinker_t": { value: 12500, filenamePattern: /03.*monthly.*prod/i, page: 1, sourceText: "Clinker Production: 12,500 t" },
-  "mpr.opc_t": { value: 6058.3, filenamePattern: /03.*monthly.*prod/i, page: 1, sourceText: "OPC Cement: 6,058.3 t" },
-  "mpr.ppc_t": { value: 9516.7, filenamePattern: /03.*monthly.*prod/i, page: 1, sourceText: "PPC Cement: 9,516.7 t" },
-  "mpr.psc_t": { value: 1733.3, filenamePattern: /03.*monthly.*prod/i, page: 1, sourceText: "PSC Cement: 1,733.3 t" },
-  "mpr.clinker_opening_t": { value: 2500, filenamePattern: /03.*monthly.*prod/i, page: 1, sourceText: "Clinker Opening Stock: 2,500 t" },
-  "mpr.clinker_import_t": { value: 1666.7, filenamePattern: /03.*monthly.*prod/i, page: 1, sourceText: "Clinker Purchased/Imported: 1,666.7 t" },
-  "mpr.clinker_export_t": { value: 833.3, filenamePattern: /03.*monthly.*prod/i, page: 1, sourceText: "Clinker Sold/Exported: 833.3 t" },
-  "mpr.clinker_closing_t": { value: 1666.7, filenamePattern: /03.*monthly.*prod/i, page: 1, sourceText: "Clinker Closing Stock: 1,666.7 t" },
-  "sap.opc_t": { value: 6058.3, filenamePattern: /04.*sap/i, page: 1, sourceText: "Confirmed OPC Production: 6,058.3 t" },
-  "sap.ppc_t": { value: 9516.7, filenamePattern: /04.*sap/i, page: 1, sourceText: "Confirmed PPC Production: 9,516.7 t" },
-  "sap.psc_t": { value: 1733.3, filenamePattern: /04.*sap/i, page: 1, sourceText: "Confirmed PSC Production: 1,733.3 t" },
-  "cpp.report_lakh_kwh": { value: 110.2, filenamePattern: /07.*cpp/i, page: 1, sourceText: "Gross Generation: 110.2 Lakh kWh" },
-  "grid.bill_kwh": { value: 250000, filenamePattern: /12.*grid/i, page: 1, sourceText: "Billed Active Energy: 250,000 kWh" },
-  "grid.bill_months": { value: 1, filenamePattern: /12.*grid/i, page: 1, sourceText: "Billing Period: 1 Month (Nov 2023)" },
-  "coal.po_t": { value: 2914.2, filenamePattern: /10.*coal.*(?:po|purchase)/i, page: 1, sourceText: "Ordered Quantity: 2,914.2 MT" },
-  "coal.po_months": { value: 1, filenamePattern: /10.*coal.*(?:po|purchase)/i, page: 1, sourceText: "Delivery Schedule: 1 Month" },
-  "coal.nabl_gcv": { value: 4230, filenamePattern: /09.*nabl/i, page: 1, sourceText: "Gross Calorific Value (ADB): 4,230 kcal/kg" },
-  "rec.claim_mwh": { value: 0, filenamePattern: /13.*rec/i, page: 1, sourceText: "Renewable Energy Claim: NIL (0 MWh)" },
-  "rec.purchases_mwh": { value: 0, filenamePattern: /13.*rec/i, page: 1, sourceText: "REC Certificates Purchased: 0" },
-  "form1.eq_product_t": { value: 240003, filenamePattern: /16.*form.*1/i, page: 1, sourceText: "Total Equivalent Product: 240,003 t" },
-  "form1.direct_co2_t": { value: 56794.8, filenamePattern: /16.*form.*1/i, page: 1, sourceText: "Direct GHG Emissions: 56,794.8 tCO2e" },
-  "form1.indirect_co2_t": { value: 2148.0, filenamePattern: /16.*form.*1/i, page: 1, sourceText: "Indirect GHG Emissions: 2,148.0 tCO2e" },
-};
+const NUM = String.raw`(-?\d[\d,]*(?:\.\d+)?)`;
+const NIL = String.raw`(?:nil|none|0)`;
 
-/** Common text regex patterns to extract numeric values from raw document text. */
-const GENERIC_TEXT_MATCHERS: Record<string, { patterns: RegExp[]; page?: number }> = {
-  "mpr.clinker_t": { patterns: [/clinker(?:\s+production)?\s*[:=]\s*([0-9,]+(?:\.[0-9]+)?)/i] },
-  "mpr.opc_t": { patterns: [/opc(?:\s+produced|\s+production)?\s*[:=]\s*([0-9,]+(?:\.[0-9]+)?)/i] },
-  "mpr.ppc_t": { patterns: [/ppc(?:\s+produced|\s+production)?\s*[:=]\s*([0-9,]+(?:\.[0-9]+)?)/i] },
-  "mpr.psc_t": { patterns: [/psc(?:\s+produced|\s+production)?\s*[:=]\s*([0-9,]+(?:\.[0-9]+)?)/i] },
-  "coal.nabl_gcv": {
-    patterns: [
-      /(?:gross\s+calorific\s+value|gcv)[^0-9]*([0-9]{3,5}(?:\.[0-9]+)?)\s*kcal\/kg/i,
-      /(?:gcv|adb)[^0-9]*([0-9]{3,5}(?:\.[0-9]+)?)/i,
-    ],
-  },
-  "grid.bill_kwh": {
-    patterns: [
-      /(?:units|kwh|consumption)\s*(?:billed|consumed)?\s*[:=]?\s*([0-9,]+(?:\.[0-9]+)?)/i,
-      /total\s*kwh\s*[:=]?\s*([0-9,]+)/i,
-    ],
-  },
-  "coal.po_t": {
-    patterns: [
-      /(?:quantity|total\s+metric\s+tonnes?|tonnes?)\s*[:=]?\s*([0-9,]+(?:\.[0-9]+)?)\s*(?:mt|t)?/i,
-    ],
-  },
-  "cpp.report_lakh_kwh": {
-    patterns: [
-      /(?:generation|gross\s+generation)\s*[:=]?\s*([0-9,]+(?:\.[0-9]+)?)\s*(?:lakh\s*kwh|kwh)?/i,
-    ],
-  },
-  "form1.eq_product_t": {
-    patterns: [
-      /(?:total\s+equivalent\s+product|equivalent\s+product)\s*[:=]?\s*([0-9,]+(?:\.[0-9]+)?)/i,
-    ],
-  },
-  "form1.direct_co2_t": {
-    patterns: [
-      /(?:direct\s+(?:energy\s+)?(?:ghg|co2))\s*[:=]?\s*([0-9,]+(?:\.[0-9]+)?)/i,
-    ],
-  },
-  "form1.indirect_co2_t": {
-    patterns: [
-      /(?:indirect\s+(?:energy\s+)?(?:ghg|co2))\s*[:=]?\s*([0-9,]+(?:\.[0-9]+)?)/i,
-    ],
-  },
-};
-
-function parseNum(raw: string): number | null {
-  const clean = raw.replace(/,/g, "").trim();
-  const n = Number(clean);
-  return Number.isFinite(n) ? n : null;
+interface LineExtractor {
+  /** Pattern for one printed line. The last capture group is the number. */
+  line: RegExp;
 }
 
 /**
- * Scan evidence documents in slots and propose candidate readings.
+ * Printed-label extractors by reading key. A pattern is anchored on the label the
+ * statutory form or the plant report prints, so unrelated numbers on the same page
+ * do not match. Add a pattern here when a new template appears; never add a number.
  */
-export function proposeReadings(
-  def: DeskReviewDef,
-  documents: EvidenceDocumentCandidate[]
-): ProposedReading[] {
+const NUMERIC_EXTRACTORS: Record<string, LineExtractor[]> = {
+  "mpr.clinker_t": [{ line: new RegExp(String.raw`^Clinker Production\b.*?\s${NUM}$`, "i") }],
+  "mpr.opc_t": [{ line: new RegExp(String.raw`^OPC (?:Produced|Production)\b.*?\s${NUM}$`, "i") }],
+  "mpr.ppc_t": [{ line: new RegExp(String.raw`^PPC (?:Produced|Production)\b.*?\s${NUM}$`, "i") }],
+  "mpr.psc_t": [{ line: new RegExp(String.raw`^PSC (?:Produced|Production)\b.*?\s${NUM}$`, "i") }],
+  "mpr.clinker_opening_t": [{ line: new RegExp(String.raw`^Clinker Opening Stock\b.*?\s${NUM}$`, "i") }],
+  "mpr.clinker_closing_t": [{ line: new RegExp(String.raw`^Clinker Closing Stock\b.*?\s${NUM}$`, "i") }],
+  "mpr.clinker_import_t": [{ line: new RegExp(String.raw`^Clinker (?:Import(?:ed)?|Purchased)\b.*?\s${NUM}$`, "i") }],
+  "mpr.clinker_export_t": [{ line: new RegExp(String.raw`^Clinker (?:Export(?:ed)?|Sold)\b.*?\s${NUM}$`, "i") }],
+  // SAP rows print: material, material code, order qty, confirmed qty, plant. Confirmed is the
+  // second figure after the code, never the order quantity.
+  "sap.opc_t": [{ line: new RegExp(String.raw`\bFG-CLK-OPC\s+${NUM}\s+${NUM}(?:\s|$)`, "i") }],
+  "sap.ppc_t": [{ line: new RegExp(String.raw`\bFG-CEM-PPC\w*\s+${NUM}\s+${NUM}(?:\s|$)`, "i") }],
+  "sap.psc_t": [{ line: new RegExp(String.raw`\bFG-CEM-PSC\w*\s+${NUM}\s+${NUM}(?:\s|$)`, "i") }],
+  "cpp.report_lakh_kwh": [{ line: new RegExp(String.raw`^Gross Generation\s*\(\s*Lakh kWh\b[^)]*\)\s+${NUM}$`, "i") }],
+  "grid.bill_kwh": [{ line: new RegExp(String.raw`^Units (?:Consumed|Billed)\s*\(\s*kWh\s*\)\s+${NUM}$`, "i") }],
+  "coal.po_t": [{ line: new RegExp(String.raw`^Quantity Ordered\s+${NUM}\s*(?:t|mt|tonnes?)\b`, "i") }],
+  // The certificate prints: parameter, internal lab result, NABL external result, deviation.
+  // The reading is the external (NABL) result, the second figure.
+  "coal.nabl_gcv": [
+    { line: new RegExp(String.raw`^GCV\b[^\d]*?\)?\s+${NUM}\s+${NUM}\s+[+\-\u2212\u2013]?\d`, "i") },
+  ],
+  "form1.eq_product_t": [{ line: new RegExp(String.raw`^Total Equivalent Product\b(?:\s+Tonnes?)?\s+${NUM}$`, "i") }],
+  "form1.direct_co2_t": [{ line: new RegExp(String.raw`^Direct GHG Emissions\b.*?\s${NUM}$`, "i") }],
+  "form1.indirect_co2_t": [{ line: new RegExp(String.raw`^Indirect GHG Emissions\b.*?\s${NUM}$`, "i") }],
+};
+
+/**
+ * Declarations that print "Nil" where a quantity would go. These propose 0 only when
+ * every named row says nil; a printed capacity or quantity is for the auditor to read.
+ */
+const NIL_EXTRACTORS: Record<string, RegExp[]> = {
+  "rec.claim_mwh": [
+    new RegExp(String.raw`^Onsite Renewable Generation\b.*\s${NIL}$`, "i"),
+    new RegExp(String.raw`^Open Access\b.*\s${NIL}$`, "i"),
+  ],
+  "rec.purchases_mwh": [new RegExp(String.raw`^RECs? (?:purchased|obtained)\b.*\s${NIL}$`, "i")],
+};
+
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+const MONTH_WORD = String.raw`(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*`;
+
+function parseNumber(raw: string): number | null {
+  const n = Number(raw.replace(/,/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+function monthIndex(word: string): number {
+  return MONTHS.indexOf(word.slice(0, 3).toLowerCase());
+}
+
+/**
+ * Whole months a document says it covers, from its printed "Period:" or "Billing
+ * Period" statement. Returns null when the period is not stated in a form this can
+ * count exactly; the auditor then enters it. Quarters count as three, a financial
+ * year as twelve.
+ */
+export function printedPeriodMonths(lines: string[]): number | null {
+  for (const line of lines) {
+    const m = /(?:\bPeriod\b|Billing Period)\s*:?\s*(.+)$/i.exec(line);
+    if (!m) continue;
+    const text = m[1]!.replace(/\(.*?\)/g, " ").trim();
+
+    const fin = /\b(?:FY|F\.Y\.)?\s*(\d{4})\s*[-\u2013]\s*(\d{2,4})\b/.exec(text);
+    if (/^q[1-4]\b/i.test(text) && fin) return 3;
+
+    const range = new RegExp(
+      String.raw`(?:\d{1,2}[-\s])?${MONTH_WORD}[-\s,]*(\d{4})\s*(?:to|-|\u2013|until)\s*(?:\d{1,2}[-\s])?${MONTH_WORD}[-\s,]*(\d{4})`,
+      "i"
+    ).exec(text);
+    if (range) {
+      const a = Number(range[2]) * 12 + monthIndex(range[1]!);
+      const b = Number(range[4]) * 12 + monthIndex(range[3]!);
+      const span = b - a + 1;
+      return span >= 1 && span <= 24 ? span : null;
+    }
+
+    const single = new RegExp(String.raw`^(?:\d{1,2}[-\s])?${MONTH_WORD}[-\s,]*(\d{4})\b`, "i").exec(text);
+    if (single) return 1;
+
+    const stated = /^(\d{1,2})\s*months?\b/i.exec(text);
+    if (stated) return Number(stated[1]);
+  }
+  return null;
+}
+
+function allLines(pages: PdfPageText[]): { page: number; line: string }[] {
+  return pages.flatMap((p) => p.lines.map((line) => ({ page: p.page, line })));
+}
+
+function readNumeric(pages: PdfPageText[], extractors: LineExtractor[]): { value: number; page: number; line: string } | null {
+  for (const { page, line } of allLines(pages)) {
+    for (const ex of extractors) {
+      const hit = ex.line.exec(line);
+      if (!hit) continue;
+      const value = parseNumber(hit[hit.length - 1]!);
+      if (value !== null) return { value, page, line };
+    }
+  }
+  return null;
+}
+
+function readNilDeclaration(pages: PdfPageText[], rows: RegExp[]): { page: number; line: string } | null {
+  const lines = allLines(pages);
+  const found = rows.map((re) => lines.find((l) => re.test(l.line)));
+  if (found.some((f) => !f)) return null;
+  const first = found[0]!;
+  return { page: first.page, line: found.map((f) => f!.line).join(" | ") };
+}
+
+/**
+ * One line per day from a printed daily table. The header must start `Date` then the
+ * wanted column, and the series is read only while rows keep starting with a date.
+ */
+function readDailySeries(pages: PdfPageText[], column: RegExp): { rows: [string, number][]; page: number; header: string } | null {
+  for (const p of pages) {
+    const headerAt = p.lines.findIndex((l) => /^date\b/i.test(l) && column.test(l.replace(/^date\s+/i, "")));
+    if (headerAt < 0) continue;
+    const rows: [string, number][] = [];
+    for (const line of p.lines.slice(headerAt + 1)) {
+      const hit = /^(\d{4}-\d{2}-\d{2})\s+(-?\d[\d,]*(?:\.\d+)?)(?:\s|$)/.exec(line);
+      if (!hit) {
+        if (rows.length > 0) break;
+        continue;
+      }
+      const value = parseNumber(hit[2]!);
+      if (value !== null) rows.push([hit[1]!, value]);
+    }
+    if (rows.length > 0) return { rows, page: p.page, header: p.lines[headerAt]! };
+  }
+  return null;
+}
+
+const MONTHS_FROM_PERIOD = new Set(["grid.bill_months", "coal.po_months"]);
+
+export interface ProposeResult {
+  suggestions: ProposedReading[];
+  unreadable: UnreadableDocument[];
+}
+
+/**
+ * Scan documents that sit in evidence slots and propose candidate readings. Pure
+ * function of the document text it is given.
+ */
+export function proposeFromDocuments(def: DeskReviewDef, documents: EvidenceDocumentCandidate[]): ProposeResult {
+  const unreadable: UnreadableDocument[] = [];
+  const readable = documents.filter((d) => {
+    const hasText = (d.pages ?? []).some((p) => p.lines.length > 0);
+    if (!hasText) unreadable.push({ documentId: d.id, documentName: d.name, reason: d.pages ? "no_text_layer" : "not_a_pdf" });
+    return hasText;
+  });
+
   const suggestions: ProposedReading[] = [];
 
   for (const spec of def.manual) {
-    if (spec.kind === "daily") {
-      const dailyKnown = SHYAMROCK_DAILY_READINGS[spec.key];
-      if (dailyKnown) {
-        for (const doc of documents) {
-          const slot = doc.slot ?? inferSlot(doc);
-          if (slot === spec.slot || dailyKnown.filenamePattern.test(doc.name)) {
-            suggestions.push({
-              key: spec.key,
-              label: spec.label,
-              value: dailyKnown.sampleValue,
-              rawText: dailyKnown.rawText,
-              unit: spec.unit,
-              documentId: doc.id,
-              documentName: doc.name,
-              page: dailyKnown.page,
-              confidence: 0.95,
-              sourceText: dailyKnown.sourceText,
-              note: `Daily series extracted from ${doc.name}`,
-            });
-            break;
-          }
-        }
-      }
-      continue;
-    }
+    const candidates = readable.filter((d) => (d.slot ?? inferSlot(d)) === spec.slot);
+    if (candidates.length === 0) continue;
 
-    // Find documents assigned to this slot or resolved via inferSlot
-    const slotDocs = documents.filter((d) => (d.slot ?? inferSlot(d)) === spec.slot);
-    const candidateDocs = slotDocs.length > 0 ? slotDocs : documents;
+    type Found = Omit<ProposedReading, "key" | "label" | "unit" | "documentId" | "documentName" | "confidence">;
+    const hits: { doc: EvidenceDocumentCandidate; found: Found; confidence: number }[] = [];
 
-    let matched = false;
+    for (const doc of candidates) {
+      const pages = doc.pages!;
 
-    // 1. Try known fixture / file pattern match
-    const known = SHYAMROCK_KNOWN_READINGS[spec.key];
-    if (known) {
-      for (const doc of candidateDocs) {
-        if (known.filenamePattern.test(doc.name)) {
-          suggestions.push({
-            key: spec.key,
-            label: spec.label,
-            value: known.value,
-            unit: spec.unit,
-            documentId: doc.id,
-            documentName: doc.name,
-            page: known.page,
-            confidence: 0.95,
-            sourceText: known.sourceText,
-            note: `Extracted from ${doc.name}`,
+      if (spec.kind === "daily") {
+        const series = readDailySeries(pages, /^clinker\b/i);
+        if (series && spec.key === "dpr.clinker") {
+          const text = series.rows.map(([d, v]) => `${d} ${v}`).join("\n");
+          hits.push({
+            doc,
+            confidence: 0.9,
+            found: {
+              value: series.rows[0]![1],
+              rawText: text,
+              page: series.page,
+              sourceText: `${series.header} | ${series.rows.length} dated rows, ${series.rows[0]![0]} to ${series.rows[series.rows.length - 1]![0]}`,
+              note: `Daily series read from the printed table in ${doc.name}. Covers ${series.rows.length} days only; the workbook series is the population.`,
+            },
           });
-          matched = true;
-          break;
         }
+        continue;
+      }
+
+      if (MONTHS_FROM_PERIOD.has(spec.key)) {
+        const months = printedPeriodMonths(pages.flatMap((p) => p.lines));
+        if (months !== null) {
+          const line = pages.flatMap((p) => p.lines).find((l) => /\bPeriod\b/i.test(l)) ?? "Period";
+          hits.push({
+            doc,
+            confidence: 0.8,
+            found: { value: months, page: 1, sourceText: line, note: "Counted from the period the document prints." },
+          });
+        }
+        continue;
+      }
+
+      const nil = NIL_EXTRACTORS[spec.key];
+      if (nil) {
+        const decl = readNilDeclaration(pages, nil);
+        if (decl) {
+          hits.push({
+            doc,
+            confidence: 0.9,
+            found: { value: 0, page: decl.page, sourceText: decl.line, note: "Every row of the declaration prints nil." },
+          });
+        }
+        continue;
+      }
+
+      const extractors = NUMERIC_EXTRACTORS[spec.key];
+      if (!extractors) continue;
+      const hit = readNumeric(pages, extractors);
+      if (hit) {
+        hits.push({
+          doc,
+          confidence: 0.9,
+          found: { value: hit.value, page: hit.page, sourceText: hit.line, note: `Read from the printed line in ${doc.name}.` },
+        });
       }
     }
 
-    if (matched) continue;
+    const first = hits[0];
+    if (!first) continue;
 
-    // 2. Try generic text extraction from document text if available
-    for (const doc of candidateDocs) {
-      if (!doc.text) continue;
-      const matcher = GENERIC_TEXT_MATCHERS[spec.key];
-      if (!matcher) continue;
+    // Two documents giving different figures for one reading is itself the finding;
+    // surface it in the note rather than choosing quietly.
+    const disagreeing = hits.filter((h) => h.found.value !== first.found.value);
+    const note = disagreeing.length
+      ? `${first.found.note ?? ""} ${disagreeing.length} other document(s) in this slot print a different figure: ${disagreeing
+          .map((h) => `${h.doc.name} ${h.found.value}`)
+          .join("; ")}. Resolve before accepting.`.trim()
+      : first.found.note;
 
-      for (const pattern of matcher.patterns) {
-        const hit = pattern.exec(doc.text);
-        if (hit && hit[1]) {
-          const val = parseNum(hit[1]);
-          if (val !== null) {
-            suggestions.push({
-              key: spec.key,
-              label: spec.label,
-              value: val,
-              unit: spec.unit,
-              documentId: doc.id,
-              documentName: doc.name,
-              page: matcher.page ?? 1,
-              confidence: 0.85,
-              sourceText: hit[0],
-              note: `Text pattern matched in ${doc.name}`,
-            });
-            matched = true;
-            break;
-          }
-        }
-      }
-      if (matched) break;
-    }
+    suggestions.push({
+      key: spec.key,
+      label: spec.label,
+      unit: spec.unit,
+      documentId: first.doc.id,
+      documentName: first.doc.name,
+      confidence: disagreeing.length ? Math.min(first.confidence, 0.5) : first.confidence,
+      ...first.found,
+      ...(note ? { note } : {}),
+    });
   }
 
-  return suggestions;
+  return { suggestions, unreadable };
 }
 
+/** Back-compatible wrapper for callers that only need the suggestions. */
+export function proposeReadings(def: DeskReviewDef, documents: EvidenceDocumentCandidate[]): ProposedReading[] {
+  return proposeFromDocuments(def, documents).suggestions;
+}

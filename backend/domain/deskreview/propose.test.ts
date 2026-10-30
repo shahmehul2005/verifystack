@@ -1,84 +1,175 @@
 import { describe, expect, it } from "vitest";
 import { CEMENT_DESK_REVIEW } from "./cement";
-import { proposeReadings, type EvidenceDocumentCandidate } from "./propose";
+import { printedPeriodMonths, proposeFromDocuments, proposeReadings, type EvidenceDocumentCandidate } from "./propose";
+import type { PdfPageText } from "../extraction/pdfText";
 
-describe("Desk Review proposeReadings", () => {
-  it("proposes high-confidence readings for recognized test documents in slots", () => {
-    const docs: EvidenceDocumentCandidate[] = [
-      { id: "doc-1", name: "03_monthly_production_report.pdf", slot: "production_evidence" },
-      { id: "doc-2", name: "04_sap_pp_module_printout.pdf", slot: "production_evidence" },
-      { id: "doc-3", name: "09_coal_nabl_external_certificate.pdf", slot: "coal_quality" },
-      { id: "doc-4", name: "12_grid_electricity_bill.pdf", slot: "grid_electricity" },
-      { id: "doc-5", name: "16_form1_annual_energy_ghg.pdf", slot: "form1" },
-    ];
+const page = (lines: string[], n = 1): PdfPageText[] => [{ page: n, lines }];
 
-    const proposals = proposeReadings(CEMENT_DESK_REVIEW, docs);
-    expect(proposals.length).toBeGreaterThan(0);
+const MPR = (clinker = "12,500.0") =>
+  page([
+    "Monthly Production Report (MPR)",
+    "Document No: MPR/2023-24/11 | Period: November 2023",
+    "Item Qty (t)",
+    `Clinker Production ${clinker}`,
+    "Clinker Opening Stock 2,500.0",
+    "Clinker Closing Stock 1,666.7",
+    "Clinker Export 833.3",
+    "Clinker Import 1,666.7",
+    "OPC Produced 6,058.3",
+    "PPC Produced 9,516.7",
+    "PSC Produced 1,733.3",
+    "Note: Clinker Factors — OPC 0.96, PPC 0.75, PSC 0.70",
+  ]);
 
-    const byKey = Object.fromEntries(proposals.map((p) => [p.key, p]));
-    expect(byKey["mpr.clinker_t"]).toBeDefined();
-    expect(byKey["mpr.clinker_t"].value).toBe(12500);
-    expect(byKey["mpr.clinker_t"].documentId).toBe("doc-1");
+const NABL = (internal = "4200", external = "4230", dev = "+30") =>
+  page([
+    "NABL Accredited Laboratory — Coal Test Certificate",
+    "Document No: NABL-CERT/2023-24/Q3 | Period: Q3 2023-24",
+    "Parameter Internal Lab Result Deviation",
+    `GCV (kcal/kg, as fired) ${internal} ${external} ${dev} WITHIN THRESHOLD`,
+    "Ash (%) 22.00 22.16 — ±2% material threshold",
+  ]);
 
-    expect(byKey["coal.nabl_gcv"]).toBeDefined();
-    expect(byKey["coal.nabl_gcv"].value).toBe(4230);
-    expect(byKey["coal.nabl_gcv"].unit).toBe("kcal/kg");
-    expect(byKey["coal.nabl_gcv"].documentId).toBe("doc-3");
-
-    expect(byKey["form1.eq_product_t"]).toBeDefined();
-    expect(byKey["form1.eq_product_t"].value).toBe(240003);
-    expect(byKey["form1.eq_product_t"].documentId).toBe("doc-5");
-  });
-
-  it("extracts from raw text using regex patterns when filename is arbitrary", () => {
-    const docs: EvidenceDocumentCandidate[] = [
-      {
-        id: "doc-nabl",
-        name: "test_report_scan.pdf",
-        slot: "coal_quality",
-        text: "Sample: Washed Coal. Gross Calorific Value (ADB): 4180.5 kcal/kg. Moisture: 8.2%.",
-      },
-      {
-        id: "doc-grid",
-        name: "power_statement.pdf",
-        slot: "grid_electricity",
-        text: "MSEDCL Energy Bill. Units Billed: 345,000 kWh. Meter Reading Date: 2023-11-30.",
-      },
-    ];
-
-    const proposals = proposeReadings(CEMENT_DESK_REVIEW, docs);
-    const byKey = Object.fromEntries(proposals.map((p) => [p.key, p]));
-
-    expect(byKey["coal.nabl_gcv"]).toBeDefined();
-    expect(byKey["coal.nabl_gcv"].value).toBe(4180.5);
-    expect(byKey["coal.nabl_gcv"].documentId).toBe("doc-nabl");
-
-    expect(byKey["grid.bill_kwh"]).toBeDefined();
-    expect(byKey["grid.bill_kwh"].value).toBe(345000);
-    expect(byKey["grid.bill_kwh"].documentId).toBe("doc-grid");
-  });
-
-  it("proposes readings even when slot is null via inferSlot, including daily DPR series", () => {
-    const docs: EvidenceDocumentCandidate[] = [
-      { id: "doc-dpr", name: "02_daily_production_report.pdf", slot: null },
-      { id: "doc-po", name: "10_coal_purchase_order.pdf", slot: null },
-      { id: "doc-rec", name: "13_rec_certificate_status.pdf", slot: null },
-    ];
-
-    const proposals = proposeReadings(CEMENT_DESK_REVIEW, docs);
-    const byKey = Object.fromEntries(proposals.map((p) => [p.key, p]));
-
-    expect(byKey["dpr.clinker"]).toBeDefined();
-    expect(byKey["dpr.clinker"].rawText).toContain("2023-11-01 400.0");
-    expect(byKey["dpr.clinker"].documentId).toBe("doc-dpr");
-
-    expect(byKey["coal.po_t"]).toBeDefined();
-    expect(byKey["coal.po_t"].value).toBe(2914.2);
-    expect(byKey["coal.po_t"].documentId).toBe("doc-po");
-
-    expect(byKey["rec.claim_mwh"]).toBeDefined();
-    expect(byKey["rec.claim_mwh"].value).toBe(0);
-    expect(byKey["rec.claim_mwh"].documentId).toBe("doc-rec");
-  });
+const doc = (id: string, name: string, slot: string, pages: PdfPageText[] | null): EvidenceDocumentCandidate => ({
+  id,
+  name,
+  slot,
+  pages,
 });
 
+describe("Desk Review proposeReadings reads the printed text", () => {
+  it("proposes the figures the monthly report prints, with page and the exact line", () => {
+    const out = proposeReadings(CEMENT_DESK_REVIEW, [doc("d1", "mpr.pdf", "production_evidence", MPR())]);
+    const by = Object.fromEntries(out.map((p) => [p.key, p]));
+    expect(by["mpr.clinker_t"]).toMatchObject({ value: 12500, page: 1, documentId: "d1", sourceText: "Clinker Production 12,500.0" });
+    expect(by["mpr.opc_t"]?.value).toBe(6058.3);
+    expect(by["mpr.ppc_t"]?.value).toBe(9516.7);
+    expect(by["mpr.psc_t"]?.value).toBe(1733.3);
+    expect(by["mpr.clinker_opening_t"]?.value).toBe(2500);
+    expect(by["mpr.clinker_closing_t"]?.value).toBe(1666.7);
+    expect(by["mpr.clinker_export_t"]?.value).toBe(833.3);
+    expect(by["mpr.clinker_import_t"]?.value).toBe(1666.7);
+  });
+
+  it("returns the edited figure when the document was edited, never a remembered one", () => {
+    const out = proposeReadings(CEMENT_DESK_REVIEW, [doc("d1", "03_monthly_production_report.pdf", "production_evidence", MPR("13,500.0"))]);
+    expect(out.find((p) => p.key === "mpr.clinker_t")?.value).toBe(13500);
+  });
+
+  it("does not depend on the file name", () => {
+    const a = proposeReadings(CEMENT_DESK_REVIEW, [doc("x", "scan_0001.pdf", "production_evidence", MPR())]);
+    const b = proposeReadings(CEMENT_DESK_REVIEW, [doc("y", "03_monthly_production_report.pdf", "production_evidence", MPR())]);
+    expect(a.map((p) => [p.key, p.value])).toEqual(b.map((p) => [p.key, p.value]));
+  });
+
+  it("reads the NABL result as the external column, not the internal one", () => {
+    const out = proposeReadings(CEMENT_DESK_REVIEW, [doc("n", "cert.pdf", "coal_quality", NABL("4200", "4480", "+280"))]);
+    const gcv = out.find((p) => p.key === "coal.nabl_gcv");
+    expect(gcv?.value).toBe(4480);
+    expect(gcv?.unit).toBe("kcal/kg");
+  });
+
+  it("reads SAP confirmed quantity, not the order quantity", () => {
+    const sap = page([
+      "Material Material Code Order Qty (t) Confirmed Qty (t) Plant",
+      "Clinker (OPC grade) FG-CLK-OPC 6,100.0 6,058.3 1000",
+      "Cement - PPC 43 Grade FG-CEM-PPC43 9,600.0 9,516.7 1000",
+      "Cement - PSC FG-CEM-PSC 1,800.0 1,733.3 1000",
+    ]);
+    const out = proposeReadings(CEMENT_DESK_REVIEW, [doc("s", "sap.pdf", "production_evidence", sap)]);
+    const by = Object.fromEntries(out.map((p) => [p.key, p.value]));
+    expect(by["sap.opc_t"]).toBe(6058.3);
+    expect(by["sap.ppc_t"]).toBe(9516.7);
+    expect(by["sap.psc_t"]).toBe(1733.3);
+  });
+
+  it("reads the Form 1 figures and ignores digits inside unit text such as CO2eq", () => {
+    const form1 = page([
+      "Total Equivalent Product Tonne 240,003",
+      "Direct GHG Emissions (Energy related) t CO2eq 56,794.8",
+      "Indirect GHG Emissions (Energy related) t CO2eq 2,148.0",
+      "Total Direct & Indirect Emissions t CO2eq 58,942.8",
+    ]);
+    const by = Object.fromEntries(proposeReadings(CEMENT_DESK_REVIEW, [doc("f", "form1.pdf", "form1", form1)]).map((p) => [p.key, p.value]));
+    expect(by["form1.eq_product_t"]).toBe(240003);
+    expect(by["form1.direct_co2_t"]).toBe(56794.8);
+    expect(by["form1.indirect_co2_t"]).toBe(2148);
+  });
+
+  it("reads the printed daily table as a dated series and stops at the end of the table", () => {
+    const dpr = page([
+      "Date Clinker (t) Thermal Energy (Mkcal) Electrical Energy (MWh) Remarks",
+      "2023-11-01 400.0 280.0 22.0 Normal ops",
+      "2023-11-02 435.4 304.8 23.9 Normal ops",
+      "Prepared by: Shift Production Engineer",
+      "2023-11-09 999.0 1 1 stray line after the table",
+    ]);
+    const out = proposeReadings(CEMENT_DESK_REVIEW, [doc("p", "dpr.pdf", "production_evidence", dpr)]);
+    const series = out.find((p) => p.key === "dpr.clinker");
+    expect(series?.rawText).toBe("2023-11-01 400\n2023-11-02 435.4");
+    expect(series?.rawText).not.toContain("999");
+  });
+
+  it("proposes zero only when every row of a REC declaration prints nil", () => {
+    const nil = page([
+      "Onsite Renewable Generation Capacity (MW) Nil",
+      "RECs purchased/obtained this compliance cycle Nil",
+      "Open Access / dedicated PPA renewable procurement Nil",
+    ]);
+    const claimed = page([
+      "Onsite Renewable Generation Capacity (MW) 12",
+      "RECs purchased/obtained this compliance cycle Nil",
+      "Open Access / dedicated PPA renewable procurement Nil",
+    ]);
+    const a = proposeReadings(CEMENT_DESK_REVIEW, [doc("r", "rec.pdf", "rec_declaration", nil)]);
+    expect(a.find((p) => p.key === "rec.claim_mwh")?.value).toBe(0);
+    expect(a.find((p) => p.key === "rec.purchases_mwh")?.value).toBe(0);
+    const b = proposeReadings(CEMENT_DESK_REVIEW, [doc("r", "rec.pdf", "rec_declaration", claimed)]);
+    expect(b.find((p) => p.key === "rec.claim_mwh")).toBeUndefined();
+    expect(b.find((p) => p.key === "rec.purchases_mwh")?.value).toBe(0);
+  });
+
+  it("proposes nothing from a PDF with no text layer and says so", () => {
+    const { suggestions, unreadable } = proposeFromDocuments(CEMENT_DESK_REVIEW, [
+      doc("scan", "03_monthly_production_report.pdf", "production_evidence", [{ page: 1, lines: [] }]),
+    ]);
+    expect(suggestions).toEqual([]);
+    expect(unreadable).toEqual([{ documentId: "scan", documentName: "03_monthly_production_report.pdf", reason: "no_text_layer" }]);
+  });
+
+  it("does not reach across slots", () => {
+    const out = proposeReadings(CEMENT_DESK_REVIEW, [doc("m", "mpr.pdf", "coal_quality", MPR())]);
+    expect(out.find((p) => p.key === "mpr.clinker_t")).toBeUndefined();
+  });
+
+  it("surfaces two documents that disagree instead of choosing quietly", () => {
+    const out = proposeReadings(CEMENT_DESK_REVIEW, [
+      doc("a", "mpr_a.pdf", "production_evidence", MPR("12,500.0")),
+      doc("b", "mpr_b.pdf", "production_evidence", MPR("13,500.0")),
+    ]);
+    const hit = out.find((p) => p.key === "mpr.clinker_t")!;
+    expect(hit.note).toContain("mpr_b.pdf 13500");
+    expect(hit.confidence).toBeLessThanOrEqual(0.5);
+  });
+
+  it("derives months covered from the printed period", () => {
+    expect(printedPeriodMonths(["Document No: BILL/2023-24/11 | Period: November 2023"])).toBe(1);
+    expect(printedPeriodMonths(["Billing Period November 2023"])).toBe(1);
+    expect(printedPeriodMonths(["Document No: FORM1/2023-24 | Period: 01-Apr-2023 to 31-Mar-2024"])).toBe(12);
+    expect(printedPeriodMonths(["Document No: X | Period: Q3 2023-24"])).toBe(3);
+    expect(printedPeriodMonths(["Period: 6 Months"])).toBe(6);
+    expect(printedPeriodMonths(["No period here"])).toBeNull();
+  });
+
+  it("proposes grid bill months from the printed billing period", () => {
+    const bill = page([
+      "Document No: BILL/2023-24/11 | Period: November 2023",
+      "Particulars Value",
+      "Billing Period November 2023",
+      "Units Consumed (kWh) 250,000",
+    ]);
+    const by = Object.fromEntries(proposeReadings(CEMENT_DESK_REVIEW, [doc("g", "bill.pdf", "grid_electricity", bill)]).map((p) => [p.key, p.value]));
+    expect(by["grid.bill_kwh"]).toBe(250000);
+    expect(by["grid.bill_months"]).toBe(1);
+  });
+});

@@ -204,6 +204,7 @@ export default async function DocumentsPage({
                       taxonomy={pack.document_taxonomy ?? []}
                       canEdit={canUpload}
                       isTable={isTable}
+                      slotLabel={slots.find((s) => s.id === d.slot)?.label ?? null}
                     />
                   </Td>
                   <Td className="text-right tabular">{isTable ? "—" : (d.page_count ?? "—")}</Td>

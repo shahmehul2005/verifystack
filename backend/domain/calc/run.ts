@@ -18,6 +18,7 @@ import {
 import { matchFactPath } from "../extraction/fieldPaths";
 import { factLabel, hasProvenance } from "../provenance";
 import { loadPack, assertRunnable } from "../packs";
+import { basisWindowFor } from "../packs/emissionBasis";
 import type {
   MethodologyPack,
   PackProductionBinding,
@@ -174,8 +175,13 @@ export interface StreamReadiness {
   bound: boolean;
   /** A quantity was found but the stream cannot be priced. A run would drop real consumption. */
   partial?: boolean;
-  /** The pack names this stream as required for a run. Absent streams are otherwise optional. */
+  /** The pack names this stream as required for a run, alone or as one of a group of methods. */
   required?: boolean;
+  /**
+   * The stream is outside the intensity basis for this compliance year, so the pack does not
+   * require it. A figure that is supplied is still counted.
+   */
+  inBasisWindow?: boolean;
   reason?: string;
 }
 
@@ -188,6 +194,46 @@ export interface RunReadiness {
   canRun: boolean;
   blockers: string[];
   warnings: string[];
+  /** Streams the pack does not require for this compliance year, each with its citation. */
+  basisNotes: string[];
+}
+
+/** Group id to its member bindings, for streams that are alternative methods of one quantity. */
+function requiredGroups(bindings: PackStreamBinding[]): Map<string, PackStreamBinding[]> {
+  const groups = new Map<string, PackStreamBinding[]>();
+  for (const b of bindings) {
+    if (!b.requiredGroup) continue;
+    groups.set(b.requiredGroup, [...(groups.get(b.requiredGroup) ?? []), b]);
+  }
+  return groups;
+}
+
+function groupMessage(group: string, members: PackStreamBinding[]): string {
+  return (
+    `A run needs at least one ${group} method, and none has a fact. Provide one of: ` +
+    members.map((b) => `"${b.label}" at "${b.quantity.path}"`).join(" or ") +
+    "."
+  );
+}
+
+function bothMethodsMessage(group: string, members: PackStreamBinding[]): string {
+  return (
+    `These ${group} methods are alternatives for the same emission, and counting both would count it twice: ` +
+    members.map((b) => `"${b.label}"`).join(" and ") +
+    ". Keep one."
+  );
+}
+
+/**
+ * A counted figure whose stream is outside the intensity basis for the year. It stays in the
+ * total, because no number is dropped on an interpretation of a Note about targets, and the
+ * run says plainly that the basis then differs from a target set without it.
+ */
+function countedOutsideBasisWarning(binding: PackStreamBinding, complianceYear: string, citation: string): string {
+  return (
+    `"${binding.label}" is counted, but it is outside the intensity basis for ${complianceYear}. ${citation} ` +
+    `The intensity includes it, so it is not on the same basis as a target set without it. Confirm the basis before relying on the headroom or the credit position.`
+  );
 }
 
 /**
@@ -197,7 +243,7 @@ export interface RunReadiness {
 export function assessRunReadiness(
   pack: MethodologyPack,
   facts: ProvenancedFact[],
-  _opts?: { draftMode?: boolean }
+  opts?: { draftMode?: boolean; complianceYear?: string }
 ): RunReadiness {
   const productionPath = pack.production_binding?.path ?? null;
   const productionMatches = productionPath ? factsMatching(facts, productionPath) : [];
@@ -209,6 +255,8 @@ export function assessRunReadiness(
   const streams: StreamReadiness[] = [];
   const conflictedStreamIds = new Set<string>();
   const ambiguityBlockers: string[] = [];
+  const basisNotes: string[] = [];
+  const basisWarnings: string[] = [];
 
   if (pack.calculation_method === "GEI") {
     for (const binding of pack.stream_bindings) {
@@ -300,15 +348,38 @@ export function assessRunReadiness(
   if (pack.calculation_method === "GEI") {
     for (const b of pack.stream_bindings) {
       const s = streams.find((x) => x.streamId === b.streamId);
-      if (s) s.required = Boolean(b.required);
+      const window = opts?.complianceYear ? basisWindowFor(b, opts.complianceYear) : null;
+      if (s) {
+        s.required = Boolean(b.required || b.requiredGroup) && !window;
+        if (window) s.inBasisWindow = true;
+      }
+      if (window) {
+        // Not required this year. A figure that is there is still counted, and the page says so.
+        if (s?.bound) basisWarnings.push(countedOutsideBasisWarning(b, opts!.complianceYear!, window.citation));
+        else basisNotes.push(`"${b.label}" is not required for ${opts!.complianceYear}. ${window.citation}`);
+        continue;
+      }
       if (b.required && s && !s.bound && !s.partial && !conflictedStreamIds.has(b.streamId)) {
         blockers.push(`"${b.label}" is required by the pack and has no fact at "${b.quantity.path}".`);
       }
     }
+    // Alternative methods: one bound member satisfies the group. A member that is partial or
+    // in conflict already has its own blocker, so the group message would only repeat it.
+    for (const [group, members] of requiredGroups(pack.stream_bindings)) {
+      // Alternatives for one emission: two bound at once would count it twice, in any year.
+      const both = members.filter((m) => streams.find((x) => x.streamId === m.streamId)?.bound);
+      if (both.length > 1) blockers.push(bothMethodsMessage(group, both));
+      const active = members.filter((m) => !(opts?.complianceYear && basisWindowFor(m, opts.complianceYear)));
+      if (active.length === 0) continue;
+      const states = active.map((m) => streams.find((x) => x.streamId === m.streamId));
+      const satisfied = states.some((s) => s?.bound);
+      const alreadyBlocked = states.some((s) => s?.partial || conflictedStreamIds.has(s?.streamId ?? ""));
+      if (!satisfied && !alreadyBlocked) blockers.push(groupMessage(group, active));
+    }
   }
-  const warnings: string[] = [];
+  const warnings: string[] = [...basisWarnings];
   const unbound = streams.filter(
-    (s) => !s.bound && !s.partial && !s.required && !conflictedStreamIds.has(s.streamId)
+    (s) => !s.bound && !s.partial && !s.required && !s.inBasisWindow && !conflictedStreamIds.has(s.streamId)
   );
   if (unbound.length > 0 && streams.some((s) => s.bound)) {
     warnings.push(
@@ -325,6 +396,7 @@ export function assessRunReadiness(
     canRun: blockers.length === 0 && facts.length > 0 && Boolean(productionBound),
     blockers,
     warnings,
+    basisNotes,
   };
 }
 
@@ -522,6 +594,7 @@ export function mapFactsToCalcInput(
   // lists each conflict and each missing required fact.
   const streams: StreamInput[] = [];
   const problems: string[] = [];
+  const failedStreamIds = new Set<string>();
   const note = (err: unknown) => {
     if (!(err instanceof CalcError)) throw err;
     if (!problems.includes(err.message)) problems.push(err.message);
@@ -531,8 +604,22 @@ export function mapFactsToCalcInput(
       const stream = buildStream(facts, binding);
       if (stream) streams.push(stream);
     } catch (err) {
+      failedStreamIds.add(binding.streamId);
       note(err);
     }
+  }
+
+  // Alternative methods: at least one member of each group must have produced a stream, unless
+  // the year puts the group outside the intensity basis. A member that failed already explains
+  // itself, so the group message would repeat it wrongly.
+  for (const [group, members] of requiredGroups(pack.stream_bindings)) {
+    const both = members.filter((m) => streams.some((s) => s.streamId === m.streamId));
+    if (both.length > 1) problems.push(bothMethodsMessage(group, both));
+    const active = members.filter((m) => !basisWindowFor(m, req.complianceYear));
+    if (active.length === 0) continue;
+    const satisfied = active.some((m) => streams.some((s) => s.streamId === m.streamId));
+    const memberFailed = active.some((m) => failedStreamIds.has(m.streamId));
+    if (!satisfied && !memberFailed) problems.push(groupMessage(group, active));
   }
 
   let production: CalcInput["production"] | undefined;
@@ -582,6 +669,15 @@ export function executeRun(req: RunRequest): PersistedRun {
   const factors = req.factorSet ?? buildFactorSet("verifystack-factors-0.2.0");
   const input = mapFactsToCalcInput(pack, req);
   const result = calculate(input, factors);
+  // A counted figure that sits outside the intensity basis for this year stays in the total;
+  // the run carries the warning so the headroom is not read as like-for-like. The input and its
+  // hash are untouched.
+  for (const binding of pack.stream_bindings) {
+    const window = basisWindowFor(binding, req.complianceYear);
+    if (window && input.streams.some((s) => s.streamId === binding.streamId)) {
+      result.warnings.push(countedOutsideBasisWarning(binding, req.complianceYear, window.citation));
+    }
+  }
   const inputHash = result.inputsHash;
   const previousRunHash = req.previousRunHash ?? null;
 

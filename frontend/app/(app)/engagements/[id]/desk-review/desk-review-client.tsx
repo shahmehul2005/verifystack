@@ -519,18 +519,29 @@ export function DeskReviewStudio({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ engagementId }),
     });
-    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; suggestions?: ProposedReadingItem[]; error?: string };
+    const json = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      suggestions?: ProposedReadingItem[];
+      unreadable?: { documentName: string }[];
+      error?: string;
+    };
     setProposing(false);
     if (!res.ok || !json.ok || !json.suggestions) {
       toast.error(json.error ?? "Could not scan documents for suggestions");
       return;
     }
     setSuggestions(json.suggestions);
+    const unreadable = json.unreadable ?? [];
+    const unreadableNote =
+      unreadable.length > 0
+        ? ` ${unreadable.length} PDF${unreadable.length === 1 ? " has" : "s have"} no text layer (scanned); type those figures from the page.`
+        : "";
     if (json.suggestions.length > 0) {
-      toast.success(`Found ${json.suggestions.length} candidate readings from evidence documents`);
+      toast.success(`Found ${json.suggestions.length} candidate readings from the printed text.${unreadableNote}`);
       setShowReadingsDrawer(true);
     } else {
-      toast.info("No automatic readings detected from current evidence documents");
+      toast.info(`No readings matched the printed labels in the PDFs in these slots.${unreadableNote}`);
+      setShowReadingsDrawer(true);
     }
   }
 

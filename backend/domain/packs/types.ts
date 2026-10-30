@@ -109,6 +109,27 @@ interface PackStreamBindingBase {
    * simply omitted — appropriate where a plant may genuinely not use the fuel.
    */
   required?: boolean;
+  /**
+   * Alternative methods for one quantity. A run needs at least one stream in the group
+   * bound, not all of them: calcination can be estimated from the clinker output or from
+   * the raw meal input, never both. Streams in a group are individually optional.
+   */
+  requiredGroup?: string;
+  /**
+   * Compliance years in which this stream is outside the intensity basis. In that window
+   * the stream is not required. A figure that is supplied is still counted, and the run
+   * warns that the intensity is not on the same basis as a target set without it.
+   */
+  basisWindow?: PackBasisWindow;
+}
+
+/** A page-cited window of compliance years in which a stream is outside the intensity basis. */
+export interface PackBasisWindow {
+  /** First and last financial-year start (FY2024-25 is 2024), inclusive. */
+  fromFyStart: number;
+  toFyStart: number;
+  /** The primary source and page, in words an auditor can check. */
+  citation: string;
 }
 
 export interface PackFuelStreamBinding extends PackStreamBindingBase {

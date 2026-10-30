@@ -150,7 +150,10 @@ export async function POST(req: Request) {
         );
       }
 
-      const readiness = assessRunReadiness(pack, scopedFacts, { draftMode: engagement.draft_mode });
+      const readiness = assessRunReadiness(pack, scopedFacts, {
+        draftMode: engagement.draft_mode,
+        complianceYear: engagement.compliance_year,
+      });
       if (!readiness.canRun) {
         return NextResponse.json(
           { ok: false, error: readiness.blockers.join(" "), readiness },
@@ -250,7 +253,10 @@ export async function POST(req: Request) {
     // Workbook-only runs: a pack that requires workbook values gets only those facts.
     // Packs without the flag get every fact, as before.
     const scoped = selectRunFacts(pack, facts);
-    const readiness = assessRunReadiness(pack, scoped.facts, { draftMode: engagement.draft_mode });
+    const readiness = assessRunReadiness(pack, scoped.facts, {
+      draftMode: engagement.draft_mode,
+      complianceYear: engagement.compliance_year,
+    });
     if (!readiness.canRun) {
       return NextResponse.json(
         { ok: false, error: readiness.blockers.join(" "), readiness },

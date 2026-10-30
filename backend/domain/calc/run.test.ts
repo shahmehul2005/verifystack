@@ -70,18 +70,93 @@ describe("calculation run wrapper", () => {
     );
     expect(ready.blockers.join(" ")).toContain("process.calcinationEmissions");
 
-    const runSeed = () => executeRun({ ...cementRun, facts: facts() });
+    // FY2027-28 is after the first trajectory period, so process CO2 is required.
+    const runSeed = () => executeRun({ ...cementRun, complianceYear: "FY2027-28", facts: facts() });
     expect(runSeed).toThrow(CalcError);
     expect(runSeed).toThrow(/process\.calcinationEmissions/);
     expect(runSeed).toThrow(/will not choose/);
     expect(() =>
       mapFactsToCalcInput(pack, {
         engagementId: "e",
-        complianceYear: "FY2025-26",
+        complianceYear: "FY2027-28",
         draftMode: true,
         facts: facts(),
       })
     ).toThrow(/process\.calcinationEmissions/);
+  });
+
+  describe("process CO2 and the intensity basis (Detailed Procedure Section 3.4(1) Note, p. 7)", () => {
+    const pack = loadPack("CCTS-CEMENT-v1");
+    const noProcess = () => oneFactPerPath(["quantity", "calorificValue", "activeEnergy", "production"]);
+    const rawMeal = (value: number): ProvenancedFact => ({
+      ...processFact("fact-raw-meal", value),
+      field_path: "process.rawMealCalcinationEmissions",
+    });
+
+    it("does not block a FY2024-25 to FY2026-27 run for missing calcination, and says why", () => {
+      for (const year of ["FY2024-25", "FY2025-26", "FY2026-27"]) {
+        const ready = assessRunReadiness(pack, noProcess(), { draftMode: true, complianceYear: year });
+        expect(ready.blockers, year).toEqual([]);
+        expect(ready.canRun, year).toBe(true);
+        expect(ready.basisNotes.join(" ")).toContain("Section 3.4(1) Note, p. 7");
+        expect(ready.streams.find((s) => s.streamId === "clinker-calcination")?.required).toBe(false);
+        const input = mapFactsToCalcInput(pack, { engagementId: "e", complianceYear: year, draftMode: true, facts: noProcess() });
+        expect(input.streams.some((s) => s.kind === "process_direct")).toBe(false);
+      }
+    });
+
+    it("still requires calcination before the window and after it", () => {
+      for (const year of ["FY2023-24", "FY2027-28", "FY2030-31"]) {
+        const ready = assessRunReadiness(pack, noProcess(), { draftMode: true, complianceYear: year });
+        expect(ready.canRun, year).toBe(false);
+        expect(ready.blockers.join(" ")).toContain("process.calcinationEmissions");
+        expect(() => mapFactsToCalcInput(pack, { engagementId: "e", complianceYear: year, draftMode: true, facts: noProcess() })).toThrow(
+          /process\.calcinationEmissions/
+        );
+      }
+    });
+
+    it("keeps the stricter path when the year label cannot be placed", () => {
+      for (const year of ["", "2026", "next year", "FY2026-28"]) {
+        expect(assessRunReadiness(pack, noProcess(), { draftMode: true, complianceYear: year }).canRun, year).toBe(false);
+      }
+    });
+
+    it("accepts either calcination method after the window, not neither and not both", () => {
+      const year = "FY2027-28";
+      const output = [...noProcess(), processFact("fact-calc", 1000)];
+      const input = [...noProcess(), rawMeal(1100)];
+      expect(assessRunReadiness(pack, output, { draftMode: true, complianceYear: year }).canRun).toBe(true);
+      expect(assessRunReadiness(pack, input, { draftMode: true, complianceYear: year }).canRun).toBe(true);
+      expect(
+        mapFactsToCalcInput(pack, { engagementId: "e", complianceYear: year, draftMode: true, facts: input }).streams.map((s) => s.streamId)
+      ).toContain("raw-meal-calcination");
+
+      const both = [...noProcess(), processFact("fact-calc", 1000), rawMeal(1100)];
+      expect(assessRunReadiness(pack, both, { draftMode: true, complianceYear: year }).blockers.join(" ")).toMatch(/counting both would count it twice/);
+      expect(() => mapFactsToCalcInput(pack, { engagementId: "e", complianceYear: year, draftMode: true, facts: both })).toThrow(/count it twice/);
+      // The same plant in the window: still not allowed to double count.
+      expect(assessRunReadiness(pack, both, { draftMode: true, complianceYear: "FY2026-27" }).canRun).toBe(false);
+    });
+
+    it("counts a supplied figure inside the window, changes no number, and warns about the basis", () => {
+      const accepted = cementFactsWithProcess(1000, "fact-calcination");
+      const inWindow = executeRun({ ...cementRun, complianceYear: "FY2025-26", facts: accepted });
+      const input = mapFactsToCalcInput(pack, { engagementId: "e", complianceYear: "FY2025-26", draftMode: true, facts: accepted });
+      expect(input.streams.find((s) => s.streamId === "clinker-calcination")).toBeDefined();
+      expect(inWindow.result.warnings.join(" ")).toMatch(/counted, but it is outside the intensity basis for FY2025-26/);
+      expect(inWindow.result.warnings.join(" ")).toContain("Section 3.4(1) Note, p. 7");
+
+      const ready = assessRunReadiness(pack, accepted, { draftMode: true, complianceYear: "FY2025-26" });
+      expect(ready.canRun).toBe(true);
+      expect(ready.warnings.join(" ")).toMatch(/not on the same basis as a target set without it/);
+
+      // Same facts in a year the Note does not cover: identical numbers, no basis warning.
+      const after = executeRun({ ...cementRun, complianceYear: "FY2027-28", facts: accepted });
+      expect(after.result.gei).toBe(inWindow.result.gei);
+      expect(after.result.totalEmissions).toEqual(inWindow.result.totalEmissions);
+      expect(after.result.warnings.join(" ")).not.toMatch(/intensity basis/);
+    });
   });
 
   it("chains consecutive runs", () => {

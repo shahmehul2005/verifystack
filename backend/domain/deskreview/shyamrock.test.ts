@@ -231,7 +231,7 @@ describe.skipIf(!HAVE_ZIP)("Shyamrock: pro forma inputs and desk review", () => 
       engine_coverage: "pass",
       cpp_report_vs_proforma: "pass",
       gcv_ncv_used: "pass",
-      gcv_nabl_corroboration: "not_applicable",
+      gcv_nabl_corroboration: "pass",
       renewable_claim: "pass",
       sheet2_coal_tie: "pass",
       sheet2_fuel_oil_tie: "pass",
@@ -282,10 +282,14 @@ describe.skipIf(!HAVE_ZIP)("Shyamrock: pro forma inputs and desk review", () => 
       "CCTS Detailed Procedure, solid fuel sampling (every 20,000 t or monthly, whichever is more often), as read from the ICAI-hosted copy."
     );
     expect(o.gcv_samples!.detail).toMatch(/fewer months than 12/);
-    expect(o.gcv_nabl_corroboration!.detail).toMatch(/corroborat/i);
-    expect(o.gcv_nabl_corroboration!.detail).not.toMatch(/71\.7/);
+    // Internal lab mean against the certificate's 4230: inside the 71.7 kcal/kg band of clause 4(10)(ii).
+    expect(o.gcv_nabl_corroboration!.detail).toMatch(/inside the band/);
+    expect(o.gcv_nabl_corroboration!.thresholdSource).toMatch(/clause 4\(10\)\(ii\)-\(iii\), p\. 14/);
     expect(o.formula_integrity!.detail).toMatch(/not a BEE-issued blank file/);
+    // 71.7 is the band for the NABL comparison alone. No other check borrows it, which is how it
+    // was once misused as a sample-count snap.
     for (const row of Object.values(o)) {
+      if (row.id === "gcv_nabl_corroboration") continue;
       expect(row.detail).not.toMatch(/71\.7/);
       expect(row.thresholdSource ?? "").not.toMatch(/71\.7/);
     }

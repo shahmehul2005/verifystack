@@ -49,10 +49,40 @@ function ghg(partial: {
   };
 }
 
-function formulaReadings(overrides: Record<string, string | null> = {}): Readings {
+/** Row labels as the sector pro forma prints them in column A, by sheet and cell. */
+const TEMPLATE_LABELS: Record<string, string> = {
+  "1_Production!B17": "(i) Eq. Major Product from OPC (Lakh t)",
+  "1_Production!B18": "(ii) Eq. Major Product from PPC (Lakh t)",
+  "1_Production!B19": "(iii) Eq. Major Product from PSC (Lakh t)",
+  "1_Production!B20": "(iv) Eq. Major Product from Exported Clinker (Lakh t)",
+  "1_Production!B21": "(vi) TOTAL Equivalent Major Product of Cement (Lakh t)",
+  "2_Energy_GtG_SEC!B22": "(viii) Total Thermal Energy Consumption (Million kcal)",
+  "2_Energy_GtG_SEC!B23": "(ix) Energy for Imported Electricity (Million kcal)",
+  "2_Energy_GtG_SEC!B24": "(x) Notional Energy — Imported Electricity (Million kcal)",
+  "2_Energy_GtG_SEC!B25": "Weighted Avg Heat Rate (kcal/kWh)",
+  "2_Energy_GtG_SEC!B26": "(xi) Notional Energy — Grinding Exported Clinker (Million kcal)",
+  "2_Energy_GtG_SEC!B27": "(xii) Notional Energy — Clinkerisation of Imported Clinker (Million kcal)",
+  "2_Energy_GtG_SEC!B28": "(xiii) Gate-to-Gate Energy Consumption (Million kcal)",
+  "2_Energy_GtG_SEC!B29": "(xiv) Gate-to-Gate SEC (kcal/kg equivalent cement)",
+  "3_GHG_CCTS!B18": "Coal Energy (TJ)",
+  "3_GHG_CCTS!B19": "Fuel Oil Energy (TJ)",
+  "3_GHG_CCTS!B20": "Direct GHG Emissions — Energy (tCO2e)",
+  "3_GHG_CCTS!B21": "Indirect GHG Emissions — Purchased Electricity (tCO2e)",
+  "3_GHG_CCTS!B22": "TOTAL Direct & Indirect GHG Emissions (tCO2e)",
+  "4_Summary_Form1_Feed!B5": "Total Equivalent Product (t)",
+  "4_Summary_Form1_Feed!B6": "Specific Energy Consumption — Without Normalization (kcal/kg)",
+  "4_Summary_Form1_Feed!B7": "Specific Energy Consumption — Normalized / GtG SEC (kcal/kg)",
+  "4_Summary_Form1_Feed!B8": "Direct GHG Emissions — Energy (tCO2e)",
+  "4_Summary_Form1_Feed!B9": "Indirect GHG Emissions — Energy (tCO2e)",
+  "4_Summary_Form1_Feed!B10": "Total Direct & Indirect GHG Emissions (tCO2e)",
+  "4_Summary_Form1_Feed!B11": "Specific GHG Emissions (tCO2e / t equivalent product)",
+};
+
+function formulaReadings(overrides: Record<string, string | null> = {}, withLabels = true): Readings {
   const out: Readings = { "pf.proforma_opened": 1 };
   for (const spec of CEMENT_PROFORMA_FORMULAS) {
     const key = `${spec.sheet}!${spec.ref}`;
+    if (withLabels) out[`pf.label@${key}`] = TEMPLATE_LABELS[key]!;
     if (Object.prototype.hasOwnProperty.call(overrides, key)) {
       if (overrides[key] != null) out[`pf.formula@${key}`] = overrides[key]!;
     } else {
@@ -167,16 +197,122 @@ describe("GCV checks", () => {
     expect(unread.detail).toMatch(/cannot be read/);
   });
 
-  it("reports NABL as corroboration and does not pass or fail on a numeric band", () => {
-    const row = byId({ "lab.gcv_mean": 4200, "coal.nabl_gcv": 4000, "pf.gcv_coal": 4200 }).gcv_nabl_corroboration!;
-    expect(row.status).toBe("not_applicable");
-    expect(row.detail).toMatch(/Internal lab mean 4200/);
-    expect(row.detail).toMatch(/NABL 4000/);
-    expect(row.detail).toMatch(/Workbook GCV cell 4200/);
-    expect(row.detail).toMatch(/corroborat/i);
-    expect(row.detail).toMatch(/does not replace the sample-frequency rule/);
-    expect(row.detail).not.toMatch(/71\.7/);
-    expect(byId({ "lab.gcv_mean": 4200, "pf.gcv_coal": 4200 }).gcv_nabl_corroboration!.status).toBe("pending");
+  describe("NABL against the internal lab, Detailed Procedure clause 4(10)(ii)-(iii), p. 14", () => {
+    const nabl = (internal: number, external: number) =>
+      byId({ "lab.gcv_mean": internal, "coal.nabl_gcv": external, "pf.gcv_coal": internal }).gcv_nabl_corroboration!;
+
+    it("passes inside the 71.7 kcal/kg band and cites the clause", () => {
+      const row = nabl(4200, 4230);
+      expect(row.status).toBe("pass");
+      expect(row.detail).toMatch(/Internal lab mean 4200 kcal\/kg, NABL 4230 kcal\/kg, deviation 30 kcal\/kg against the 71\.7 kcal\/kg band/);
+      expect(row.detail).toMatch(/inside the band/);
+      expect(row.thresholdSource).toMatch(/clause 4\(10\)\(ii\)-\(iii\), p\. 14/);
+      expect(row.thresholdSource).toMatch(/ISO 1928:1995\(E\)/);
+    });
+
+    it("fails over the band, in either direction, and says the sign of the correction is open", () => {
+      for (const [internal, external] of [[4200, 4000], [4200, 4400], [4200, 4480]] as const) {
+        const row = nabl(internal, external);
+        expect(row.status, `${internal} vs ${external}`).toBe("fail");
+        expect(row.detail).toMatch(/over the band/);
+        expect(row.detail).toMatch(/adds the difference to the internal lab's analysed parameter/);
+        expect(row.detail).toMatch(/does not say whether "the difference" is signed, so no corrected GCV is computed/);
+      }
+    });
+
+    it("treats the band edge as the source words do: under 71.7 passes, over it fails", () => {
+      expect(nabl(4200, 4271.7).status).toBe("pass"); // 71.7 exactly: not "greater than" the threshold
+      expect(nabl(4200, 4271.8).status).toBe("fail");
+      expect(nabl(4200, 4128.3).status).toBe("pass");
+      expect(nabl(4200, 4128.2).status).toBe("fail");
+    });
+
+    it("says it is a screen, not the quarterly reconciliation, and stays pending without the certificate", () => {
+      expect(nabl(4200, 4230).detail).toMatch(/screen and not the quarterly reconciliation/);
+      expect(nabl(4200, 4230).detail).toMatch(/does not replace the sample-frequency rule/);
+      expect(byId({ "lab.gcv_mean": 4200, "pf.gcv_coal": 4200 }).gcv_nabl_corroboration!.status).toBe("pending");
+    });
+  });
+});
+
+describe("process emissions and the compliance period (Detailed Procedure Section 3.4(1) Note, p. 7)", () => {
+  const withYear = (year: number | null, partial: Parameters<typeof ghg>[0] = {}): Readings => ({
+    ...ghg({ petcokeT: 0, ...partial }),
+    ...(year === null ? {} : { "ctx.fy_start": year }),
+  });
+
+  it("does not fail a missing calcination figure inside FY2024-25 to FY2026-27, and says why", () => {
+    for (const year of [2024, 2025, 2026]) {
+      const row = byId(withYear(year));
+      expect(row.source_profile!.status, String(year)).toBe("pass");
+      expect(row.materiality_aggregate!.status, String(year)).toBe("pass");
+      expect(row.source_profile!.detail).toMatch(/calcination is outside the intensity basis for FY20\d\d-\d\d/);
+      expect(row.source_profile!.detail).toMatch(/Section 3\.4\(1\) Note, p\. 7/);
+      expect(row.source_profile!.detail).toMatch(/so a missing figure is not a gap/);
+    }
+  });
+
+  it("still fails a missing calcination figure before the window, after it, and when the year is unknown", () => {
+    for (const year of [2023, 2027, 2030, null]) {
+      const row = byId(withYear(year));
+      expect(row.source_profile!.status, String(year)).toBe("fail");
+      expect(row.materiality_aggregate!.status, String(year)).toBe("fail");
+      expect(row.source_profile!.detail).toMatch(/calcination is missing: no workbook cell and no fact/);
+    }
+  });
+
+  it("does not waive an unquantified petcoke source because of the year", () => {
+    const row = byId(withYear(2026, { petcokeT: 208.4 }));
+    expect(row.source_profile!.status).toBe("fail");
+    expect(row.materiality_aggregate!.status).toBe("fail");
+    // Only petcoke is open, so the sentence names petcoke and not "either".
+    expect(row.source_profile!.detail).toMatch(/Petcoke cannot be counted as zero because it is large enough/);
+    expect(row.source_profile!.detail).not.toMatch(/because either is/);
+  });
+
+  it("keeps a quantified calcination figure visible inside the window", () => {
+    const row = byId(withYear(2026, { calcination: 1200 })).source_profile!;
+    expect(row.status).toBe("pass");
+    expect(row.detail).toMatch(/calcination 1200 tCO2/);
+    expect(row.detail).toMatch(/not on the same basis as such a target/);
+  });
+});
+
+describe("evidence dates against the compliance year", () => {
+  const dates = (fy: number | string | null, extra: Readings = {}): Readings => ({
+    "scada.first_date": "2026-04-01",
+    "scada.last_date": "2027-03-31",
+    ...(fy === null ? {} : { "ctx.fy_start": fy as number }),
+    ...extra,
+  });
+
+  it("passes when every dated series sits inside the financial year", () => {
+    const row = byId(dates(2026, { "cpp.first_date": "2026-04-02", "cpp.last_date": "2027-03-30" })).evidence_period!;
+    expect(row.status).toBe("pass");
+    expect(row.detail).toMatch(/FY2026-27 runs 2026-04-01 to 2027-03-31/);
+    expect(row.detail).toMatch(/SCADA production 2026-04-01 to 2027-03-31/);
+  });
+
+  it("fails evidence from another year, names the series and the dates", () => {
+    const row = byId({ "scada.first_date": "2023-11-01", "scada.last_date": "2023-11-30", "ctx.fy_start": 2026 }).evidence_period!;
+    expect(row.status).toBe("fail");
+    expect(row.detail).toMatch(/Dated rows outside it: SCADA production 2023-11-01 to 2023-11-30/);
+    expect(row.detail).toMatch(/different intensity basis/);
+  });
+
+  it("fails a series that starts before the year or runs past it, and names only the offending one", () => {
+    const row = byId(
+      dates(2026, { "lab.first_date": "2026-03-15", "lab.last_date": "2026-09-01", "cpp.first_date": "2026-05-01", "cpp.last_date": "2027-04-02" })
+    ).evidence_period!;
+    expect(row.status).toBe("fail");
+    expect(row.detail).toMatch(/Lab GCV samples 2026-03-15 to 2026-09-01/);
+    expect(row.detail).toMatch(/CPP generation 2026-05-01 to 2027-04-02/);
+    expect(row.detail).toMatch(/Inside the year: SCADA production/);
+  });
+
+  it("does not guess when the compliance year is not an FY range, and waits without SCADA dates", () => {
+    expect(byId(dates(null)).evidence_period!.status).toBe("not_applicable");
+    expect(byId({ "ctx.fy_start": 2026 }).evidence_period!.status).toBe("pending");
   });
 });
 
@@ -264,9 +400,36 @@ describe("sheet 2, source profile, recalculation, materiality, formulas", () => 
     expect(byId(formulaReadings({ "1_Production!B17": "= B9 * B12 / B13" })).formula_integrity!.status).toBe("pass");
     const missing = byId(formulaReadings({ "1_Production!B21": null })).formula_integrity!;
     expect(missing.status).toBe("fail");
-    expect(missing.detail).toMatch(/1_Production!B21 missing/);
+    expect(missing.detail).toMatch(/1_Production!B21 holds a typed value, not its formula/);
     const overwritten = byId(formulaReadings({ "3_GHG_CCTS!B20": "B18*B11" })).formula_integrity!;
     expect(overwritten.status).toBe("fail");
     expect(overwritten.detail).toMatch(/3_GHG_CCTS!B20 overwritten/);
+  });
+
+  it("covers the energy sheet and the SEC feed, where a typed-over gate-to-gate SEC used to go unseen", () => {
+    expect(CEMENT_PROFORMA_FORMULAS.filter((s) => s.sheet === "2_Energy_GtG_SEC").map((s) => s.ref)).toEqual(
+      ["B22", "B23", "B24", "B25", "B26", "B27", "B28", "B29"]
+    );
+    const typedOver = byId(formulaReadings({ "2_Energy_GtG_SEC!B29": null })).formula_integrity!;
+    expect(typedOver.status).toBe("fail");
+    expect(typedOver.detail).toMatch(/2_Energy_GtG_SEC!B29 holds a typed value/);
+    const changed = byId(formulaReadings({ "4_Summary_Form1_Feed!B7": "'2_Energy_GtG_SEC'!B28" })).formula_integrity!;
+    expect(changed.status).toBe("fail");
+    expect(changed.detail).toMatch(/4_Summary_Form1_Feed!B7 overwritten/);
+  });
+
+  it("does not call a differently laid out workbook tampered, and does not pass it either", () => {
+    // Formulas present but no template labels at the expected addresses: another layout.
+    const other = byId(formulaReadings({}, false)).formula_integrity!;
+    expect(other.status).toBe("not_applicable");
+    expect(other.detail).toMatch(/0 of \d+ template rows were found/);
+    expect(other.detail).toMatch(/not assessed, and that is not a pass/);
+    // A label that does not match at an address leaves that cell out; the rest are still judged.
+    const partial = formulaReadings({ "3_GHG_CCTS!B20": "B18*B11" });
+    partial["pf.label@1_Production!B17"] = "Some other row";
+    const out = byId(partial).formula_integrity!;
+    expect(out.status).toBe("fail");
+    expect(out.detail).toMatch(/3_GHG_CCTS!B20 overwritten/);
+    expect(out.detail).toMatch(/1 further template row\(s\) were not at their expected address/);
   });
 });

@@ -7,6 +7,7 @@ import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
 import { XLSX_MIME } from "@verifystack/backend/lib/evidence";
 import { getEngagement } from "@verifystack/backend/lib/data/engagements";
 import { loadPack } from "@verifystack/backend/domain/packs";
+import { fyStartOf } from "@verifystack/backend/domain/packs/emissionBasis";
 import {
   deskReviewFor,
   inferSlot,
@@ -79,6 +80,11 @@ export async function POST(req: Request) {
     const { readings, notes, origins } = readWorkbooks(def, files, loadPack(engagement.pack_id).proforma_inputs ?? []);
     const all: Readings = { ...readings };
     const allOrigins: Record<string, ReadingOrigin> = { ...origins };
+    // Where this engagement sits in time. Rules that depend on the compliance period (which
+    // emission sources count, whether the evidence dates fall in the year) read this. It is
+    // absent when the label is not an FY range, and those rules then keep their stricter path.
+    const fyStart = fyStartOf(engagement.compliance_year);
+    if (fyStart !== null) all["ctx.fy_start"] = fyStart;
 
     // PDF figures: the document and page the auditor typed each one against.
     const manualDocIds = [...new Set((manual ?? []).map((m) => m.document_id).filter((id): id is string => Boolean(id)))];

@@ -39,6 +39,17 @@ const RENEWABLE = verified(
   "BEE CCTS Detailed Procedure Clause 4(12)(iii) — Exclusion of Renewable Energy Certificates (RECs) from renewable energy claims"
 );
 const EXPORT = verified("BEE CCTS Detailed Procedure Clause 4(11) / Section 5.16 — Net power export emissions deduction");
+/**
+ * Register rule DEV001 lists this clause and the 71.7 kcal/kg band as confirmed (the project owner's
+ * statement, section 4 of the register). The wording was also read from the primary-source PDF held
+ * in the repository (page 14). What the register does not confirm, and the rule therefore does not
+ * decide, is the sign of the "difference" that is added back and whether it applies per quarter.
+ */
+const NABL: ClauseRef = {
+  ref: "BEE CCTS Detailed Procedure Clause 4(10)(ii)-(iii), p. 14 — External laboratory analysis: internal vs NABL coal result must deviate by less than 71.7 kcal/kg (ISO 1928:1995(E)); an excess is added to the internal lab's analysed parameter for the quarter",
+  verified: true,
+  specific: true,
+};
 
 /** Cited when a check has no clause of its own: a consistency check between two documents the entity supplied. */
 export const PROCEDURE_AS_A_WHOLE: ClauseRef = {
@@ -57,6 +68,7 @@ const BY_CHECK: Record<string, ClauseRef> = {
   production_days: COMPLETENESS,
   gcv_samples: SAMPLING,
   gcv_ncv_used: NCV,
+  gcv_nabl_corroboration: NABL,
   materiality_aggregate: MATERIALITY,
   renewable_claim: RENEWABLE,
   sheet2_export: EXPORT,
@@ -85,6 +97,8 @@ const RESPONSE_BY_CHECK: Record<string, string> = {
   coal_weighfeeder: STOCK_RESPONSE,
   gcv_samples: "Provide the lab sampling records for the period, or explain the shortfall against the sampling frequency.",
   gcv_ncv_used: "Show that the net calorific value is used where the procedure requires it, or correct the workbook.",
+  gcv_nabl_corroboration:
+    "Provide the internal lab result for the quarter the NABL certificate covers, and show how the difference over 71.7 kcal/kg was added to the internal result, or explain the deviation.",
   petcoke_cell: "State the quantity and the emission factor used for this fuel, with the supporting records, or confirm that it does not occur.",
   source_profile: "State the quantity and the factor for each unquantified source, with supporting records, or confirm that it does not occur.",
   materiality_aggregate: "Resolve or explain the quantified misstatements, and supply the sources the total could not count.",

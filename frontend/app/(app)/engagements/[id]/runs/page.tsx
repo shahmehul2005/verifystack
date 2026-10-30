@@ -91,6 +91,7 @@ export default async function RunsPage({ params }: { params: Promise<{ id: strin
       : facts;
   const readiness = assessRunReadiness(pack, factsForReadiness, {
     draftMode: engagement.draft_mode,
+    complianceYear: engagement.compliance_year,
   });
 
   const rows = (runs ?? []) as RunRow[];
@@ -233,6 +234,15 @@ function RunReadyState({
               ))}
             </ul>
           </div>
+        ) : null}
+        {readiness.basisNotes.length ? (
+          <Alert tone="info" title="Left out of the intensity basis for this year">
+            <ul className="list-disc space-y-0.5 pl-4">
+              {readiness.basisNotes.map((n) => (
+                <li key={n}>{n}</li>
+              ))}
+            </ul>
+          </Alert>
         ) : null}
         {readiness.warnings.length ? (
           <Alert tone="warn" title="Warnings">

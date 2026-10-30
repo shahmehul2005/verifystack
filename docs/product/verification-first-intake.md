@@ -167,7 +167,7 @@ Time-series books (SCADA, lab, CPP, petcoke) keep window mapping: click the date
 
 - The 64-page image PDF in `do-res/` has no title we could read.
 - Sheet 1 rows below 18, including the equivalent-product total the Sheet 4 formula calls `B21`, were not fully listed. Read those formulas before coding equivalent product.
-- Whether 2024-27 cement intensity really excludes process CO₂, as the fixture header claims, against Annexure II.G.1 which specifies it.
-- The 71.7 kcal/kg NABL band: test brief only, until a clause is cited.
+- Whether 2024-27 cement intensity really excludes process CO₂, as the fixture header claims, against Annexure II.G.1 which specifies it. Partly settled: Section 3.4(1) Note, p. 7, sets the first targets on direct energy and indirect emissions. The pack waives the calcination requirement for FY2024-25 to FY2026-27 and still counts a supplied figure (see the register, section 9).
+- The 71.7 kcal/kg NABL band: now cited to Clause 4(10)(ii)-(iii), p. 14 of the Detailed Procedure (register rule `DEV001`). The sign of the added-back difference and the quarterly basis stay open.
 - Official blank pro forma. This XLSX is synthetic. Bindings are per workbook, not hard-coded `B6`.
 - Grid factor on Sheet 3 is labelled VERIFY. The pack’s `cea_grid_ef` vintage stays the pack’s problem; do not copy `0.716` out of the fixture into the factor table.

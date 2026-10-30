@@ -18,7 +18,8 @@ import {
   clinkerConsumedForCement,
   type CheckResult,
 } from "../crosscheck/tieout";
-import type { XlsxWorkbook } from "../intake/xlsx";
+import { parseCellRef, type XlsxWorkbook } from "../intake/xlsx";
+import { FIRST_TRAJECTORY_PROCESS_BASIS, fyLabelOf, inBasisWindow } from "../packs/emissionBasis";
 import { evaluateWorkbook } from "../proforma/formula";
 import type { ProformaInput } from "../proforma/types";
 import {
@@ -49,6 +50,13 @@ const MATERIALITY_SOURCE =
   "CCTS Detailed Procedure: materiality threshold of 2% of total reported emissions for the reporting period (ICAI-hosted copy; confirm against the BEE original).";
 const GCV_SAMPLE_SOURCE =
   "CCTS Detailed Procedure, solid fuel sampling (every 20,000 t or monthly, whichever is more often), as read from the ICAI-hosted copy.";
+/** Detailed Procedure clause 4(10)(ii): coal deviation between internal and NABL results, kcal/kg. */
+const NABL_GCV_BAND_KCAL = 71.7;
+const NABL_GCV_SOURCE =
+  "Detailed Procedure for Compliance Mechanism under the Indian Carbon Market, clause 4(10)(ii)-(iii), p. 14: " +
+  "internal and NABL results for coal should deviate by less than 71.7 kcal/kg (ISO 1928:1995(E)), and an excess is added " +
+  "to the internal lab's analysed parameter for that quarter. Clause 4(10)(i) says external tests are quarterly and " +
+  "4(10)(v) says at least monthly; the source is inconsistent, so the cadence is not tested here.";
 const FORMULA_NOTE = "This is the formula set taken from the sector pro forma structure, not a BEE-issued blank file.";
 const NOT_CONSUMPTION = "The purchase order is not consumption.";
 
@@ -92,23 +100,41 @@ const PROFORMA_CELLS: ProformaInput[] = [
   pf("pf.renewable_excl", ".", "renewable|exclu", "kWh"),
 ];
 
-/** Green-cell formulas observed on the Shyamrock sector pro forma. Not a BEE blank. */
-export const CEMENT_PROFORMA_FORMULAS: { sheet: string; ref: string; formula: string }[] = [
-  { sheet: "1_Production", ref: "B17", formula: "B9*B12/B13" },
-  { sheet: "1_Production", ref: "B18", formula: "B10*B13/B13" },
-  { sheet: "1_Production", ref: "B19", formula: "B11*B14/B13" },
-  { sheet: "1_Production", ref: "B20", formula: "B7/B13" },
-  { sheet: "1_Production", ref: "B21", formula: "B17+B18+B19+B20" },
-  { sheet: "3_GHG_CCTS", ref: "B18", formula: "B6*1000*B8*B10*B13" },
-  { sheet: "3_GHG_CCTS", ref: "B19", formula: "B7*1000*B9*B10*B13" },
-  { sheet: "3_GHG_CCTS", ref: "B20", formula: "B18*B11+B19*B12" },
-  { sheet: "3_GHG_CCTS", ref: "B21", formula: "B14*100000/1000*B15" },
-  { sheet: "3_GHG_CCTS", ref: "B22", formula: "B20+B21" },
-  { sheet: "4_Summary_Form1_Feed", ref: "B5", formula: "'1_Production'!B21*100000" },
-  { sheet: "4_Summary_Form1_Feed", ref: "B8", formula: "'3_GHG_CCTS'!B20" },
-  { sheet: "4_Summary_Form1_Feed", ref: "B9", formula: "'3_GHG_CCTS'!B21" },
-  { sheet: "4_Summary_Form1_Feed", ref: "B10", formula: "'3_GHG_CCTS'!B22" },
-  { sheet: "4_Summary_Form1_Feed", ref: "B11", formula: "B10/B5" },
+/**
+ * Green-cell formulas observed on the Shyamrock sector pro forma. Not a BEE blank.
+ *
+ * `label` is the row label the workbook prints in column A for that cell. A cell is
+ * checked only where the workbook shows the expected label at the expected address:
+ * that is how the check knows the file is this template and the cell is that cell. On a
+ * workbook laid out differently the cell is simply not part of this template, and the
+ * rule reports that instead of calling every cell "overwritten".
+ */
+export const CEMENT_PROFORMA_FORMULAS: { sheet: string; ref: string; formula: string; label: RegExp }[] = [
+  { sheet: "1_Production", ref: "B17", formula: "B9*B12/B13", label: /^\(i\)\s*Eq\.?\s*Major Product from OPC/i },
+  { sheet: "1_Production", ref: "B18", formula: "B10*B13/B13", label: /^\(ii\)\s*Eq\.?\s*Major Product from PPC/i },
+  { sheet: "1_Production", ref: "B19", formula: "B11*B14/B13", label: /^\(iii\)\s*Eq\.?\s*Major Product from PSC/i },
+  { sheet: "1_Production", ref: "B20", formula: "B7/B13", label: /Major Product from Exported Clinker/i },
+  { sheet: "1_Production", ref: "B21", formula: "B17+B18+B19+B20", label: /TOTAL Equivalent Major Product/i },
+  { sheet: "2_Energy_GtG_SEC", ref: "B22", formula: "(B6+B7)*B9*100+B8*B10*100-B12*2717/10", label: /Total Thermal Energy Consumption/i },
+  { sheet: "2_Energy_GtG_SEC", ref: "B23", formula: "B11*860/10", label: /Energy for Imported Electricity/i },
+  { sheet: "2_Energy_GtG_SEC", ref: "B24", formula: "B11*(3208-860)/10", label: /Notional Energy.*Imported Electricity/i },
+  { sheet: "2_Energy_GtG_SEC", ref: "B25", formula: "(B11*3208+B13*B15+B14*B16)/(B11+B13+B14)", label: /Weighted Avg Heat Rate/i },
+  { sheet: "2_Energy_GtG_SEC", ref: "B26", formula: "'1_Production'!B20*B19*B25/10", label: /Notional Energy.*Grinding Exported Clinker/i },
+  { sheet: "2_Energy_GtG_SEC", ref: "B27", formula: "'1_Production'!B8*(B17*1000+B18*B25)/10", label: /Notional Energy.*Clinkerisation of Imported Clinker/i },
+  { sheet: "2_Energy_GtG_SEC", ref: "B28", formula: "B22+B23+B24+B26+B27", label: /Gate-to-Gate Energy Consumption/i },
+  { sheet: "2_Energy_GtG_SEC", ref: "B29", formula: "B28/('1_Production'!B21*100)", label: /Gate-to-Gate SEC/i },
+  { sheet: "3_GHG_CCTS", ref: "B18", formula: "B6*1000*B8*B10*B13", label: /^Coal Energy/i },
+  { sheet: "3_GHG_CCTS", ref: "B19", formula: "B7*1000*B9*B10*B13", label: /^Fuel Oil Energy/i },
+  { sheet: "3_GHG_CCTS", ref: "B20", formula: "B18*B11+B19*B12", label: /^Direct GHG Emissions/i },
+  { sheet: "3_GHG_CCTS", ref: "B21", formula: "B14*100000/1000*B15", label: /^Indirect GHG Emissions/i },
+  { sheet: "3_GHG_CCTS", ref: "B22", formula: "B20+B21", label: /^TOTAL Direct/i },
+  { sheet: "4_Summary_Form1_Feed", ref: "B5", formula: "'1_Production'!B21*100000", label: /^Total Equivalent Product/i },
+  { sheet: "4_Summary_Form1_Feed", ref: "B6", formula: "('2_Energy_GtG_SEC'!B22+'2_Energy_GtG_SEC'!B23)/('1_Production'!B21*100)", label: /Without Normali[sz]ation/i },
+  { sheet: "4_Summary_Form1_Feed", ref: "B7", formula: "'2_Energy_GtG_SEC'!B29", label: /Normali[sz]ed.*GtG SEC/i },
+  { sheet: "4_Summary_Form1_Feed", ref: "B8", formula: "'3_GHG_CCTS'!B20", label: /^Direct GHG Emissions/i },
+  { sheet: "4_Summary_Form1_Feed", ref: "B9", formula: "'3_GHG_CCTS'!B21", label: /^Indirect GHG Emissions/i },
+  { sheet: "4_Summary_Form1_Feed", ref: "B10", formula: "'3_GHG_CCTS'!B22", label: /^Total Direct/i },
+  { sheet: "4_Summary_Form1_Feed", ref: "B11", formula: "B10/B5", label: /^Specific GHG Emissions/i },
 ];
 
 const sum = (rows: { value: unknown }[]) => rows.reduce((a, r) => a + Number(r.value ?? 0), 0);
@@ -196,6 +222,15 @@ function annotateCementProforma(wb: XlsxWorkbook): Readings {
   } else {
     out["pf.petcoke_has_emission"] = 0;
   }
+
+  // The label the workbook prints beside each template cell. The formula-integrity rule
+  // compares a cell's formula only where this label confirms the cell is the one it expects.
+  for (const spec of CEMENT_PROFORMA_FORMULAS) {
+    const at = parseCellRef(spec.ref);
+    const sheet = wb.sheets.find((s) => s.name === spec.sheet);
+    const label = at && sheet?.cells.find((c) => c.col === 1 && c.row === at.row)?.value;
+    if (typeof label === "string") out[`pf.label@${spec.sheet}!${spec.ref}`] = label;
+  }
   return out;
 }
 
@@ -229,6 +264,11 @@ function coverageReadings(prefix: string, rows: DailyRow[], out: Readings) {
   const dates = filledDates(rows);
   out[`${prefix}.months`] = months(dates);
   out[`${prefix}.thin_months`] = thinMonths(dates).join(", ");
+  const sorted = [...dates].sort();
+  if (sorted.length > 0) {
+    out[`${prefix}.first_date`] = sorted[0]!;
+    out[`${prefix}.last_date`] = sorted[sorted.length - 1]!;
+  }
 }
 
 const READERS: WorkbookReader[] = [
@@ -277,6 +317,9 @@ const READERS: WorkbookReader[] = [
         out["lab.gcv_mean"] = Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10;
         out["lab.gcv_n"] = vals.length;
         out["lab.gcv_months"] = months(dated.map((r) => r.date));
+        const labDates = dated.map((r) => r.date).sort();
+        out["lab.first_date"] = labDates[0]!;
+        out["lab.last_date"] = labDates[labDates.length - 1]!;
       }
       return out;
     },
@@ -311,12 +354,20 @@ function sourceGaps(r: Readings) {
   const petcokeCo2 = num(r, "pf.petcoke_has_emission") === 1 && Number.isFinite(num(r, "pf.petcoke_co2")) ? num(r, "pf.petcoke_co2") : null;
   const calcinationCo2 =
     r["pf.calcination_state"] === "quantified" && Number.isFinite(num(r, "pf.calcination_co2")) ? num(r, "pf.calcination_co2") : null;
+  // The engagement's compliance year, placed by the route as `ctx.fy_start`. When it is absent
+  // or unreadable the period is unknown, so calcination keeps the stricter treatment.
+  const fyStart = typeof r["ctx.fy_start"] === "number" ? (r["ctx.fy_start"] as number) : null;
+  const calcinationOutOfBasis = inBasisWindow(FIRST_TRAJECTORY_PROCESS_BASIS, fyStart);
   return {
     petcokeT,
     petcokeCo2,
     petcokeGap: petcokeT > 0 && petcokeCo2 === null,
     calcinationCo2,
-    calcinationGap: calcinationCo2 === null,
+    calcinationOutOfBasis,
+    fyLabel: fyStart === null ? null : fyLabelOf(fyStart),
+    // Process emissions are outside the intensity basis for FY2024-25 to FY2026-27
+    // (Detailed Procedure Section 3.4(1) Note, p. 7). A missing figure is then not a gap.
+    calcinationGap: calcinationCo2 === null && !calcinationOutOfBasis,
   };
 }
 
@@ -437,6 +488,49 @@ const RULES: DeskRule[] = [
   one("coverage_coal", "Annual figures and evidence coverage", "Coal: months of evidence from the consumption log", ["petcoke.months", "pf.coal_t", "petcoke.coal_t_sum"], (r) =>
     checkEvidenceCoverage({ id: "cov_coal", label: "Coal consumed", monthsEvidenced: num(r, "petcoke.months"), periodMonths: 12, annualCell: num(r, "pf.coal_t"), monthlyReading: num(r, "petcoke.coal_t_sum"), thinMonths: thinList(r, "petcoke"), relTolerance: T, thresholdSource: T_SRC })
   ),
+  one("evidence_period", "Annual figures and evidence coverage", "Evidence dates fall inside the compliance year", ["scada.first_date", "scada.last_date"], (r) => {
+    const fy = typeof r["ctx.fy_start"] === "number" ? (r["ctx.fy_start"] as number) : null;
+    if (fy === null) {
+      return {
+        id: "evidence_period",
+        label: "Evidence dates fall inside the compliance year",
+        status: "not_applicable",
+        detail: "The engagement's compliance year is not an FY range this check can place (for example FY2026-27), so the dates in the evidence cannot be compared with it.",
+      };
+    }
+    const start = `${fy}-04-01`;
+    const end = `${fy + 1}-03-31`;
+    const series: [string, string][] = [
+      ["SCADA production", "scada"],
+      ["CPP generation", "cpp"],
+      ["Petcoke and coal log", "petcoke"],
+      ["Lab GCV samples", "lab"],
+    ];
+    const outside: string[] = [];
+    const inside: string[] = [];
+    for (const [name, prefix] of series) {
+      const first = r[`${prefix}.first_date`];
+      const last = r[`${prefix}.last_date`];
+      if (typeof first !== "string" || typeof last !== "string") continue;
+      const text = `${name} ${first} to ${last}`;
+      (first < start || last > end ? outside : inside).push(text);
+    }
+    const label = fyLabelOf(fy);
+    return {
+      id: "evidence_period",
+      label: "Evidence dates fall inside the compliance year",
+      status: outside.length > 0 ? "fail" : "pass",
+      detail:
+        outside.length > 0
+          ? `${label} runs ${start} to ${end}. Dated rows outside it: ${outside.join("; ")}. ` +
+            `Evidence from another period cannot support this year's figures, and the other period may sit under a different intensity basis. ` +
+            (inside.length ? `Inside the year: ${inside.join("; ")}.` : "")
+          : `${label} runs ${start} to ${end}. Every dated series sits inside it: ${inside.join("; ")}.`,
+      actual: outside.length,
+      expected: 0,
+      thresholdSource: "Compliance year of the engagement (financial year, 1 April to 31 March)",
+    };
+  }),
   one(
     "coal_stock_balance",
     "Fuels and power",
@@ -539,13 +633,23 @@ const RULES: DeskRule[] = [
     const external = num(r, "coal.nabl_gcv");
     const cell = num(r, "pf.gcv_coal");
     const deviation = round6(Math.abs(external - internal));
+    const exceeds = deviation > NABL_GCV_BAND_KCAL + 1e-9;
     return {
       id: "gcv_nabl_corroboration",
       label: "NABL coal GCV corroboration",
-      status: "not_applicable",
+      status: exceeds ? "fail" : "pass",
       detail:
-        `Internal lab mean ${plain(internal)} kcal/kg, NABL ${plain(external)} kcal/kg, deviation ${plain(deviation)} kcal/kg. ` +
-        `Workbook GCV cell ${plain(cell)} kcal/kg. The NABL value corroborates the internal samples. It does not replace the sample-frequency rule.`,
+        `Internal lab mean ${plain(internal)} kcal/kg, NABL ${plain(external)} kcal/kg, deviation ${plain(deviation)} kcal/kg against the ${plain(NABL_GCV_BAND_KCAL)} kcal/kg band. ` +
+        (exceeds
+          ? `The deviation is over the band. The Procedure adds the difference to the internal lab's analysed parameter for that quarter, so the internal figure cannot stand as it is. ` +
+            `The Procedure does not say whether "the difference" is signed, so no corrected GCV is computed here; it is an open item for the engagement. `
+          : `The deviation is inside the band, so the internal samples stand. `) +
+        `Workbook GCV cell ${plain(cell)} kcal/kg. The Procedure compares quarter by quarter; this check uses the mean of every dated sample in the lab file against the one certificate, ` +
+        `so it is a screen and not the quarterly reconciliation. It does not replace the sample-frequency rule.`,
+      actual: internal,
+      expected: external,
+      diff: round6(internal - external),
+      thresholdSource: NABL_GCV_SOURCE,
     };
   }),
   one("renewable_claim", "Fuels and power", "Renewable claim and REC declaration", ["rec.claim_mwh", "rec.purchases_mwh"], (r) =>
@@ -643,10 +747,20 @@ const RULES: DeskRule[] = [
         tail.push(gaps.petcokeT > 0 ? `petcoke ${plain(gaps.petcokeT)} t, unquantified, no emission factor` : "petcoke is absent or zero");
       }
       if (gaps.calcinationGap) tail.push("calcination is missing: no workbook cell and no fact");
+      if (gaps.calcinationOutOfBasis) {
+        tail.push(
+          `calcination is outside the intensity basis for ${gaps.fyLabel} (Detailed Procedure Section 3.4(1) Note, p. 7: 2024-27 targets are set on direct energy and indirect sources only), so a missing figure is not a gap` +
+            (gaps.calcinationCo2 !== null
+              ? `; the workbook's ${plain(gaps.calcinationCo2)} tCO2 is listed above and, if the run counts it, the intensity is not on the same basis as such a target`
+              : "")
+        );
+      }
       let detail = `Sources, largest quantified CO2 first: ${ranked.map((s) => s.label).join("; ")}.`;
       if (tail.length) detail += ` ${tail.join(". ")}.`;
-      if (gaps.petcokeGap || gaps.calcinationGap) {
+      if (gaps.petcokeGap && gaps.calcinationGap) {
         detail += " They cannot be counted as zero because either is large enough to move a 2% materiality threshold, and no factor was invented.";
+      } else if (gaps.petcokeGap || gaps.calcinationGap) {
+        detail += ` ${gaps.petcokeGap ? "Petcoke" : "Calcination"} cannot be counted as zero because it is large enough to move a 2% materiality threshold, and no factor was invented.`;
       }
       return {
         id: "source_profile",
@@ -716,21 +830,43 @@ const RULES: DeskRule[] = [
     }
   ),
   one("formula_integrity", "Formula integrity", "Sector pro forma green cells still hold their formulas", ["pf.proforma_opened"], (r) => {
+    // A cell is judged only where the workbook prints this template's label beside it. That is
+    // how the rule knows the file is the template and the cell is the one it expects.
     const problems: string[] = [];
-    for (const spec of CEMENT_PROFORMA_FORMULAS) {
+    const recognised = CEMENT_PROFORMA_FORMULAS.filter((spec) => {
+      const label = r[`pf.label@${spec.sheet}!${spec.ref}`];
+      return typeof label === "string" && spec.label.test(label.trim());
+    });
+    // Less than half the rows found means this is another layout, not a tampered one.
+    if (recognised.length * 2 < CEMENT_PROFORMA_FORMULAS.length) {
+      return {
+        id: "formula_integrity",
+        label: "Sector pro forma green cells still hold their formulas",
+        status: "not_applicable",
+        detail:
+          `${recognised.length} of ${CEMENT_PROFORMA_FORMULAS.length} template rows were found at their expected addresses with their expected labels, ` +
+          `so this workbook is laid out differently from the pro forma this check knows. Formula integrity was not assessed, and that is not a pass. ${FORMULA_NOTE}`,
+        actual: recognised.length,
+        expected: CEMENT_PROFORMA_FORMULAS.length,
+      };
+    }
+    for (const spec of recognised) {
       const got = r[`pf.formula@${spec.sheet}!${spec.ref}`];
       const ref = `${spec.sheet}!${spec.ref}`;
-      if (typeof got !== "string") problems.push(`${ref} missing`);
+      if (typeof got !== "string") problems.push(`${ref} holds a typed value, not its formula`);
       else if (normFormula(got) !== normFormula(spec.formula)) problems.push(`${ref} overwritten`);
     }
+    const notFound = CEMENT_PROFORMA_FORMULAS.length - recognised.length;
     return {
       id: "formula_integrity",
       label: "Sector pro forma green cells still hold their formulas",
       status: problems.length === 0 ? "pass" : "fail",
       detail:
-        problems.length === 0
-          ? `All ${CEMENT_PROFORMA_FORMULAS.length} green-cell formulas match. ${FORMULA_NOTE}`
-          : `${problems.length} formula cell(s) overwritten or missing: ${problems.join(", ")}. ${FORMULA_NOTE}`,
+        (problems.length === 0
+          ? `All ${recognised.length} template formula cell(s) found match. `
+          : `${problems.length} formula cell(s) overwritten or typed over: ${problems.join(", ")}. `) +
+        (notFound > 0 ? `${notFound} further template row(s) were not at their expected address and were not assessed. ` : "") +
+        FORMULA_NOTE,
       actual: problems.length,
       expected: 0,
     };

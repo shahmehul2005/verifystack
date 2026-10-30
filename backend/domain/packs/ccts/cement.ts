@@ -1,5 +1,6 @@
 import type { EvidenceSlot, MethodologyPack } from "../types";
 import type { ProformaInput } from "../../proforma/types";
+import { FIRST_TRAJECTORY_PROCESS_BASIS } from "../emissionBasis";
 
 /**
  * CCTS-CEMENT-v1 — runnable pack assembled from verified CCTS regulations,
@@ -337,8 +338,12 @@ export const CCTS_CEMENT_V1: MethodologyPack = {
   ],
   // Kiln coal and HT electricity reproduce the pre-refactor Cement mapping
   // (see calc/golden.test.ts). Other kiln fuels are optional and omitted when
-  // facts are absent. Clinker calcination is required: a missing process
-  // emission blocks the run instead of being counted as zero.
+  // facts are absent. Clinker calcination is required from FY2027-28, by either method
+  // (output-based or input-based; one is enough): a missing process emission blocks the
+  // run instead of being counted as zero. Within the first trajectory period, FY2024-25 to
+  // FY2026-27, process emissions are outside the intensity basis (Detailed Procedure
+  // Section 3.4(1) Note, p. 7), so the streams are not required; a figure that is supplied
+  // is still counted and the run warns about the basis.
   stream_bindings: [
     {
       kind: "fuel_combustion",
@@ -436,7 +441,8 @@ export const CCTS_CEMENT_V1: MethodologyPack = {
       kind: "process_direct",
       streamId: "clinker-calcination",
       label: "Clinker calcination process CO2 (output-based method)",
-      required: true,
+      requiredGroup: "calcination",
+      basisWindow: FIRST_TRAJECTORY_PROCESS_BASIS,
       quantity: {
         path: "process.calcinationEmissions",
         units: ["tCO2e", "kgCO2e"],
@@ -449,6 +455,8 @@ export const CCTS_CEMENT_V1: MethodologyPack = {
       kind: "process_direct",
       streamId: "raw-meal-calcination",
       label: "Raw meal carbonate calcination process CO2 (input-based method)",
+      requiredGroup: "calcination",
+      basisWindow: FIRST_TRAJECTORY_PROCESS_BASIS,
       quantity: {
         path: "process.rawMealCalcinationEmissions",
         units: ["tCO2e", "kgCO2e"],
@@ -554,5 +562,5 @@ export const CCTS_CEMENT_V1: MethodologyPack = {
   ],
   report_template: "ccts-gei-form-ab-v1",
   notes:
-    "Runnable. Grounded in BEE Detailed Procedure for Compliance Mechanism under CCTS (v1.0, July 2024). Sub-sectors: 'Cement Integrated' (kiln combustion, calcination, CPP, WHRS, finish grinding) vs 'Cement Grinding' (imported grid HT electricity and inbound clinker; kiln fuels and calcination are not applicable). Pinned kiln coal + HT electricity reproduce the original Cement mapping byte-for-byte. Process calcination offers output-based (Eq. IX–XIII) and input-based (raw meal carbonates) methods. Grid emission factor is frozen at baseline year vintage per Section 5.10(vi). Biogenic CO2 from AFR/biomass is excluded from compliance total per Section 5.17. Furnace oil (IPCC 2006 default factor, unverified) is optional and omitted when facts are absent. Clinker calcination is required; a run with no process.calcinationEmissions fact does not proceed.",
+    "Runnable. Grounded in BEE Detailed Procedure for Compliance Mechanism under CCTS (v1.0, July 2024). Sub-sectors: 'Cement Integrated' (kiln combustion, calcination, CPP, WHRS, finish grinding) vs 'Cement Grinding' (imported grid HT electricity and inbound clinker; kiln fuels and calcination are not applicable). Pinned kiln coal + HT electricity reproduce the original Cement mapping byte-for-byte. Process calcination offers output-based (Eq. IX–XIII) and input-based (raw meal carbonates) methods. Grid emission factor is frozen at baseline year vintage per Section 5.10(vi). Biogenic CO2 from AFR/biomass is excluded from compliance total per Section 5.17. Furnace oil (IPCC 2006 default factor, unverified) is optional and omitted when facts are absent. Clinker calcination is required from FY2027-28 by either method (one is enough; a run with neither process.calcinationEmissions nor process.rawMealCalcinationEmissions does not proceed). For FY2024-25 to FY2026-27 process emissions are outside the intensity basis per Detailed Procedure Section 3.4(1) Note (p. 7): the streams are not required, so a plant with no process figure is not blocked. A process figure that is supplied is still counted and the run warns that the intensity is then not on the same basis as a target set without it. The reading of those years and of the achieved-intensity basis is open in docs/domain/regulatory-register.md.",
 };

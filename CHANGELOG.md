@@ -16,6 +16,34 @@ must say which version it bumps. Current versions:
 
 ## [Unreleased]
 
+### Desk review: real PDF reading, period-aware calcination, NABL band, stronger integrity checks
+
+Found by running the Dataset-2 engagement end to end. No engine or pack version changes: the run input and
+its hash are unchanged for any year and any supplied figure.
+
+- **Suggestions come from the PDF.** "Suggest from documents" used to return fixed numbers from the Shyamrock
+  fixture, so it could never see a fault in the PDFs actually uploaded. It now reads each PDF's text layer
+  (`pdfjs-dist`, no model) and applies a labelled-row extractor per reading. A figure is suggested only when its
+  row is found; the auditor still accepts or edits it. A PDF with no text layer (a scan) is named as unreadable
+  and nothing is guessed. The route needs `review.decide`, takes PDFs up to 25 MB, and names what it skipped.
+- **Calcination follows the intensity basis.** Section 3.4(1) Note (p. 7) sets the 2024-27 targets on direct
+  energy and indirect emissions and defers process emissions. A cement run no longer returns a 422 for a missing
+  calcination figure when the compliance year is FY2024-25 to FY2026-27. A figure the plant does supply is still
+  counted, and the run says so in a warning, so no number changes on an interpretation. Outside that window, or
+  when the year cannot be read, the figure is required as before. Pack streams gained `basisWindow`.
+- **The two calcination methods are alternatives.** A run needs one of them (`requiredGroup`) and refuses both,
+  which would count the process CO2 twice. The runs page says what was left out of the basis for the year.
+- **NABL band enforced.** `gcv_nabl_corroboration` fails when internal and NABL coal GCV differ by 71.7 kcal/kg
+  or more, cited to Clause 4(10)(ii)-(iii), p. 14. It reports the clause remedy and does not apply it.
+- **Formula integrity.** The pro forma is checked against the template for the layout it matches, which removes
+  false positives on other layouts and catches formulas overwritten with typed values on later sheets.
+- **Evidence period.** New `evidence_period` check: a dated series that reaches outside the compliance year
+  fails. Data from FY2023-24 now says so against an FY2026-27 engagement.
+- **Documents tab.** A file that sits in an evidence slot but has no page type now reads "In slot: …" and not
+  "Not classified". The checklist counts the slot, so the two views no longer look contradictory.
+- Register: section 9 records the open readings (the "2024-27" window, whether achieved intensity should also
+  exclude process emissions, the sign and cadence of the NABL difference, other sectors).
+
 ### Documents: suggest a type for every unassigned file, in batches
 
 - **One button.** "Suggest types for all unassigned" on the Documents tab names every PDF, PNG and JPEG that has

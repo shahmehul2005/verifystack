@@ -15,6 +15,7 @@ export function DocTypeSelector({
   taxonomy,
   canEdit,
   isTable,
+  slotLabel,
 }: {
   documentId: string;
   currentType: string | null;
@@ -22,6 +23,11 @@ export function DocTypeSelector({
   taxonomy: PackDocType[];
   canEdit: boolean;
   isTable?: boolean;
+  /**
+   * The evidence slot the file sits in, when it has one. The checklist ticks on the slot, not on
+   * this type, so a slotted file with no type is shown as "In slot: …" and not as unclassified.
+   */
+  slotLabel?: string | null;
 }) {
   const { softReload } = useSoftReload();
   const [isOpen, setIsOpen] = useState(false);
@@ -32,9 +38,17 @@ export function DocTypeSelector({
     ? matched.label
     : currentType
       ? humanize(currentType)
-      : isTable
-        ? "Spreadsheet (unclassified)"
-        : "Not classified";
+      : slotLabel
+        ? `In slot: ${slotLabel}`
+        : isTable
+          ? "Spreadsheet (unclassified)"
+          : "Not classified";
+  // A slotted file with no type is placed for the checklist. Only an unplaced file looks unfinished.
+  const placedBySlot = !currentType && Boolean(slotLabel);
+  const tone = currentType ? (isTable ? "ink" : "neutral") : placedBySlot ? "neutral" : "draft";
+  const hint = placedBySlot
+    ? `This file is in the evidence slot "${slotLabel}", which is what the checklist counts. The page type is only set by Extract or AI suggest, and it does not affect the checklist.`
+    : displayName;
 
   async function updateType(newType: string | null) {
     const res = await fetch(`/api/documents/${documentId}/type`, {
@@ -83,10 +97,10 @@ export function DocTypeSelector({
           className="inline-flex items-center text-left focus:outline-none"
         >
           <Badge
-            tone={currentType ? (isTable ? "ink" : "neutral") : "draft"}
+            tone={tone}
             className="cursor-pointer hover:bg-mist-200 transition-colors"
           >
-            <span className="max-w-[180px] truncate" title={displayName}>
+            <span className="max-w-[180px] truncate" title={hint}>
               {displayName}
             </span>
             {confidence && confidence < 1.0 ? (
@@ -98,8 +112,8 @@ export function DocTypeSelector({
           </Badge>
         </button>
       ) : (
-        <Badge tone={currentType ? (isTable ? "ink" : "neutral") : "draft"}>
-          <span className="max-w-[180px] truncate" title={displayName}>
+        <Badge tone={tone}>
+          <span className="max-w-[180px] truncate" title={hint}>
             {displayName}
           </span>
         </Badge>
