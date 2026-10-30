@@ -18,6 +18,7 @@ import {
   runDeskReview,
   slotCoverage,
   type DeskOutcome,
+  type DeskStatus,
   type DeskWorkbook,
   type Readings,
   type ResolutionState,
@@ -135,6 +136,7 @@ export default async function DeskReviewPage({ params }: { params: Promise<{ id:
     results = runDeskReview(def, allReadings);
   }
 
+  const count = (st: DeskStatus) => results.filter((r) => r.status === st).length;
   const seen = (review?.readings ?? {}) as unknown as Readings;
   const pack = loadPack(engagement.pack_id);
   const coverage = slotCoverage(
@@ -156,6 +158,16 @@ export default async function DeskReviewPage({ params }: { params: Promise<{ id:
         description="Cross-checks between primary evidence and sector pro-forma inputs. Code recomputes formulas deterministically; AI proposes readings with mandatory auditor sign-off."
       />
 
+      {review ? (
+        <p className="text-xs text-mist-600">
+          {results.length} checks: {count("pass")} agree, {count("fail")} disagree, {count("pending")} waiting for readings,{" "}
+          {count("not_applicable")} cannot be decided. {notes.length} reading note{notes.length === 1 ? "" : "s"}.{" "}
+          {(readings ?? []).length} figure{(readings ?? []).length === 1 ? "" : "s"} typed from PDFs.
+        </p>
+      ) : null}
+
+      {review ? (
+        <>
       <Card>
         <CardHeader
           title="Materiality and completeness"
@@ -207,6 +219,8 @@ export default async function DeskReviewPage({ params }: { params: Promise<{ id:
           </ul>
         </CardBody>
       </Card>
+        </>
+      ) : null}
 
       <DeskReviewStudio
         engagementId={id}

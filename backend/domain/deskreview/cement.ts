@@ -7,6 +7,7 @@
 
 import { DEFAULT_TOLERANCE } from "../compare/declared";
 import {
+  checkDailyAgreement,
   checkEvidenceCoverage,
   checkMassBalance,
   checkProductionDays,
@@ -22,6 +23,12 @@ import { evaluateWorkbook } from "../proforma/formula";
 import type { ProformaInput } from "../proforma/types";
 import {
   dailyColumn,
+  dailyColumnReport,
+  filledDates,
+  isFilled,
+  noteDailyColumn,
+  thinMonths,
+  type DailyRow,
   months,
   num,
   series,
@@ -193,45 +200,68 @@ function annotateCementProforma(wb: XlsxWorkbook): Readings {
 }
 
 /** Sum and month count of one dated column, as readings `<prefix>.<name>_sum`. */
-function column(sheet: Parameters<WorkbookReader["read"]>[0], header: string, key: string, out: Readings, keepDaily = false) {
-  const rows = dailyColumn(sheet, header);
-  if (!rows) return null;
+function column(
+  sheet: Parameters<WorkbookReader["read"]>[0],
+  header: string,
+  key: string,
+  out: Readings,
+  note?: (message: string) => void,
+  keepDaily = false
+) {
+  const report = dailyColumnReport(sheet, header);
+  if (!report) return null;
+  noteDailyColumn(report, header, note);
+  const rows = report.rows;
   out[`${key}_sum`] = Math.round(sum(rows) * 1e6) / 1e6;
-  if (keepDaily) for (const r of rows) out[`${key}@${r.date}`] = Number(r.value ?? 0);
+  // A dated row with nothing in it is not a day of zero output, so it stays out of the daily series.
+  if (keepDaily) for (const r of rows) if (isFilled(r.value)) out[`${key}@${r.date}`] = Number(r.value);
   return rows;
+}
+
+/** The thin months a reader recorded for a series, or none when the run predates the reading. */
+function thinList(r: Readings, prefix: string): string[] {
+  const v = r[`${prefix}.thin_months`];
+  return typeof v === "string" && v !== "" ? v.split(", ") : [];
+}
+
+/** Months with evidence, and the months too sparse to count, for the coverage checks. */
+function coverageReadings(prefix: string, rows: DailyRow[], out: Readings) {
+  const dates = filledDates(rows);
+  out[`${prefix}.months`] = months(dates);
+  out[`${prefix}.thin_months`] = thinMonths(dates).join(", ");
 }
 
 const READERS: WorkbookReader[] = [
   {
     slot: "production_evidence",
-    read(sheet) {
+    read(sheet, note) {
       const out: Readings = {};
-      const clinker = column(sheet, "Clinker Production (t)", "scada.clinker", out, true);
+      const clinker = column(sheet, "Clinker Production (t)", "scada.clinker", out, note, true);
       if (!clinker) return {};
-      out["scada.months"] = months(clinker.map((r) => r.date));
-      column(sheet, "OPC Produced (t)", "scada.opc", out);
-      column(sheet, "PPC Produced (t)", "scada.ppc", out);
-      column(sheet, "PSC Produced (t)", "scada.psc", out);
+      coverageReadings("scada", clinker, out);
+      column(sheet, "OPC Produced (t)", "scada.opc", out, note);
+      column(sheet, "PPC Produced (t)", "scada.ppc", out, note);
+      column(sheet, "PSC Produced (t)", "scada.psc", out, note);
       for (const r of dailyColumn(sheet, "Kiln Run Status") ?? []) out[`scada.status@${r.date}`] = String(r.value ?? "");
       return out;
     },
   },
   {
     slot: "cpp_generation",
-    read(sheet) {
+    read(sheet, note) {
       const out: Readings = {};
-      const rows = column(sheet, "Gross Generation (kWh)", "cpp.kwh", out);
-      if (rows) out["cpp.months"] = months(rows.map((r) => r.date));
+      const rows = column(sheet, "Gross Generation (kWh)", "cpp.kwh", out, note);
+      if (rows) coverageReadings("cpp", rows, out);
       return out;
     },
   },
   {
     slot: "petcoke_log",
-    read(sheet) {
+    read(sheet, note) {
       const out: Readings = {};
-      const coal = column(sheet, "Coal Consumed (t)", "petcoke.coal_t", out);
-      column(sheet, "Petcoke Consumed (t)", "petcoke.petcoke_t", out);
-      if (coal) out["petcoke.months"] = months(coal.map((r) => r.date));
+      const coal = column(sheet, "Coal Consumed (t)", "petcoke.coal_t", out, note);
+      column(sheet, "Petcoke Consumed (t)", "petcoke.petcoke_t", out, note);
+      if (coal) coverageReadings("petcoke", coal, out);
       return out;
     },
   },
@@ -347,15 +377,7 @@ const RULES: DeskRule[] = [
     if (rows.length === 0) {
       return { id: "dpr_scada", label: "DPR vs SCADA", status: "not_applicable", detail: "None of the DPR days is a day in the SCADA file." };
     }
-    const bad = rows.filter((x) => Math.abs(x.a - x.b) > Math.abs(x.b) * T + 1e-9);
-    const worst = rows.reduce((m, x) => (Math.abs(x.a - x.b) / x.b > Math.abs(m.a - m.b) / m.b ? x : m), rows[0]!);
-    return {
-      id: "dpr_scada",
-      label: "DPR vs SCADA",
-      status: bad.length === 0 ? "pass" : "fail",
-      detail: `${rows.length} day(s) compared. ${bad.length} outside ±${T * 100}%. Largest gap on ${worst.date}: DPR ${worst.a}, SCADA ${worst.b}.`,
-      thresholdSource: T_SRC,
-    };
+    return checkDailyAgreement({ id: "dpr_scada", label: "DPR vs SCADA", rows, relTolerance: T, thresholdSource: T_SRC });
   }),
   one(
     "clinker_mass_balance",
@@ -404,16 +426,16 @@ const RULES: DeskRule[] = [
     checkRecomputed({ id: "form1_indirect", label: "Form 1 indirect CO2 vs pro forma (recomputed)", claimed: num(r, "form1.indirect_co2_t"), recomputed: num(r, "pf.indirect_co2"), relTolerance: T, thresholdSource: T_SRC })
   ),
   one("coverage_clinker", "Annual figures and evidence coverage", "Clinker: months of evidence behind the annual cell", ["scada.months", "pf.clinker_t", "scada.clinker_sum"], (r) =>
-    checkEvidenceCoverage({ id: "cov_clinker", label: "Clinker production", monthsEvidenced: num(r, "scada.months"), periodMonths: 12, annualCell: num(r, "pf.clinker_t"), monthlyReading: num(r, "scada.clinker_sum") })
+    checkEvidenceCoverage({ id: "cov_clinker", label: "Clinker production", monthsEvidenced: num(r, "scada.months"), periodMonths: 12, annualCell: num(r, "pf.clinker_t"), monthlyReading: num(r, "scada.clinker_sum"), thinMonths: thinList(r, "scada"), relTolerance: T, thresholdSource: T_SRC })
   ),
   one("coverage_cpp", "Annual figures and evidence coverage", "CPP generation: months of evidence", ["cpp.months", "pf.cpp_kwh", "cpp.kwh_sum"], (r) =>
-    checkEvidenceCoverage({ id: "cov_cpp", label: "CPP generation", monthsEvidenced: num(r, "cpp.months"), periodMonths: 12, annualCell: num(r, "pf.cpp_kwh"), monthlyReading: num(r, "cpp.kwh_sum") })
+    checkEvidenceCoverage({ id: "cov_cpp", label: "CPP generation", monthsEvidenced: num(r, "cpp.months"), periodMonths: 12, annualCell: num(r, "pf.cpp_kwh"), monthlyReading: num(r, "cpp.kwh_sum"), thinMonths: thinList(r, "cpp"), relTolerance: T, thresholdSource: T_SRC })
   ),
   one("coverage_grid", "Annual figures and evidence coverage", "Grid import: months of evidence", ["grid.bill_months", "pf.grid_kwh", "grid.bill_kwh"], (r) =>
-    checkEvidenceCoverage({ id: "cov_grid", label: "Grid electricity", monthsEvidenced: num(r, "grid.bill_months"), periodMonths: 12, annualCell: num(r, "pf.grid_kwh"), monthlyReading: num(r, "grid.bill_kwh") })
+    checkEvidenceCoverage({ id: "cov_grid", label: "Grid electricity", monthsEvidenced: num(r, "grid.bill_months"), periodMonths: 12, annualCell: num(r, "pf.grid_kwh"), monthlyReading: num(r, "grid.bill_kwh"), relTolerance: T, thresholdSource: T_SRC })
   ),
   one("coverage_coal", "Annual figures and evidence coverage", "Coal: months of evidence from the consumption log", ["petcoke.months", "pf.coal_t", "petcoke.coal_t_sum"], (r) =>
-    checkEvidenceCoverage({ id: "cov_coal", label: "Coal consumed", monthsEvidenced: num(r, "petcoke.months"), periodMonths: 12, annualCell: num(r, "pf.coal_t"), monthlyReading: num(r, "petcoke.coal_t_sum") })
+    checkEvidenceCoverage({ id: "cov_coal", label: "Coal consumed", monthsEvidenced: num(r, "petcoke.months"), periodMonths: 12, annualCell: num(r, "pf.coal_t"), monthlyReading: num(r, "petcoke.coal_t_sum"), thinMonths: thinList(r, "petcoke"), relTolerance: T, thresholdSource: T_SRC })
   ),
   one(
     "coal_stock_balance",

@@ -32,7 +32,9 @@ const DAILY = /^(.+)@(\d{4}-\d{2}-\d{2})$/;
  * Save the figures an auditor read off PDFs. Only keys the pack's desk review
  * declares are accepted, each stored with its unit from that declaration, the
  * document it came from and the page. A reading never becomes a fact and never
- * feeds a run.
+ * feeds a run. A figure with no document or no page is refused: a typed number
+ * with nothing behind it cannot be checked. A replaced or removed figure is kept
+ * in the audit entry, since the row itself holds only the latest.
  */
 export async function PUT(req: Request) {
   try {
@@ -60,6 +62,17 @@ export async function PUT(req: Request) {
       resolved.push({ key: r.key, unit: spec.unit, value: r.value, documentId: r.documentId ?? null, page: r.page ?? null, note: r.note ?? null });
     }
 
+    const unsourced = [...new Set(resolved.filter((r) => r.value !== null && (r.documentId === null || r.page === null)).map((r) => r.key.split("@")[0]!))];
+    if (unsourced.length > 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Each figure needs the document and page it was read from. Missing for: ${unsourced.slice(0, 5).join(", ")}${unsourced.length > 5 ? ` and ${unsourced.length - 5} more` : ""}.`,
+        },
+        { status: 422 }
+      );
+    }
+
     const docIds = [...new Set(resolved.map((r) => r.documentId).filter((d): d is string => d !== null))];
     if (docIds.length > 0) {
       const { data: docs, error } = await supabase
@@ -73,6 +86,15 @@ export async function PUT(req: Request) {
         return NextResponse.json({ ok: false, error: "A source document is not in this engagement." }, { status: 422 });
       }
     }
+
+    const { data: prior, error: priorError } = await supabase
+      .from("desk_readings")
+      .select("key, value, document_id, page")
+      .eq("engagement_id", body.engagementId)
+      .eq("organization_id", organizationId)
+      .in("key", resolved.map((r) => r.key));
+    if (priorError) throw new Error(priorError.message);
+    const before = new Map((prior ?? []).map((p) => [p.key, { value: Number(p.value), documentId: p.document_id, page: p.page }]));
 
     const removals = resolved.filter((r) => r.value === null).map((r) => r.key);
     const upserts = resolved.filter((r) => r.value !== null);
@@ -105,7 +127,16 @@ export async function PUT(req: Request) {
       action: "desk_review.readings_saved",
       entityType: "engagement",
       entityId: body.engagementId,
-      payload: { saved: upserts.map((r) => ({ key: r.key, value: r.value })), removed: removals },
+      payload: {
+        saved: upserts.map((r) => ({
+          key: r.key,
+          value: r.value,
+          documentId: r.documentId,
+          page: r.page,
+          ...(before.has(r.key) ? { previous: before.get(r.key) } : {}),
+        })),
+        removed: removals.map((key) => ({ key, ...(before.has(key) ? { previous: before.get(key) } : {}) })),
+      },
     });
     return NextResponse.json({ ok: true, saved: upserts.length, removed: removals.length });
   } catch (e) {

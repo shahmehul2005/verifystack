@@ -16,6 +16,26 @@ must say which version it bumps. Current versions:
 
 ## [Unreleased]
 
+### Desk review: messy files and checks that prove value
+
+- **Dates and headers.** Workbook dates are read in ISO, day-first (`15/11/2023`, `15-11-2023`), named-month
+  (`15-Nov-23`) and Excel serial forms; `31/02` is not a date. The date column is found wherever it sits
+  (left-most on a tie), so a serial-number column in A no longer hides it. A header matches ignoring case and
+  a unit only when the units agree (`(kg)` is not `(t)`).
+- **Nothing is dropped or replaced silently.** Reading notes now say when a row holds a figure but no
+  readable date, when a date repeats, when dated rows are empty, and when a later file or sheet replaces a
+  different figure from an earlier one. Files are read in a fixed order. A dated row with no value is no
+  longer counted as zero output or as a month of evidence.
+- **Coverage checks prove value.** Twelve months of evidence now also needs a total that matches the annual
+  cell within 0.5%, no month far thinner than the series' typical month, and no evidence beyond the
+  period. `DPR vs SCADA` uses the shared daily check.
+- **Typed PDF figures need a source.** Saving a figure requires its document and page, and the audit entry
+  keeps the replaced or removed value. Figures are marked as typed by an auditor, with the date.
+- **Show working.** Each check expands to its inputs (value, unit, document, cell or page, and how it was
+  read), found against compared-with, difference and the allowed band. A summary line counts checks,
+  notes and typed figures. Working defaults are listed in the regulatory register, section 10, and stay
+  unverified. No migration.
+
 ### Removing an uploaded document
 
 - **Remove** button on the Documents tab (`documents.upload`), with a confirmation. A file can go while

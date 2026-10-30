@@ -42,7 +42,8 @@ export interface DeskRule {
 export interface WorkbookReader {
   /** Evidence slot whose spreadsheets this reads. */
   slot: string;
-  read(sheet: XlsxSheet): Readings;
+  /** `note` reports rows the reader had to leave out, so the page can show them. */
+  read(sheet: XlsxSheet, note?: (message: string) => void): Readings;
 }
 
 export interface DeskReviewDef {
@@ -87,6 +88,10 @@ export interface ReadingOrigin {
   location: string | null;
   /** The label printed beside the figure in its own document, when there is one. */
   label?: string;
+  /** Read from a workbook by code, or typed by an auditor against a PDF page. Absent on runs saved before this was recorded. */
+  kind?: "workbook" | "typed";
+  /** When an auditor typed the figure. */
+  enteredAt?: string;
 }
 
 /** One input of a check, with its value and where it was read from. */
@@ -99,6 +104,8 @@ export interface DeskSourceRef {
   documentId?: string | null;
   filename?: string | null;
   location?: string | null;
+  kind?: "workbook" | "typed";
+  enteredAt?: string;
 }
 
 export interface DeskOutcome {
@@ -197,6 +204,8 @@ function sourcesFor(def: DeskReviewDef, rule: DeskRule, readings: Readings, orig
       value: isSeries ? `${points.length} dated reading${points.length === 1 ? "" : "s"}` : readings[key]!,
       ...(spec?.unit || cell?.unit ? { unit: (spec?.unit ?? cell?.unit) as string } : {}),
       ...(origin ? { slot: origin.slot, documentId: origin.documentId, filename: origin.filename, location: origin.location } : spec ? { slot: spec.slot } : {}),
+      ...(origin?.kind ? { kind: origin.kind } : {}),
+      ...(origin?.enteredAt ? { enteredAt: origin.enteredAt } : {}),
     });
   }
   return out;
@@ -235,6 +244,40 @@ export interface DeskWorkbook {
   documentId?: string;
 }
 
+const readingName = (key: string) => key.split("@")[0]!;
+const sourceName = (o: ReadingOrigin) => [o.filename ?? o.slot, o.location].filter(Boolean).join(" · ");
+
+/**
+ * Writes readings into one map and remembers where each came from. When a
+ * later file or sheet carries a key that an earlier one already set to a
+ * different value, the later one still wins, as it always did, but the clash is
+ * reported so the page can say which figures were replaced and by what.
+ */
+export function createReadingWriter(readings: Readings, origins: Record<string, ReadingOrigin>) {
+  const clashes = new Map<string, { by: string; replaced: string; count: number; names: Set<string> }>();
+  return {
+    put(key: string, value: Reading, origin: ReadingOrigin) {
+      const prev = origins[key];
+      if (key in readings && prev && readings[key] !== value && (prev.filename !== origin.filename || prev.location !== origin.location)) {
+        const id = `${sourceName(prev)}\u0000${sourceName(origin)}`;
+        const c = clashes.get(id) ?? { by: sourceName(origin), replaced: sourceName(prev), count: 0, names: new Set<string>() };
+        c.count += 1;
+        c.names.add(readingName(key));
+        clashes.set(id, c);
+      }
+      readings[key] = value;
+      origins[key] = origin;
+    },
+    /** One sentence per pair of sources that clashed. */
+    notes(): string[] {
+      return [...clashes.values()].map((c) => {
+        const names = [...c.names].slice(0, 3).join(", ");
+        return `${c.by} replaced ${c.count} reading(s) already read from ${c.replaced} (${names}${c.names.size > 3 ? ", ..." : ""}). Only one source can stand: keep one file for this evidence, or check which is current.`;
+      });
+    },
+  };
+}
+
 /** Workbook readings for every spreadsheet in a slot, the notes a reader leaves, and where each reading came from. */
 export function readWorkbooks(
   def: DeskReviewDef,
@@ -242,68 +285,71 @@ export function readWorkbooks(
   runInputs: readonly ProformaInput[]
 ): { readings: Readings; notes: string[]; origins: Record<string, ReadingOrigin> } {
   const readings: Readings = {};
-  const notes: string[] = [];
+  const notes = new Set<string>();
   const origins: Record<string, ReadingOrigin> = {};
-  for (const f of files) {
+  const writer = createReadingWriter(readings, origins);
+  // A fixed order, so which file wins a clash does not depend on how the files were listed.
+  const ordered = [...files].sort(
+    (a, b) => a.slot.localeCompare(b.slot) || a.name.localeCompare(b.name) || (a.documentId ?? "").localeCompare(b.documentId ?? "")
+  );
+  for (const f of ordered) {
     const at = (location: string | null, label?: string): ReadingOrigin => ({
       slot: f.slot,
       documentId: f.documentId ?? null,
       filename: f.name,
       location,
+      kind: "workbook",
       ...(label ? { label } : {}),
     });
     let wb: XlsxWorkbook;
     try {
       wb = parseXlsx(f.bytes);
     } catch {
-      notes.push(`${f.name} could not be opened as a workbook.`);
+      notes.add(`${f.name} could not be opened as a workbook.`);
       continue;
     }
     if (f.slot === "proforma_workbook") {
-      const before = new Set(Object.keys(readings));
       const cells = readProforma(wb, def.proformaCells);
       for (const d of cells.drafts) {
         if (d.fieldPath && d.value !== null && (d.status === "found" || d.status === "zero")) {
-          readings[d.fieldPath] = d.value;
-          origins[d.fieldPath] = at(d.sheet && d.cellRef ? `${d.sheet}!${d.cellRef.toUpperCase()}` : d.sheet, d.label);
+          writer.put(d.fieldPath, d.value, at(d.sheet && d.cellRef ? `${d.sheet}!${d.cellRef.toUpperCase()}` : d.sheet, d.label));
         }
       }
       const unmapped = readProforma(wb, runInputs).drafts.filter((d) => d.status === "unmapped" && (d.value ?? 0) > 0);
-      readings["pf.unmapped_count"] = unmapped.length;
-      readings["pf.unmapped_list"] = unmapped.map((d) => `${d.label} = ${d.workbookValue}`).join("; ");
+      // Derived readings (counts, formula text, flags) belong to the workbook as a whole.
+      writer.put("pf.unmapped_count", unmapped.length, at(null));
+      writer.put("pf.unmapped_list", unmapped.map((d) => `${d.label} = ${d.workbookValue}`).join("; "), at(null));
       if (cells.staleFormulaCells > 0) {
-        notes.push(`${f.name}: ${cells.staleFormulaCells} formula cell(s) stored a result that differs from the formula; values here are recomputed.`);
+        notes.add(`${f.name}: ${cells.staleFormulaCells} formula cell(s) stored a result that differs from the formula; values here are recomputed.`);
       }
-      readings["pf.proforma_opened"] = 1;
+      writer.put("pf.proforma_opened", 1, at(null));
       for (const sheet of wb.sheets) {
         for (const cell of sheet.cells) {
           if (!cell.formula) continue;
-          const fkey = `pf.formula@${sheet.name}!${cell.ref.toUpperCase()}`;
-          readings[fkey] = cell.formula;
-          origins[fkey] = at(`${sheet.name}!${cell.ref.toUpperCase()}`);
+          writer.put(`pf.formula@${sheet.name}!${cell.ref.toUpperCase()}`, cell.formula, at(`${sheet.name}!${cell.ref.toUpperCase()}`));
         }
       }
-      if (def.proformaAnnotations) Object.assign(readings, def.proformaAnnotations(wb));
-      // Derived readings (counts, formula text, flags) belong to the workbook as a whole.
-      for (const k of Object.keys(readings)) if (!before.has(k) && !origins[k]) origins[k] = at(null);
+      if (def.proformaAnnotations) {
+        for (const [k, v] of Object.entries(def.proformaAnnotations(wb))) writer.put(k, v, at(null));
+      }
       continue;
     }
     let found = false;
     for (const reader of def.readers.filter((x) => x.slot === f.slot)) {
       for (const sheet of wb.sheets) {
-        const got = reader.read(sheet);
+        const got = reader.read(sheet, (message) => notes.add(`${f.name} · ${sheet.name}: ${message}`));
         if (Object.keys(got).length > 0) {
-          Object.assign(readings, got);
-          for (const k of Object.keys(got)) origins[k] = at(sheet.name);
+          for (const [k, v] of Object.entries(got)) writer.put(k, v, at(sheet.name));
           found = true;
         }
       }
     }
     if (!found && def.readers.some((x) => x.slot === f.slot)) {
-      notes.push(`${f.name}: no table this review knows how to read. Its figures need manual entry or a different slot.`);
+      notes.add(`${f.name}: no table this review knows how to read. Its figures need manual entry or a different slot.`);
     }
   }
-  return { readings, notes, origins };
+  for (const n of writer.notes()) notes.add(n);
+  return { readings, notes: [...notes], origins };
 }
 
 /** Index a sheet's cells by row and column. */
@@ -313,47 +359,40 @@ function indexSheet(sheet: XlsxSheet) {
   return m;
 }
 
-const MONTH_NAMES: Record<string, string> = {
-  jan: "01",
-  feb: "02",
-  mar: "03",
-  apr: "04",
-  may: "05",
-  jun: "06",
-  jul: "07",
-  aug: "08",
-  sep: "09",
-  oct: "10",
-  nov: "11",
-  dec: "12",
-};
+const MONTH_NAMES = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
 
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** A real calendar date as YYYY-MM-DD, or null. 31/02 is not a date. */
+function calendarDate(y: number, m: number, d: number): string | null {
+  if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+  const t = new Date(Date.UTC(y, m - 1, d));
+  if (t.getUTCFullYear() !== y || t.getUTCMonth() !== m - 1 || t.getUTCDate() !== d) return null;
+  return `${y}-${pad2(m)}-${pad2(d)}`;
+}
+
+/**
+ * A cell as an ISO date. Reads YYYY-MM-DD, the Indian day-first forms
+ * (15/11/2023, 15-11-2023, 15-Nov-2023, 15-Nov-23) and Excel serial numbers.
+ * Day-first is the rule for slashed dates: a plant export is not read month-first.
+ */
 export function isoDate(v: unknown): string | null {
   if (typeof v === "string") {
     const s = v.trim();
-    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-
-    // Match DD/MM/YYYY or DD-MM-YYYY (e.g. 01/11/2023 or 01-11-2023)
-    const dmy = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
-    if (dmy) {
-      const day = dmy[1]!.padStart(2, "0");
-      const month = dmy[2]!.padStart(2, "0");
-      const year = dmy[3]!;
-      return `${year}-${month}-${day}`;
-    }
-
-    // Match DD-MMM-YYYY (e.g. 01-Nov-2023 or 1-Apr-2024)
-    const dMmmY = s.match(/^(\d{1,2})[-/ ]([A-Za-z]{3})[-/ ](\d{2,4})/);
-    if (dMmmY) {
-      const day = dMmmY[1]!.padStart(2, "0");
-      const mKey = dMmmY[2]!.toLowerCase();
-      const month = MONTH_NAMES[mKey];
-      if (month) {
-        let year = dMmmY[3]!;
-        if (year.length === 2) year = `20${year}`;
-        return `${year}-${month}-${day}`;
+    const iso = /^(\d{4})-(\d{2})-(\d{2})(?!\d)/.exec(s);
+    if (iso) return calendarDate(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+    const dmy = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?!\d)/.exec(s);
+    if (dmy) return calendarDate(Number(dmy[3]), Number(dmy[2]), Number(dmy[1]));
+    const named = /^(\d{1,2})[-/ ]([A-Za-z]{3,9})\.?[-/ ](\d{4}|\d{2})(?!\d)/.exec(s);
+    if (named) {
+      const word = named[2]!.toLowerCase();
+      const month = MONTH_NAMES.findIndex((name) => name.startsWith(word)) + 1;
+      if (month > 0) {
+        const year = named[3]!.length === 2 ? 2000 + Number(named[3]) : Number(named[3]);
+        return calendarDate(year, month, Number(named[1]));
       }
     }
+    return null;
   }
   if (typeof v === "number" && v > 20000 && v < 80000) {
     return new Date(Math.round((v - 25569) * 86400000)).toISOString().slice(0, 10);
@@ -361,53 +400,147 @@ export function isoDate(v: unknown): string | null {
   return null;
 }
 
-/** Dated rows (dates in column A) of the column under `header`. Null when the header is absent. */
-export function headerMatches(cellValue: unknown, target: string): boolean {
-  if (typeof cellValue !== "string") return false;
-  const c = cellValue.trim().toLowerCase();
-  const t = target.trim().toLowerCase();
-  if (c === t) return true;
-  // Normalized without parenthetical units & punctuation
-  const normC = c.replace(/\([^)]*\)/g, "").replace(/[\-_,\/]/g, " ").replace(/\s+/g, " ").trim();
-  const normT = t.replace(/\([^)]*\)/g, "").replace(/[\-_,\/]/g, " ").replace(/\s+/g, " ").trim();
-  if (normC === normT) return true;
-  if (normC.startsWith(normT) || normT.startsWith(normC)) return true;
-  return false;
+const TONNE_UNITS = new Set(["t", "mt", "tonne", "tonnes", "ton", "tons"]);
+
+function headerParts(s: string): { base: string; unit: string | null } {
+  const unit = /\(([^)]*)\)\s*$/.exec(s.trim());
+  const base = s
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/[-_,/]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const raw = unit ? unit[1]!.trim().toLowerCase().replace(/\s+/g, "") : null;
+  return { base, unit: raw === null || raw === "" ? null : TONNE_UNITS.has(raw) ? "t" : raw };
 }
 
-export function dailyColumn(sheet: XlsxSheet, header: string): { date: string; value: number | string | boolean | null }[] | null {
-  const h = sheet.cells.find((c) => headerMatches(c.value, header));
+/**
+ * Does a sheet cell name the header a reader wants? Case, spacing and a
+ * parenthetical unit are ignored, but only when the units do not disagree:
+ * "Clinker Production (kg)" is not "Clinker Production (t)", and a cell that is
+ * only a unit matches nothing.
+ */
+export function headerMatches(cellValue: unknown, target: string): boolean {
+  if (typeof cellValue !== "string") return false;
+  if (cellValue.trim().toLowerCase() === target.trim().toLowerCase()) return true;
+  const c = headerParts(cellValue);
+  const t = headerParts(target);
+  if (c.base === "" || c.base !== t.base) return false;
+  return c.unit === null || t.unit === null || c.unit === t.unit;
+}
 
+export type DailyRow = { date: string; value: number | string | boolean | null };
+
+export interface DailyColumnReport {
+  /** Every row with a readable date. A row with no value is kept here and counted in `blank`. */
+  rows: DailyRow[];
+  /** Rows that hold a figure but no readable date. They are not in `rows`. */
+  skipped: { row: number; raw: string }[];
+  /** Dates that appear on more than one row. */
+  duplicates: string[];
+  /** Dated rows with nothing under the header. */
+  blank: number;
+}
+
+const SUMMARY_LABEL = /^\s*(grand\s+)?(sub-?total|total|sum|average|avg|mean|max|min)\b/i;
+
+export const isFilled = (v: unknown) => v !== null && v !== undefined && v !== "";
+
+/**
+ * The dated rows of the column under `header`, and what was left out. The date
+ * column is the one below the header that holds the most dates, left-most on a
+ * tie, so a serial-number column in A does not hide it. Null when the header is
+ * absent or no row has a date.
+ */
+export function dailyColumnReport(sheet: XlsxSheet, header: string): DailyColumnReport | null {
+  const h = sheet.cells.find((c) => headerMatches(c.value, header));
   if (!h) return null;
   const idx = indexSheet(sheet);
-  // Auto-detect date column by checking which column has valid dates below the header row
-  const dateColCounts = new Map<number, number>();
+  const counts = new Map<number, number>();
   for (const c of sheet.cells) {
-    if (c.row > h.row && c.col !== h.col) {
-      if (isoDate(c.value) !== null) {
-        dateColCounts.set(c.col, (dateColCounts.get(c.col) ?? 0) + 1);
-      }
-    }
+    if (c.row > h.row && c.col !== h.col && isoDate(c.value) !== null) counts.set(c.col, (counts.get(c.col) ?? 0) + 1);
   }
-
-  // Best candidate date column, fallback to column 1
   let dateCol = 1;
-  let maxDates = 0;
-  for (const [col, count] of dateColCounts.entries()) {
-    if (count > maxDates) {
-      maxDates = count;
+  let best = 0;
+  for (const [col, n] of counts) {
+    if (n > best || (n === best && col < dateCol)) {
       dateCol = col;
+      best = n;
     }
   }
-
-  const out: { date: string; value: number | string | boolean | null }[] = [];
+  const rows: DailyRow[] = [];
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  let blank = 0;
   for (const d of sheet.cells) {
     if (d.col !== dateCol || d.row <= h.row) continue;
     const date = isoDate(d.value);
     if (!date) continue;
-    out.push({ date, value: idx.get(`${d.row},${h.col}`)?.value ?? null });
+    const value = idx.get(`${d.row},${h.col}`)?.value ?? null;
+    if (!isFilled(value)) blank += 1;
+    if (seen.has(date)) duplicates.add(date);
+    seen.add(date);
+    rows.push({ date, value });
   }
-  return out.length > 0 ? out : null;
+  const skipped: { row: number; raw: string }[] = [];
+  for (const c of sheet.cells) {
+    if (c.col !== h.col || c.row <= h.row || !isFilled(c.value)) continue;
+    const dateCell = idx.get(`${c.row},${dateCol}`)?.value;
+    if (isoDate(dateCell) !== null) continue;
+    const raw = dateCell === null || dateCell === undefined ? "" : String(dateCell);
+    if (SUMMARY_LABEL.test(raw)) continue;
+    skipped.push({ row: c.row, raw });
+  }
+  return rows.length > 0 ? { rows, skipped, duplicates: [...duplicates].sort(), blank } : null;
 }
 
+/** Say what a daily column left out, in sentences a reviewer can act on. */
+export function noteDailyColumn(report: DailyColumnReport, header: string, note?: (message: string) => void): void {
+  if (!note) return;
+  if (report.skipped.length > 0) {
+    const first = report.skipped[0]!;
+    note(
+      `${report.skipped.length} row(s) under "${header}" have a figure but no date this review can read, so they are left out (first: row ${first.row}, date cell ${first.raw === "" ? "empty" : `"${first.raw}"`}).`
+    );
+  }
+  if (report.duplicates.length > 0) {
+    note(`${report.duplicates.length} date(s) appear on more than one row under "${header}" (first: ${report.duplicates[0]}). The daily series keeps the later row; the total counts both.`);
+  }
+  if (report.blank > 0) {
+    note(`${report.blank} dated row(s) have nothing under "${header}". They are not counted as zero output or as evidence for a month.`);
+  }
+}
+
+/** Dated rows of the column under `header`. Null when the header is absent. */
+export function dailyColumn(sheet: XlsxSheet, header: string): DailyRow[] | null {
+  return dailyColumnReport(sheet, header)?.rows ?? null;
+}
+
+/** Dates of the rows that carry a figure. A pre-filled calendar with empty cells is not evidence. */
+export const filledDates = (rows: DailyRow[]) => rows.filter((r) => isFilled(r.value)).map((r) => r.date);
+
 export const months = (dates: string[]) => new Set(dates.map((d) => d.slice(0, 7))).size;
+
+/** A month with fewer rows than this share of the typical month counts as thin, on a daily series. */
+export const THIN_MONTH_SHARE = 0.5;
+/** Below this many rows in a typical month the series is not daily, and no month is called thin. */
+export const DAILY_SERIES_MIN_ROWS = 10;
+
+/** Months whose row count is far below the series' own typical month. Empty for a series that is not daily. */
+export function thinMonths(dates: string[]): string[] {
+  const per = new Map<string, Set<string>>();
+  for (const d of dates) {
+    const m = d.slice(0, 7);
+    const set = per.get(m) ?? new Set<string>();
+    set.add(d);
+    per.set(m, set);
+  }
+  const counts = [...per.values()].map((s) => s.size).sort((a, b) => a - b);
+  if (counts.length === 0) return [];
+  const typical = counts[Math.floor(counts.length / 2)]!;
+  if (typical < DAILY_SERIES_MIN_ROWS) return [];
+  return [...per]
+    .filter(([, s]) => s.size < typical * THIN_MONTH_SHARE)
+    .map(([m]) => m)
+    .sort();
+}

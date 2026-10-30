@@ -20,7 +20,8 @@ import {
   FileSpreadsheet,
 } from "lucide-react";
 import { Table, Td, Th } from "@/components/ui/table";
-import type { DeskOutcome, DeskStatus, ManualReadingSpec } from "@verifystack/backend/domain/deskreview";
+import type { DeskOutcome, DeskSourceRef, DeskStatus, ManualReadingSpec } from "@verifystack/backend/domain/deskreview";
+import { formatIst } from "@/lib/format";
 import type { ProformaReading } from "@verifystack/backend/domain/proforma/reader";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import {
@@ -163,6 +164,94 @@ interface DeskReviewStudioProps {
   resolutionsAvailable: boolean;
   /** Decisions land on a saved run's findings, so they wait for one. */
   hasSavedRun: boolean;
+}
+
+const roundTo4 = (n: number) => String(Math.round(n * 1e4) / 1e4);
+
+function sourceLink(s: DeskSourceRef): string | null {
+  if (!s.documentId) return null;
+  const page = /^p\. (\d+)$/.exec(s.location ?? "");
+  return `/api/documents/${s.documentId}/file${page ? `#page=${page[1]}` : ""}`;
+}
+
+/** Every input of a check with where it came from, and the comparison the check made. */
+function WorkingPanel({ r }: { r: DeskOutcome }) {
+  const sources = r.sources ?? [];
+  const hasComparison = r.actual !== undefined || r.expected !== undefined || r.diff !== undefined;
+  if (sources.length === 0 && !hasComparison && !r.thresholdSource) return null;
+  return (
+    <details className="rounded border border-mist-200 bg-mist-50/60 text-xs">
+      <summary className="cursor-pointer select-none px-2 py-1 font-medium text-mist-700">Show working</summary>
+      <div className="space-y-2 px-2 pb-2 pt-1">
+        {sources.length > 0 ? (
+          <table className="w-full text-left">
+            <thead className="text-[11px] text-mist-500">
+              <tr>
+                <th className="py-0.5 pr-3 font-medium">Input</th>
+                <th className="py-0.5 pr-3 font-medium">Value</th>
+                <th className="py-0.5 pr-3 font-medium">Read from</th>
+                <th className="py-0.5 font-medium">How</th>
+              </tr>
+            </thead>
+            <tbody className="align-top">
+              {sources.map((src) => {
+                const where = [src.filename ?? src.slot, src.location].filter(Boolean).join(" · ");
+                const href = sourceLink(src);
+                return (
+                  <tr key={src.key} className="border-t border-mist-100">
+                    <td className="py-0.5 pr-3 text-mist-900">{src.label}</td>
+                    <td className="py-0.5 pr-3 tabular text-mist-900">
+                      {typeof src.value === "number" ? roundTo4(src.value) : String(src.value)}
+                      {src.unit ? ` ${src.unit}` : ""}
+                    </td>
+                    <td className="py-0.5 pr-3 text-mist-700">
+                      {href ? (
+                        <a href={href} target="_blank" rel="noreferrer" className="text-teal-700 underline-offset-2 hover:underline">
+                          {where || "Open"}
+                        </a>
+                      ) : (
+                        where || "Not recorded"
+                      )}
+                    </td>
+                    <td className="py-0.5 text-mist-700">
+                      {src.kind === "typed"
+                        ? `Typed by an auditor${src.enteredAt ? ` on ${formatIst(src.enteredAt)}` : ""}`
+                        : src.kind === "workbook"
+                          ? "Read from the workbook by code"
+                          : "Not recorded"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        ) : null}
+        {hasComparison ? (
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-0.5 md:grid-cols-4">
+            {r.actual !== undefined ? (
+              <div>
+                <dt className="text-[11px] text-mist-500">Found</dt>
+                <dd className="tabular text-mist-900">{roundTo4(r.actual)}</dd>
+              </div>
+            ) : null}
+            {r.expected !== undefined ? (
+              <div>
+                <dt className="text-[11px] text-mist-500">Compared with</dt>
+                <dd className="tabular text-mist-900">{roundTo4(r.expected)}</dd>
+              </div>
+            ) : null}
+            {r.diff !== undefined ? (
+              <div>
+                <dt className="text-[11px] text-mist-500">Difference</dt>
+                <dd className="tabular text-mist-900">{roundTo4(r.diff)}</dd>
+              </div>
+            ) : null}
+          </dl>
+        ) : null}
+        {r.thresholdSource ? <p className="text-mist-600">Allowed band: {r.thresholdSource}</p> : null}
+      </div>
+    </details>
+  );
 }
 
 export function DeskReviewStudio({
@@ -1453,6 +1542,8 @@ export function DeskReviewStudio({
                               );
                             })()}
 
+                            <WorkingPanel r={r} />
+
                             {/* Contextual actions */}
                             {isFail && !deskFindings[`DESK-${r.id}`] ? (
                               <div className="flex items-center justify-between border-t border-red-100 pt-2 text-xs">
@@ -1768,6 +1859,14 @@ export function ReadingsForm({
         });
       }
     }
+    const unsourced = specs.filter((s) =>
+      readings.some((r) => r.value !== null && (r.key === s.key || r.key.startsWith(`${s.key}@`)) && (!r.documentId || !r.page))
+    );
+    if (unsourced.length > 0) {
+      setBusy(false);
+      toast.error(`Pick the source document and page for: ${unsourced.slice(0, 3).map((s) => s.label).join("; ")}${unsourced.length > 3 ? ` and ${unsourced.length - 3} more` : ""}.`);
+      return;
+    }
     const res = await fetch("/api/desk-review/readings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -1863,7 +1962,11 @@ export function ReadingsForm({
           </div>
         ))}
       </div>
-      <div className="flex justify-end">
+      <div className="flex items-center justify-between gap-3">
+        <p className="max-w-xl text-xs text-mist-600">
+          Every figure you enter needs its source document and page. A figure never becomes a fact and never feeds a
+          calculation.
+        </p>
         <Button type="submit" disabled={busy || isRefreshing}>
           <Save />
           Save readings

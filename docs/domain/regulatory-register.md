@@ -196,3 +196,18 @@ change is a code change with a test.
 | Response link limits | 5 files of 10 MB; 20 requests per IP per 15 min; 30 per link per hour | `app/api/respond`, `lib/rateLimit.ts` |
 | Fieldwork rate limit | 300 per 10 min per user | `lib/rateLimit.ts` |
 | Evidence bundle cap in the package | 120 MB, beyond which files are indexed only | `lib/data/submissionPackage.ts` |
+### Desk review controls
+
+Working defaults the desk review uses where the procedure sets no band. None is a regulatory
+claim and none is verified. The regulatory thresholds the desk review also uses (2% materiality,
+coal GCV sample frequency, the ±71.7 kcal/kg band) stay open in section 9 until a named person
+confirms them.
+
+| Control | Value | Code |
+| ------- | ----- | ---- |
+| Band for cross-document ties (DPR vs SCADA, SCADA vs monthly report, Form 1 recompute, evidenced total vs annual cell), reused from the declared-vs-extracted tolerance | 0.5% | `domain/deskreview/cement.ts` (`T`) |
+| Rounding bands on tonnes and kWh ties | 0.5 t, 1 kWh | `domain/deskreview/cement.ts` (`TONNE_BAND`, `KWH_BAND`) |
+| A month is thin when it has under half the rows of the series' typical month, on a series with at least 10 rows in a typical month | 50%, 10 rows | `domain/deskreview/engine.ts` (`THIN_MONTH_SHARE`, `DAILY_SERIES_MIN_ROWS`) |
+| Slashed dates in a workbook are read day-first | dd/mm/yyyy | `domain/deskreview/engine.ts` (`isoDate`) |
+| A figure typed from a PDF needs its source document and page | required | `app/api/desk-review/readings/route.ts` |
+| GCV cell rounding band, when a caller passes one | 0 by default; not used by the desk review | `domain/crosscheck/tieout.ts` (`checkGcvRule`) |
