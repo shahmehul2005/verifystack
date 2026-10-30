@@ -22,6 +22,7 @@ import { SummaryReviewButton } from "./summary-review";
 import { ProformaReviewButton } from "./proforma-review";
 import { DocTypeSelector } from "./doc-type-selector";
 import { DocRow } from "./doc-row";
+import { PdfInlineViewer } from "./pdf-viewer";
 
 export const metadata = { title: "Documents" };
 
@@ -108,7 +109,7 @@ export default async function DocumentsPage({
         <Table>
           <thead>
             <tr>
-              <Th>File</Th>
+              <Th className="min-w-[260px] max-w-[340px]">File</Th>
               <Th>Type</Th>
               <Th className="text-right">Pages</Th>
               {isAdeetie ? <Th>Phase</Th> : null}
@@ -124,6 +125,7 @@ export default async function DocumentsPage({
           <tbody>
             {docs.map((d) => {
               const isTable = d.mime_type === XLSX_MIME || d.mime_type === CSV_MIME;
+              const isPdf = d.mime_type === "application/pdf" || d.original_filename.toLowerCase().endsWith(".pdf");
               const Icon = isTable
                 ? FileSpreadsheet
                 : d.mime_type?.startsWith("image/")
@@ -138,6 +140,7 @@ export default async function DocumentsPage({
                   filename={d.original_filename}
                   columns={columns}
                   hasMapper={isTable && canExtract && ds.length > 0}
+                  isPdf={isPdf}
                   canDelete={canUpload}
                   actions={
                     <>
@@ -160,12 +163,17 @@ export default async function DocumentsPage({
                       <TableMapper documentId={d.id} datasets={ds} targets={targets} />
                     ) : null
                   }
+                  pdfViewer={
+                    isPdf ? (
+                      <PdfInlineViewer documentId={d.id} filename={d.original_filename} pageCount={d.page_count} />
+                    ) : null
+                  }
                 >
-                  <Td>
+                  <Td className="min-w-[260px] max-w-[340px]">
                     <span className="flex items-start gap-2.5">
                       <Icon aria-hidden className="mt-0.5 size-4 shrink-0 text-mist-400" />
-                      <span>
-                        <span className="break-all font-medium text-mist-900">{d.original_filename}</span>
+                      <span className="min-w-0">
+                        <span className="break-words font-medium text-mist-900" title={d.original_filename}>{d.original_filename}</span>
                         {scan && scan.quality !== "ok" && scan.quality !== "unknown" ? (
                           <span
                             className={`mt-1 block text-xs ${scan.quality === "poor" ? "text-red-700" : "text-amber-700"}`}

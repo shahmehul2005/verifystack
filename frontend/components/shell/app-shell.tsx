@@ -125,17 +125,41 @@ function NavLinks({
 
 function FirmBlock({
   orgName,
+  orgKind,
+  firmOwnerName,
   role,
 }: {
   orgName?: string | null;
+  orgKind?: "acva" | "energy_auditor_firm" | null;
+  firmOwnerName?: string | null;
   role?: MembershipRole | null;
 }) {
   return (
-    <div className="glass mx-3 mb-5 rounded-lg px-3 py-2.5">
-      <p className="truncate text-sm font-medium text-mist-900" title={orgName ?? undefined}>
-        {orgName ?? "Your firm"}
-      </p>
-      <p className="mt-0.5 text-xs text-mist-600">{role ? ROLE_LABEL[role] : "No role yet"}</p>
+    <div className="glass mx-3 mb-5 rounded-lg p-3 space-y-2 border border-mist-200/80 shadow-xs">
+      <div>
+        <div className="flex items-center justify-between gap-1.5">
+          <p className="truncate text-xs font-semibold text-mist-950 uppercase tracking-wider" title={orgName ?? undefined}>
+            {orgName ?? "Auditing Firm"}
+          </p>
+          {orgKind ? (
+            <span className="shrink-0 text-[10px] font-mono px-1.5 py-0.5 bg-teal-50 text-teal-800 rounded border border-teal-200 uppercase font-medium">
+              {orgKind === "acva" ? "BEE ACVA" : "Auditor"}
+            </span>
+          ) : null}
+        </div>
+        {firmOwnerName ? (
+          <p className="text-[11px] text-mist-600 truncate mt-1" title={`Firm Owner / Lead: ${firmOwnerName}`}>
+            <span className="text-mist-400">Owner:</span> <strong className="font-medium text-mist-800">{firmOwnerName}</strong>
+          </p>
+        ) : null}
+      </div>
+
+      <div className="border-t border-mist-200/60 pt-2 flex items-center justify-between text-xs">
+        <span className="text-mist-500 text-[11px]">Your role:</span>
+        <span className="font-medium text-teal-900 bg-mist-100/90 px-1.5 py-0.5 rounded text-[11px]">
+          {role ? ROLE_LABEL[role] : "Verifier"}
+        </span>
+      </div>
     </div>
   );
 }
@@ -143,12 +167,16 @@ function FirmBlock({
 export function AppShell({
   children,
   orgName,
+  orgKind,
+  firmOwnerName,
   role,
   userEmail,
   isSteward = false,
 }: {
   children: React.ReactNode;
   orgName?: string | null;
+  orgKind?: "acva" | "energy_auditor_firm" | null;
+  firmOwnerName?: string | null;
   role?: MembershipRole | null;
   userEmail?: string | null;
   isSteward?: boolean;
@@ -170,7 +198,7 @@ export function AppShell({
           </Link>
         </div>
         <div className="mt-2 flex-1 overflow-y-auto">
-          <FirmBlock orgName={orgName} role={role} />
+          <FirmBlock orgName={orgName} orgKind={orgKind} firmOwnerName={firmOwnerName} role={role} />
           <nav aria-label="Main" className="px-2">
             <NavLinks nav={nav} pathname={pathname} />
           </nav>
@@ -205,7 +233,7 @@ export function AppShell({
               </button>
             </div>
             <div className="mt-2 flex-1 overflow-y-auto">
-              <FirmBlock orgName={orgName} role={role} />
+              <FirmBlock orgName={orgName} orgKind={orgKind} firmOwnerName={firmOwnerName} role={role} />
               <nav aria-label="Main" className="px-2">
                 <NavLinks nav={nav} pathname={pathname} onNavigate={() => setDrawerOpen(false)} />
               </nav>
@@ -232,9 +260,10 @@ export function AppShell({
               <Logo />
             </Link>
           </div>
-          <p className="hidden truncate text-sm text-mist-600 md:block">
-            {orgName ?? "Your firm"}
-          </p>
+          <div className="hidden md:flex items-center gap-2 text-sm text-mist-600">
+            <span className="font-semibold text-mist-900">{orgName ?? "Your firm"}</span>
+            {firmOwnerName ? <span className="text-xs text-mist-400">• Owner: {firmOwnerName}</span> : null}
+          </div>
           {userEmail ? <UserMenu email={userEmail} role={role} /> : <span />}
         </header>
         <main className="min-w-0 flex-1 px-4 py-6 md:px-8 md:py-8">

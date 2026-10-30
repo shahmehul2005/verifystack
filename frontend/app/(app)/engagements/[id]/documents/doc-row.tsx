@@ -11,19 +11,23 @@ export function DocRow({
   filename,
   columns,
   hasMapper,
+  isPdf,
   canDelete,
   children,
   actions,
   mapper,
+  pdfViewer,
 }: {
   documentId: string;
   filename: string;
   columns: number;
   hasMapper?: boolean;
+  isPdf?: boolean;
   canDelete: boolean;
   children: React.ReactNode;
   actions?: React.ReactNode;
   mapper?: React.ReactNode;
+  pdfViewer?: React.ReactNode;
 }) {
   const { softReload } = useSoftReload();
   const [expanded, setExpanded] = useState(false);
@@ -63,6 +67,18 @@ export function DocRow({
               >
                 {expanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
                 {expanded ? "Hide sheets" : "Inspect sheets"}
+              </Button>
+            ) : null}
+
+            {isPdf ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setExpanded(!expanded)}
+                className="text-xs"
+              >
+                {expanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+                {expanded ? "Hide PDF" : "View PDF"}
               </Button>
             ) : null}
 
@@ -106,6 +122,14 @@ export function DocRow({
         <tr>
           <td colSpan={columns} className="p-0 border-b border-mist-200 bg-mist-50/30">
             <div className="p-4">{mapper}</div>
+          </td>
+        </tr>
+      ) : null}
+
+      {isPdf && expanded && pdfViewer ? (
+        <tr>
+          <td colSpan={columns} className="p-0 border-b border-mist-200 bg-mist-50/30">
+            <div className="p-4">{pdfViewer}</div>
           </td>
         </tr>
       ) : null}
