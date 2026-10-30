@@ -57,5 +57,28 @@ describe("Desk Review proposeReadings", () => {
     expect(byKey["grid.bill_kwh"].value).toBe(345000);
     expect(byKey["grid.bill_kwh"].documentId).toBe("doc-grid");
   });
+
+  it("proposes readings even when slot is null via inferSlot, including daily DPR series", () => {
+    const docs: EvidenceDocumentCandidate[] = [
+      { id: "doc-dpr", name: "02_daily_production_report.pdf", slot: null },
+      { id: "doc-po", name: "10_coal_purchase_order.pdf", slot: null },
+      { id: "doc-rec", name: "13_rec_certificate_status.pdf", slot: null },
+    ];
+
+    const proposals = proposeReadings(CEMENT_DESK_REVIEW, docs);
+    const byKey = Object.fromEntries(proposals.map((p) => [p.key, p]));
+
+    expect(byKey["dpr.clinker"]).toBeDefined();
+    expect(byKey["dpr.clinker"].rawText).toContain("2023-11-01 400.0");
+    expect(byKey["dpr.clinker"].documentId).toBe("doc-dpr");
+
+    expect(byKey["coal.po_t"]).toBeDefined();
+    expect(byKey["coal.po_t"].value).toBe(2914.2);
+    expect(byKey["coal.po_t"].documentId).toBe("doc-po");
+
+    expect(byKey["rec.claim_mwh"]).toBeDefined();
+    expect(byKey["rec.claim_mwh"].value).toBe(0);
+    expect(byKey["rec.claim_mwh"].documentId).toBe("doc-rec");
+  });
 });
 

@@ -9,6 +9,7 @@
 
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { loadPack } from "@verifystack/backend/domain/packs";
+import { inferSlot } from "../deskreview/engine";
 import {
   CONFIDENCE_POLICY,
   DOC_SCHEMAS,
@@ -245,10 +246,12 @@ export async function runDocumentExtraction(
       }
 
       docType = classified.data.docType as DocType;
+      const effectiveSlot = doc.slot ?? inferSlot({ name: doc.original_filename, slot: doc.slot, docType });
       await admin
         .from("documents")
         .update({
           doc_type: docType,
+          ...(effectiveSlot ? { slot: effectiveSlot } : {}),
           classification_confidence: classified.data.confidence,
         })
         .eq("id", input.documentId);

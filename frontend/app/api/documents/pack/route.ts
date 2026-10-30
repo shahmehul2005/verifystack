@@ -5,6 +5,7 @@ import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { MAX_EVIDENCE_BYTES } from "@verifystack/backend/lib/evidence";
 import { getEngagement, ensureEngagementStatus } from "@verifystack/backend/lib/data/engagements";
+import { inferSlot } from "@verifystack/backend/domain/deskreview";
 import { IngestError, ingestEvidenceFile } from "@verifystack/backend/lib/data/ingestDocument";
 import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
 import { canStartWork, loadPack } from "@verifystack/backend/domain/packs";
@@ -91,6 +92,19 @@ export async function POST(req: Request) {
           kind: r.kind,
           integrity: file.integrity.status,
         });
+        const effectiveSlot = inferSlot({ name: file.name, docType: file.docType });
+        if (effectiveSlot || file.docType) {
+          const adm = createServiceClient() ?? (await createServerSupabase());
+          if (adm) {
+            await adm
+              .from("documents")
+              .update({
+                ...(file.docType ? { doc_type: file.docType } : {}),
+                ...(effectiveSlot ? { slot: effectiveSlot } : {}),
+              })
+              .eq("id", r.document.id);
+          }
+        }
       } catch (e) {
         if (e instanceof IngestError) skipped.push({ name: file.path, reason: e.message });
         else throw e;

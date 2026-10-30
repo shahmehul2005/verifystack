@@ -72,6 +72,55 @@ export interface DeskOutcome {
 
 export const num = (r: Readings, k: string) => Number(r[k]);
 
+/**
+ * Infer the statutory evidence slot for a document from its explicit slot,
+ * its classified doc_type, or its filename pattern.
+ */
+export function inferSlot(doc: { name?: string | null; slot?: string | null; docType?: string | null }): string | null {
+  if (doc.slot) return doc.slot;
+  if (doc.docType) {
+    const MAP: Record<string, string> = {
+      production_log: "production_evidence",
+      cpp_generation_log: "cpp_generation",
+      fuel_invoice: "coal_purchase",
+      lab_certificate: "coal_quality",
+      fuel_lab_log: "coal_quality",
+      electricity_bill: "grid_electricity",
+      proforma_workbook: "proforma_workbook",
+      sampling_plan: "sampling_plan",
+      data_flow_sop: "data_flow_sop",
+      form1: "form1",
+      re_undertaking: "re_undertaking",
+      petcoke_log: "petcoke_log",
+      rec_declaration: "rec_declaration",
+      weighbridge_slip: "coal_purchase",
+      scada_production_trend: "production_evidence",
+      daily_production_report: "production_evidence",
+      monthly_production_report: "production_evidence",
+      sap_production_printout: "production_evidence",
+      cpp_daily_generation: "cpp_generation",
+      cpp_monthly_generation: "cpp_generation",
+      coal_internal_lab: "coal_quality",
+      coal_nabl_certificate: "coal_quality",
+      coal_purchase_order: "coal_purchase",
+      petcoke_consumption_log: "petcoke_log",
+      grid_electricity_bill: "grid_electricity",
+    };
+    if (MAP[doc.docType]) return MAP[doc.docType];
+  }
+  const n = (doc.name ?? "").toLowerCase();
+  if (/pro-?forma/i.test(n) || /15_sector/i.test(n)) return "proforma_workbook";
+  if (/scada|mpr|daily.*prod|monthly.*prod|sap.*pp|0[1234]_/i.test(n)) return "production_evidence";
+  if (/cpp.*daily|cpp.*monthly|cpp.*generation|0[67]_/i.test(n)) return "cpp_generation";
+  if (/internal.*lab|nabl|coal.*quality|0[89]_/i.test(n)) return "coal_quality";
+  if (/petcoke.*consumption|11_petcoke/i.test(n)) return "petcoke_log";
+  if (/grid.*electricity|discom|electricity.*bill|12_grid/i.test(n)) return "grid_electricity";
+  if (/coal.*purchase|10_coal/i.test(n)) return "coal_purchase";
+  if (/rec.*certificate|renewable|13_rec/i.test(n)) return "rec_declaration";
+  if (/form.*1|16_form/i.test(n)) return "form1";
+  return null;
+}
+
 export function series(r: Readings, name: string): { date: string; value: Reading }[] {
   const p = `${name}@`;
   return Object.entries(r)

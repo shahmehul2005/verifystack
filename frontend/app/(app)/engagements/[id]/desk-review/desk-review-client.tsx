@@ -36,12 +36,14 @@ export interface SlotDoc {
   id: string;
   name: string;
   slot: string | null;
+  docType?: string | null;
 }
 
 export interface ProposedReadingItem {
   key: string;
   label: string;
   value: number;
+  rawText?: string;
   unit: string;
   documentId: string;
   documentName: string;
@@ -351,7 +353,7 @@ export function DeskReviewStudio({
   }
 
   function applySuggestion(item: ProposedReadingItem) {
-    setValues((prev) => ({ ...prev, [item.key]: String(item.value) }));
+    setValues((prev) => ({ ...prev, [item.key]: item.rawText ?? String(item.value) }));
     setDocOf((prev) => ({ ...prev, [item.key]: item.documentId }));
     if (item.page) {
       setPageOf((prev) => ({ ...prev, [item.key]: String(item.page) }));
@@ -363,7 +365,7 @@ export function DeskReviewStudio({
     if (suggestions.length === 0) return;
     setValues((prev) => {
       const next = { ...prev };
-      for (const item of suggestions) next[item.key] = String(item.value);
+      for (const item of suggestions) next[item.key] = item.rawText ?? String(item.value);
       return next;
     });
     setDocOf((prev) => {
@@ -581,28 +583,56 @@ export function DeskReviewStudio({
                       )}
 
                       {/* Document and Page assignment for Provenance */}
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        <select
-                          value={docOf[spec.key] ?? ""}
-                          onChange={(e) => setDocOf({ ...docOf, [spec.key]: e.target.value })}
-                          className="h-7 truncate rounded border border-mist-300 px-1 text-[11px] text-mist-800 bg-white"
-                        >
-                          <option value="">(Select Doc)</option>
-                          {docs
-                            .filter((d) => d.slot === spec.slot)
-                            .map((d) => (
-                              <option key={d.id} value={d.id}>
-                                {d.name}
-                              </option>
-                            ))}
-                        </select>
-                        <Input
-                          type="number"
-                          placeholder="Page #"
-                          value={pageOf[spec.key] ?? ""}
-                          onChange={(e) => setPageOf({ ...pageOf, [spec.key]: e.target.value })}
-                          className="h-7 text-[11px]"
-                        />
+                      <div className="space-y-1">
+                        <div className="grid grid-cols-3 gap-2 text-xs">
+                          <select
+                            aria-label={`Document for ${spec.label}`}
+                            value={docOf[spec.key] ?? ""}
+                            onChange={(e) => setDocOf({ ...docOf, [spec.key]: e.target.value })}
+                            className="col-span-2 h-7 truncate rounded border border-mist-300 px-1 text-[11px] text-mist-800 bg-white font-mono"
+                          >
+                            <option value="">(Select Document)</option>
+                            {(() => {
+                              const matching = docs.filter((d) => d.slot === spec.slot);
+                              const others = docs.filter((d) => d.slot !== spec.slot);
+                              return (
+                                <>
+                                  {matching.length > 0 && (
+                                    <optgroup label="Recommended for this slot">
+                                      {matching.map((d) => (
+                                        <option key={d.id} value={d.id}>
+                                          {d.name}
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  )}
+                                  {others.length > 0 && (
+                                    <optgroup label="Other documents">
+                                      {others.map((d) => (
+                                        <option key={d.id} value={d.id}>
+                                          {d.name}
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </select>
+                          <Input
+                            type="number"
+                            placeholder="Page #"
+                            value={pageOf[spec.key] ?? ""}
+                            onChange={(e) => setPageOf({ ...pageOf, [spec.key]: e.target.value })}
+                            className="h-7 text-[11px]"
+                          />
+                        </div>
+                        {docOf[spec.key] ? (
+                          <div className="flex items-center gap-1 text-[10px] text-mist-600 truncate" title={docs.find((d) => d.id === docOf[spec.key])?.name}>
+                            <FileText className="size-3 text-mist-400 shrink-0" />
+                            <span className="truncate font-mono">{docs.find((d) => d.id === docOf[spec.key])?.name}</span>
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -646,11 +676,22 @@ export function DeskReviewStudio({
                   : "CCTS Sector Pro-forma Template Scheme (Upload workbook in Documents to bind cells)"
               }
               actions={
-                activeCellKey ? (
-                  <Button size="sm" variant="secondary" onClick={() => setActiveCellKey(null)} className="h-7 text-xs">
-                    Clear Cell Filter
-                  </Button>
-                ) : undefined
+                <div className="flex items-center gap-2">
+                  {proformaFileName ? (
+                    <Badge tone="ok" dot className="text-xs font-mono">
+                      {proformaFileName}
+                    </Badge>
+                  ) : (
+                    <Badge tone="draft" className="text-xs">
+                      Template Mode
+                    </Badge>
+                  )}
+                  {activeCellKey ? (
+                    <Button size="sm" variant="secondary" onClick={() => setActiveCellKey(null)} className="h-7 text-xs">
+                      Clear Cell Filter
+                    </Button>
+                  ) : undefined}
+                </div>
               }
             />
             <CardBody className="p-0">
@@ -900,6 +941,52 @@ export function DeskReviewStudio({
                               </p>
                             ) : null}
 
+                            {/* Provenance Audit Trail */}
+                            {(() => {
+                              const ruleDef = rules.find((x) => x.id === r.id);
+                              const needs = ruleDef?.needs ?? [];
+                              const trail: Array<{ docName: string; page?: number | null }> = [];
+                              for (const n of needs) {
+                                const pure = n.replace(/@.*$/, "");
+                                const docId = docOf[pure] || savedReadings.find((s) => s.key === pure || s.key.startsWith(`${pure}@`))?.documentId;
+                                const page = pageOf[pure] ? Number(pageOf[pure]) : savedReadings.find((s) => s.key === pure || s.key.startsWith(`${pure}@`))?.page;
+                                const doc = docs.find((d) => d.id === docId);
+                                if (doc) {
+                                  trail.push({ docName: doc.name, page });
+                                } else if (n.startsWith("scada.")) {
+                                  const scada = docs.find((d) => d.slot === "production_evidence" && (d.name.includes("scada") || d.name.endsWith(".xlsx")));
+                                  if (scada) trail.push({ docName: scada.name });
+                                } else if (n.startsWith("cpp.")) {
+                                  const cpp = docs.find((d) => d.slot === "cpp_generation" && d.name.endsWith(".xlsx"));
+                                  if (cpp) trail.push({ docName: cpp.name });
+                                } else if (n.startsWith("lab.")) {
+                                  const lab = docs.find((d) => d.slot === "coal_quality" && d.name.endsWith(".xlsx"));
+                                  if (lab) trail.push({ docName: lab.name });
+                                } else if (n.startsWith("petcoke.")) {
+                                  const pet = docs.find((d) => d.slot === "petcoke_log" && d.name.endsWith(".xlsx"));
+                                  if (pet) trail.push({ docName: pet.name });
+                                }
+                              }
+                              const uniqueTrail = [...new Map(trail.map((t) => [t.docName, t])).values()];
+                              if (uniqueTrail.length === 0) return null;
+                              return (
+                                <div className="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-mist-100 text-[11px] text-mist-500">
+                                  <span className="font-medium text-mist-600">Audit trail:</span>
+                                  {uniqueTrail.map((item, idx) => (
+                                    <span
+                                      key={idx}
+                                      className="inline-flex items-center gap-1 rounded bg-mist-100/80 border border-mist-200/60 px-1.5 py-0.5 font-mono text-[10px] text-mist-800"
+                                      title={item.docName}
+                                    >
+                                      <FileText className="size-2.5 text-mist-400 shrink-0" />
+                                      <span className="truncate max-w-[170px]">{item.docName}</span>
+                                      {item.page ? <span className="text-mist-500 font-sans">p.{item.page}</span> : null}
+                                    </span>
+                                  ))}
+                                </div>
+                              );
+                            })()}
+
                             {/* Contextual actions */}
                             {isFail ? (
                               <div className="flex items-center justify-between border-t border-red-100 pt-2 text-xs">
@@ -1103,16 +1190,35 @@ export function ReadingsForm({
                 aria-label={`Document for ${s.label}`}
                 value={docOf[s.key] ?? ""}
                 onChange={(e) => setDocOf({ ...docOf, [s.key]: e.target.value })}
-                className="rounded border border-mist-300 px-2 py-1 text-xs text-mist-900"
+                className="rounded border border-mist-300 px-2 py-1 text-xs text-mist-900 font-mono"
               >
                 <option value="">Document (none)</option>
-                {docs
-                  .filter((d) => d.slot === s.slot)
-                  .map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                    </option>
-                  ))}
+                {(() => {
+                  const matching = docs.filter((d) => d.slot === s.slot);
+                  const others = docs.filter((d) => d.slot !== s.slot);
+                  return (
+                    <>
+                      {matching.length > 0 && (
+                        <optgroup label="Recommended">
+                          {matching.map((d) => (
+                            <option key={d.id} value={d.id}>
+                              {d.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {others.length > 0 && (
+                        <optgroup label="All Documents">
+                          {others.map((d) => (
+                            <option key={d.id} value={d.id}>
+                              {d.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                    </>
+                  );
+                })()}
               </select>
               <Input
                 type="number"

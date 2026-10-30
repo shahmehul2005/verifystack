@@ -6,7 +6,7 @@ import { hasCapability } from "@verifystack/backend/lib/auth/capabilities";
 import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
-import { deskReviewFor, readWorkbooks, runDeskReview, type DeskOutcome, type DeskWorkbook, type Readings } from "@verifystack/backend/domain/deskreview";
+import { deskReviewFor, inferSlot, readWorkbooks, runDeskReview, type DeskOutcome, type DeskWorkbook, type Readings } from "@verifystack/backend/domain/deskreview";
 import { parseXlsx } from "@verifystack/backend/domain/intake/xlsx";
 import { readProforma, type ProformaReading } from "@verifystack/backend/domain/proforma/reader";
 import { loadPack } from "@verifystack/backend/domain/packs";
@@ -40,18 +40,24 @@ export default async function DeskReviewPage({ params }: { params: Promise<{ id:
       .limit(1)
       .maybeSingle(),
     supabase!.from("desk_readings").select("key, value, document_id, page").eq("engagement_id", id).eq("organization_id", session.organizationId),
-    supabase!.from("documents").select("id, original_filename, slot, storage_path, mime_type").eq("engagement_id", id).eq("organization_id", session.organizationId),
+    supabase!.from("documents").select("id, original_filename, slot, doc_type, storage_path, mime_type").eq("engagement_id", id).eq("organization_id", session.organizationId),
   ]);
 
   let results = ((review?.results ?? []) as unknown as DeskOutcome[]) ?? [];
   let notes = ((review?.notes ?? []) as unknown as string[]) ?? [];
 
   // Attempt to read the pro-forma workbook and evidence workbooks if present in evidence slots
-  const proformaDoc = docs?.find((d) => d.slot === "proforma_workbook");
+  const resolvedDocs = (docs ?? []).map((d) => ({
+    ...d,
+    effectiveSlot: d.slot ?? inferSlot({ name: d.original_filename, slot: d.slot, docType: d.doc_type }),
+  }));
+
+  // Attempt to read the pro-forma workbook and evidence workbooks if present in evidence slots
+  const proformaDoc = resolvedDocs.find((d) => d.effectiveSlot === "proforma_workbook" || /pro-?forma/i.test(d.original_filename));
   let proformaReading: ProformaReading | null = null;
   const proformaFileName = proformaDoc?.original_filename ?? null;
 
-  const xlsxDocs = (docs ?? []).filter((d) => d.mime_type === XLSX_MIME && d.slot && d.storage_path);
+  const xlsxDocs = resolvedDocs.filter((d) => d.mime_type === XLSX_MIME && d.effectiveSlot && d.storage_path);
   let workbookReadings: Readings = {};
 
   if (xlsxDocs.length > 0) {
@@ -61,7 +67,7 @@ export default async function DeskReviewPage({ params }: { params: Promise<{ id:
           xlsxDocs.map(async (d): Promise<DeskWorkbook | null> => {
             const { data: blob } = await supabase!.storage.from("evidence").download(d.storage_path);
             if (!blob) return null;
-            return { slot: d.slot as string, name: d.original_filename, bytes: new Uint8Array(await blob.arrayBuffer()) };
+            return { slot: d.effectiveSlot as string, name: d.original_filename, bytes: new Uint8Array(await blob.arrayBuffer()) };
           })
         )
       ).filter((f): f is DeskWorkbook => f !== null);
@@ -118,7 +124,8 @@ export default async function DeskReviewPage({ params }: { params: Promise<{ id:
         docs={(docs ?? []).map((d) => ({
           id: d.id,
           name: d.original_filename,
-          slot: d.slot,
+          slot: d.slot ?? inferSlot({ name: d.original_filename, slot: d.slot, docType: d.doc_type }),
+          docType: d.doc_type,
         }))}
         proforma={proformaReading}
         proformaFileName={proformaFileName}

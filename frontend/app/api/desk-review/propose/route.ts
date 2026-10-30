@@ -4,7 +4,7 @@ import { requireCapability, assertOrgId } from "@verifystack/backend/lib/auth/re
 import { jsonError } from "@/lib/api";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { getEngagement } from "@verifystack/backend/lib/data/engagements";
-import { deskReviewFor, proposeReadings, type EvidenceDocumentCandidate } from "@verifystack/backend/domain/deskreview";
+import { deskReviewFor, inferSlot, proposeReadings, type EvidenceDocumentCandidate } from "@verifystack/backend/domain/deskreview";
 
 export const runtime = "nodejs";
 
@@ -33,17 +33,17 @@ export async function POST(req: Request) {
 
     const { data: docs, error } = await supabase
       .from("documents")
-      .select("id, original_filename, slot, storage_path, mime_type")
+      .select("id, original_filename, slot, doc_type, storage_path, mime_type")
       .eq("engagement_id", engagementId)
-      .eq("organization_id", organizationId)
-      .not("slot", "is", null);
+      .eq("organization_id", organizationId);
 
     if (error) throw new Error(error.message);
 
     const candidates: EvidenceDocumentCandidate[] = (docs ?? []).map((d) => ({
       id: d.id,
       name: d.original_filename,
-      slot: d.slot,
+      slot: inferSlot({ name: d.original_filename, slot: d.slot, docType: d.doc_type }),
+      docType: d.doc_type,
       text: null,
     }));
 

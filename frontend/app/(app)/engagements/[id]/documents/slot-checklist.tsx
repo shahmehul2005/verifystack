@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleCheck, Circle } from "lucide-react";
+import { CircleCheck, Circle, FileText } from "lucide-react";
 import type { EvidenceSlot } from "@verifystack/backend/domain/packs/types";
 import { evaluateChecklist } from "@verifystack/backend/domain/crosscheck/checklist";
 import { Badge } from "@/components/ui/badge";
@@ -83,15 +83,33 @@ export function SlotChecklist({
                     <Badge tone={GATE_TONE[slot.gate]}>{GATE_LABEL[slot.gate]}</Badge>
                   </div>
                   <p className="mt-1 text-xs text-mist-600">{slot.accepts}</p>
-                  <div className="mt-2 flex items-center justify-between text-xs">
+                  <div className="mt-2.5 flex flex-col gap-1 text-xs">
                     {ticked ? (
-                      <span className="font-medium text-green-800">
-                        {documentIds.length} {documentIds.length === 1 ? "file" : "files"} verified
-                      </span>
+                      <div>
+                        <div className="flex items-center gap-1 font-medium text-green-800 mb-1">
+                          <span>
+                            {documentIds.length} {documentIds.length === 1 ? "file" : "files"} verified:
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {documents
+                            .filter((d) => documentIds.includes(d.id))
+                            .map((doc) => (
+                              <span
+                                key={doc.id}
+                                className="inline-flex items-center gap-1.5 rounded-md bg-green-100/70 border border-green-300/80 px-2 py-0.5 font-mono text-[11px] text-green-950 max-w-full"
+                                title={doc.name}
+                              >
+                                <FileText className="size-3 text-green-700 shrink-0" />
+                                <span className="truncate max-w-[200px]">{doc.name}</span>
+                              </span>
+                            ))}
+                        </div>
+                      </div>
                     ) : (
                       <span className="text-mist-400 italic">No document attached yet</span>
                     )}
-                    <span className="font-mono text-[10px] text-mist-400 truncate max-w-[200px]" title={slot.basis}>
+                    <span className="font-mono text-[10px] text-mist-400 truncate mt-1" title={slot.basis}>
                       {slot.basis}
                     </span>
                   </div>
