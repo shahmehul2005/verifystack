@@ -50,7 +50,7 @@ export function DemoRequestForm() {
 
   if (sentTo) {
     return (
-      <div role="status" className="rounded-2xl bg-white p-8 shadow-lg">
+      <div role="status" data-ui className="bg-mist-50 p-8 text-mist-900">
         <CircleCheck aria-hidden className="size-6 text-teal-700" />
         <h3 className="mt-4 text-lg font-semibold text-mist-950">Thanks, your request is in</h3>
         <p className="mt-1.5 text-sm leading-relaxed text-mist-600">
@@ -64,7 +64,8 @@ export function DemoRequestForm() {
   return (
     <form
       onSubmit={onSubmit}
-      className="rounded-2xl bg-white p-6 shadow-lg sm:p-8"
+      data-ui
+      className="bg-mist-50 p-6 text-mist-900 sm:p-8"
       aria-describedby={error ? "demo-error" : undefined}
     >
       {error ? (
@@ -144,7 +145,7 @@ export function DemoRequestForm() {
         </div>
       </div>
       <div className="mt-6 flex flex-wrap items-center gap-4">
-        <Button type="submit" size="lg" disabled={pending} className="rounded-full px-6">
+        <Button type="submit" size="lg" disabled={pending} className="rounded-none px-6">
           {pending ? "Sending…" : "Request a demo"}
         </Button>
         <FieldHint className="mt-0">

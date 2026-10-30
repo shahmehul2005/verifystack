@@ -16,6 +16,21 @@ must say which version it bumps. Current versions:
 
 ## [Unreleased]
 
+### A new look for the public site and the shared components
+
+- **Public home page rebuilt.** The hero is a live fragment: press a value on an invoice page, then accept or
+  correct it, and it becomes a fact with a name and an identifier. Below it, one engagement pinned beside six
+  statements and changing state, an index of five output documents, the principles as a large-type list, schemes,
+  a dark trust band, a question index and the demo form on a colour field. All copy and claims are the existing
+  ones. The fragments are synthetic and say so.
+- **Shared tokens.** `mist` is now a warm stone scale and `teal` a grey-green moss, so every screen takes the
+  new palette. The gradient wash, grain, frosted glass, resting shadows, gradient buttons, monospace labels and
+  the serif accent are gone. Panels are a tone step with a quiet edge; shadows are kept for menus and dialogs.
+  Buttons are one flat fill with a 6px corner (square on the public site). Corner radii are smaller.
+- **Auth and legal pages** use the same frame and type. The header, footer and demo form follow.
+- **One photograph**, a limestone quarry and cement works (CC BY 2.0, credited in the footer).
+- No behaviour, route or data changes. App screens could not be previewed without a Supabase connection.
+
 ### Desk review: messy files and checks that prove value
 
 - **Dates and headers.** Workbook dates are read in ISO, day-first (`15/11/2023`, `15-11-2023`), named-month

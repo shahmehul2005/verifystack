@@ -58,7 +58,7 @@ export function AccountNav({
         <>
           <Link
             href="/engagements"
-            className={cn(buttonVariants(), "hidden rounded-full sm:inline-flex")}
+            className={cn(buttonVariants(), "hidden rounded-none sm:inline-flex")}
           >
             Open workbench
             <ArrowRight />
@@ -69,11 +69,11 @@ export function AccountNav({
         <>
           <Link
             href="/login"
-            className={cn(buttonVariants({ variant: "ghost" }), "hidden rounded-full md:inline-flex")}
+            className={cn(buttonVariants({ variant: "ghost" }), "hidden rounded-none lg:inline-flex")}
           >
             Sign in
           </Link>
-          <Link href="/#demo" className={cn(buttonVariants(), "rounded-full")}>
+          <Link href="/#demo" className={cn(buttonVariants(), "rounded-none")}>
             Request a demo
           </Link>
         </>

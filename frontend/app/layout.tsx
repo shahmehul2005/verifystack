@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Instrument_Sans, Instrument_Serif, JetBrains_Mono } from "next/font/google";
+import { Instrument_Sans, JetBrains_Mono } from "next/font/google";
 import { AssistantWidget } from "@/components/assistant/assistant-widget";
 import { Providers } from "@/components/providers";
 import "./globals.css";
@@ -8,15 +8,6 @@ import "./globals.css";
 const sans = Instrument_Sans({
   variable: "--font-sans-face",
   subsets: ["latin"],
-  display: "swap",
-});
-
-/** Display accents only: one or two words in a headline, never body copy. */
-const display = Instrument_Serif({
-  variable: "--font-display-face",
-  subsets: ["latin"],
-  weight: "400",
-  style: ["normal", "italic"],
   display: "swap",
 });
 
@@ -45,7 +36,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="en-IN"
-      className={`${sans.variable} ${display.variable} ${mono.variable} h-full antialiased`}
+      className={`${sans.variable} ${mono.variable} h-full antialiased`}
     >
       <body className="min-h-full font-sans text-mist-900">
         <Providers>

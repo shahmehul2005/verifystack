@@ -215,7 +215,7 @@ export function AppShell({
           <button
             type="button"
             aria-label="Close menu"
-            className="absolute inset-0 bg-mist-950/30 backdrop-blur-[2px]"
+            className="absolute inset-0 bg-mist-950/40"
             onClick={() => setDrawerOpen(false)}
           />
           <div className="glass-strong absolute inset-y-0 left-0 flex w-72 flex-col shadow-lg">

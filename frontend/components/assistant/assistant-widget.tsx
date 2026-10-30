@@ -136,12 +136,12 @@ export function AssistantWidget() {
           aria-modal="false"
           aria-labelledby={titleId}
           className={cn(
-            "glass-strong fixed z-35 flex flex-col overflow-hidden rounded-3xl border shadow-lg ring-1 ring-mist-900/8",
+            "glass-strong fixed z-35 flex flex-col overflow-hidden rounded-xl border shadow-lg",
             "inset-x-3 top-3 bottom-22 sm:inset-x-auto sm:top-auto sm:right-5",
             "sm:h-[min(620px,calc(100dvh-6.5rem))] sm:w-[400px]"
           )}
         >
-          <header className="flex shrink-0 items-center gap-3 bg-linear-to-b from-teal-700 to-teal-800 px-4 py-3 text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.18)]">
+          <header className="flex shrink-0 items-center gap-3 bg-teal-700 px-4 py-3 text-white">
             <LogoMark inverted className="size-9" />
             <div className="min-w-0 flex-1">
               <h2 id={titleId} className="text-[15px] font-semibold leading-tight">
@@ -269,7 +269,7 @@ export function AssistantWidget() {
         onClick={() => (open ? close() : setOpen(true))}
         aria-expanded={open}
         aria-label={open ? "Close VerifyStack assistant" : "Ask the VerifyStack assistant"}
-        className="fixed bottom-5 right-5 z-35 inline-flex size-14 items-center justify-center rounded-full bg-linear-to-b from-teal-600 to-teal-800 text-white shadow-lg ring-4 ring-white/70 transition-transform hover:scale-105 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-teal-600"
+        className="fixed bottom-5 right-5 z-35 inline-flex size-14 items-center justify-center rounded-full bg-teal-600 text-white shadow-md transition-colors hover:bg-teal-700 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-teal-600"
       >
         {open ? <X className="size-6" /> : <MessageCircle className="size-6" />}
       </button>
