@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import { writeZip } from "../archive/zip";
 import { csvField, CsvError, detectDelimiter, parseCsv, toCsv } from "./csv";
 import { cellAt, columnLetters, parseCellRef, parseXlsx, sheetRows, XlsxError } from "./xlsx";
@@ -89,6 +89,30 @@ describe("parseXlsx", () => {
   it("flags truncation instead of silently dropping cells", () => {
     const wb = parseXlsx(xlsxFixture(), { maxSheets: 5, maxCellsPerSheet: 2 });
     expect(wb.sheets[0]!.truncated).toBe(true);
+  });
+
+  it("reads workbooks where sheet tags carry an XML namespace prefix", () => {
+    // Some tools (LibreOffice, older converters) prefix every element with the
+    // declared namespace alias, e.g. <x:sheet .../>. The old regex matched only
+    // the bare <sheet .../> form and threw "The workbook has no sheets."
+    const ct = '<?xml version="1.0"?><Types xmlns="x"/>';
+    const wbXml =
+      '<x:workbook xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="r">' +
+      '<x:sheets><x:sheet name="Data" sheetId="1" r:id="rId1"/></x:sheets></x:workbook>';
+    const rels =
+      '<Relationships><Relationship Id="rId1" Type="t" Target="worksheets/sheet1.xml"/></Relationships>';
+    const sheet1 =
+      '<worksheet><sheetData><row r="1"><c r="A1"><v>42</v></c></row></sheetData></worksheet>';
+    const bytes = writeZip([
+      { name: "[Content_Types].xml", data: ct },
+      { name: "xl/workbook.xml", data: wbXml },
+      { name: "xl/_rels/workbook.xml.rels", data: rels },
+      { name: "xl/worksheets/sheet1.xml", data: sheet1 },
+    ]);
+    const parsed = parseXlsx(bytes);
+    expect(parsed.sheets).toHaveLength(1);
+    expect(parsed.sheets[0]!.name).toBe("Data");
+    expect(cellAt(parsed.sheets[0]!, "A1")?.value).toBe(42);
   });
 });
 

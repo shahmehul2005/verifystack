@@ -1,4 +1,4 @@
-/**
+﻿/**
  * XLSX reader (DFD 2.4). Dependency-free: an XLSX is a ZIP of XML parts.
  *
  * Reads sheet names, cell values and formulas. It does not evaluate formulas;
@@ -137,7 +137,10 @@ export function parseXlsx(
     if (id && target) relTarget.set(id, target);
   }
 
-  const sheetTags = [...workbook.matchAll(/<sheet\b[^>]*\/?>/g)].map((m) => m[0]);
+  // Sheet tags may carry an XML namespace prefix (e.g. <x:sheet .../>) in
+  // workbooks that declare a default or explicit namespace on the root element.
+  // The prefix can be any NCName, so we match the optional "prefix:" part.
+  const sheetTags = [...workbook.matchAll(/<(?:[A-Za-z_][\w.]*:)?sheet\b[^>]*\/?>/g)].map((m) => m[0]);
   if (sheetTags.length === 0) throw new XlsxError("The workbook has no sheets.");
   if (sheetTags.length > limits.maxSheets) {
     throw new XlsxError(`The workbook has ${sheetTags.length} sheets; the limit is ${limits.maxSheets}.`);
