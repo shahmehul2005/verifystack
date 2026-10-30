@@ -1779,8 +1779,6 @@ export function TriageBar({
   );
 }
 
-const DAILY_LINE = /^(\d{4}-\d{2}-\d{2})\s*[,:\s]\s*(-?\d+(?:\.\d+)?)\s*$/;
-
 /**
  * The figures that sit in PDFs. The auditor types each against the document and page
  * it was read from. Workbook figures are never typed here; they are read by code.
