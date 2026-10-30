@@ -56,7 +56,7 @@ export async function POST(req: Request) {
         .limit(40),
       supabase
         .from("desk_readings")
-        .select("key, value, document_id, page")
+        .select("key, value, document_id, page, entered_at")
         .eq("engagement_id", engagementId)
         .eq("organization_id", organizationId),
     ]);
@@ -94,6 +94,8 @@ export async function POST(req: Request) {
         documentId: m.document_id,
         filename: m.document_id ? (docName.get(m.document_id) ?? null) : null,
         location: m.page ? `p. ${m.page}` : null,
+        kind: "typed",
+        enteredAt: m.entered_at,
         ...(spec ? { label: spec.label } : {}),
       };
     }

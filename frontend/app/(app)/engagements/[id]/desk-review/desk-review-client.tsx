@@ -267,6 +267,13 @@ export function ReadingsForm({
       }
     }
     if (readings.length === 0) return;
+    const unsourced = specs.filter((s) =>
+      readings.some((r) => r.value !== null && (r.key === s.key || r.key.startsWith(`${s.key}@`)) && (r.documentId === null || r.page === null))
+    );
+    if (unsourced.length > 0) {
+      toast.error(`Pick the source document and page for: ${unsourced.slice(0, 3).map((s) => s.label).join("; ")}${unsourced.length > 3 ? ` and ${unsourced.length - 3} more` : ""}.`);
+      return;
+    }
     setBusy(true);
     const res = await fetch("/api/desk-review/readings", {
       method: "PUT",
@@ -352,8 +359,8 @@ export function ReadingsForm({
       ))}
       <div className="flex items-center justify-between gap-3">
         <p className="max-w-xl text-xs text-mist-600">
-          Leave a figure blank if you have not read it; the checks that need it stay pending. A figure never becomes a
-          fact and never feeds a calculation.
+          Leave a figure blank if you have not read it; the checks that need it stay pending. Every figure you enter
+          needs its source document and page. A figure never becomes a fact and never feeds a calculation.
         </p>
         <Button variant="secondary" onClick={() => void save()} disabled={busy || isRefreshing}>
           <Save />

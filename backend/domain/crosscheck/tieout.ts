@@ -91,6 +91,7 @@ export function checkDailyAgreement(args: {
       `Largest difference ${pct(worst.rel)} on ${worst.date} (${fmt(worst.a)} vs ${fmt(worst.b)}).`,
     actual: worst.a,
     expected: worst.b,
+    diff: round(worst.a - worst.b),
     ...(args.thresholdSource ? { thresholdSource: args.thresholdSource } : {}),
   };
 }
@@ -146,6 +147,12 @@ export function clinkerConsumedForCement(
  * An annual figure can only be evidenced by as many months as the period has.
  * Twelve months of evidence for a 12-month period; one month is a gap, however
  * closely the annual figure matches monthly × 12.
+ *
+ * Counting months is not enough on its own, so the check also fails when:
+ *  - the evidence runs past the period, because rows outside it would sit in the total;
+ *  - a month is thin (`thinMonths`), because a few rows do not evidence a month;
+ *  - the period is fully evidenced but the evidenced total is not the annual cell
+ *    within `relTolerance`. `monthlyReading` is the total of the evidenced rows.
  */
 export function checkEvidenceCoverage(args: {
   id: string;
@@ -154,21 +161,45 @@ export function checkEvidenceCoverage(args: {
   periodMonths: number;
   annualCell: number;
   monthlyReading: number;
+  /** Months (YYYY-MM) with far fewer rows than the series' typical month. */
+  thinMonths?: string[];
+  /** Band for the evidenced total against the annual cell. Without it the totals are not compared. */
+  relTolerance?: number;
+  thresholdSource?: string;
 }): CheckResult {
   const annualised = round(args.monthlyReading * args.periodMonths);
   const matchesMonthly = Math.abs(annualised - args.annualCell) <= Math.abs(args.annualCell) * 0.0005;
-  const enough = args.monthsEvidenced >= args.periodMonths;
+  const thin = args.thinMonths ?? [];
+  const short = args.monthsEvidenced < args.periodMonths;
+  const over = args.monthsEvidenced > args.periodMonths;
+  const total = round(args.monthlyReading - args.annualCell);
+  const band = args.relTolerance === undefined ? null : args.relTolerance * Math.abs(args.annualCell);
+  const totalOff = !short && !over && band !== null && Math.abs(total) > band + 1e-9;
+  const problems: string[] = [];
+  if (over) {
+    problems.push(
+      `The evidence spans ${args.monthsEvidenced} months, more than the ${args.periodMonths}-month period, so rows outside the period may be in the total.`
+    );
+  }
+  if (thin.length > 0) {
+    problems.push(`${thin.length} month(s) have far fewer rows than the rest (${thin.slice(0, 4).join(", ")}${thin.length > 4 ? ", ..." : ""}), so they are not fully evidenced.`);
+  }
+  if (totalOff) {
+    problems.push(`The evidenced total ${fmt(args.monthlyReading)} is not the annual cell ${fmt(args.annualCell)}: difference ${fmt(total)}, allowed band ${fmt(round(band!))}.`);
+  }
   return {
     id: args.id,
     label: args.label,
-    status: enough ? "pass" : "fail",
+    status: short || problems.length > 0 ? "fail" : "pass",
     detail:
       `Annual cell ${fmt(args.annualCell)} is backed by ${args.monthsEvidenced} of ${args.periodMonths} month(s) of evidence. ` +
       (matchesMonthly
         ? `It equals one month × ${args.periodMonths} (${fmt(annualised)}), so the annual figure is a single month scaled up.`
-        : `One month × ${args.periodMonths} is ${fmt(annualised)}.`),
+        : `One month × ${args.periodMonths} is ${fmt(annualised)}.`) +
+      (problems.length > 0 ? ` ${problems.join(" ")}` : ""),
     actual: args.monthsEvidenced,
     expected: args.periodMonths,
+    ...(args.thresholdSource ? { thresholdSource: args.thresholdSource } : {}),
   };
 }
 
@@ -184,11 +215,17 @@ export function checkGcvRule(args: {
   cell: number;
   thresholdKcal: number;
   thresholdSource: string;
+  /**
+   * Rounding band on the workbook cell, kcal/kg. Lab results are reported to the
+   * whole unit, so a cell of 4,230.3 against 4,230 is rounding, not a different
+   * value. Default 0 compares exactly.
+   */
+  roundingKcal?: number;
 }): CheckResult {
   const dev = round(Math.abs(args.external - args.internal));
   const exceeds = dev > args.thresholdKcal;
   const expected = exceeds ? args.external : args.internal;
-  const ok = Math.abs(args.cell - expected) < 1e-9;
+  const ok = Math.abs(args.cell - expected) <= (args.roundingKcal ?? 0) + 1e-9;
   return {
     id: "gcv_nabl_rule",
     label: "GCV: internal vs NABL correction",

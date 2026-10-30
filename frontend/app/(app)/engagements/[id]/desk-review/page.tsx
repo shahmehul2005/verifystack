@@ -67,6 +67,7 @@ function SourcePill({ s }: { s: DeskSourceRef }) {
     <>
       <span className="text-mist-900">{sourceText(s)}</span>
       {where ? <span className="text-mist-500"> · {where}</span> : null}
+      {s.kind === "typed" ? <span className="text-amber-700"> · typed</span> : null}
     </>
   );
   const cls = "inline-block max-w-full truncate rounded border border-mist-200 bg-mist-50 px-1.5 py-0.5 text-[11px]";
@@ -78,6 +79,88 @@ function SourcePill({ s }: { s: DeskSourceRef }) {
     <span className={cls} title={where}>
       {body}
     </span>
+  );
+}
+
+const num = (n: number) => String(Math.round(n * 1e4) / 1e4);
+
+/** Every input of a check with where it came from, and the comparison the check made. */
+function WorkingPanel({ r }: { r: DeskOutcome }) {
+  const sources = r.sources ?? [];
+  const hasComparison = r.actual !== undefined || r.expected !== undefined || r.diff !== undefined;
+  if (sources.length === 0 && !hasComparison && !r.thresholdSource) return null;
+  return (
+    <details className="mt-1.5 rounded border border-mist-200 bg-mist-50/60 text-xs">
+      <summary className="cursor-pointer select-none px-2 py-1 font-medium text-mist-700">Show working</summary>
+      <div className="space-y-2 px-2 pb-2 pt-1">
+        {sources.length > 0 ? (
+          <table className="w-full text-left">
+            <thead className="text-[11px] text-mist-500">
+              <tr>
+                <th className="py-0.5 pr-3 font-medium">Input</th>
+                <th className="py-0.5 pr-3 font-medium">Value</th>
+                <th className="py-0.5 pr-3 font-medium">Read from</th>
+                <th className="py-0.5 font-medium">How</th>
+              </tr>
+            </thead>
+            <tbody className="align-top">
+              {sources.map((s) => {
+                const where = [s.filename ?? s.slot, s.location].filter(Boolean).join(" · ");
+                const href = sourceHref(s);
+                return (
+                  <tr key={s.key} className="border-t border-mist-100">
+                    <td className="py-0.5 pr-3 text-mist-900">{s.label}</td>
+                    <td className="py-0.5 pr-3 tabular text-mist-900">
+                      {typeof s.value === "number" ? num(s.value) : String(s.value)}
+                      {s.unit ? ` ${s.unit}` : ""}
+                    </td>
+                    <td className="py-0.5 pr-3 text-mist-700">
+                      {href ? (
+                        <a href={href} target="_blank" rel="noreferrer" className="text-teal-700 underline-offset-2 hover:underline">
+                          {where || "Open"}
+                        </a>
+                      ) : (
+                        where || "Not recorded"
+                      )}
+                    </td>
+                    <td className="py-0.5 text-mist-700">
+                      {s.kind === "typed"
+                        ? `Typed by an auditor${s.enteredAt ? ` on ${formatIst(s.enteredAt)}` : ""}`
+                        : s.kind === "workbook"
+                          ? "Read from the workbook by code"
+                          : "Not recorded"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        ) : null}
+        {hasComparison ? (
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-0.5 md:grid-cols-4">
+            {r.actual !== undefined ? (
+              <div>
+                <dt className="text-[11px] text-mist-500">Found</dt>
+                <dd className="tabular text-mist-900">{num(r.actual)}</dd>
+              </div>
+            ) : null}
+            {r.expected !== undefined ? (
+              <div>
+                <dt className="text-[11px] text-mist-500">Compared with</dt>
+                <dd className="tabular text-mist-900">{num(r.expected)}</dd>
+              </div>
+            ) : null}
+            {r.diff !== undefined ? (
+              <div>
+                <dt className="text-[11px] text-mist-500">Difference</dt>
+                <dd className="tabular text-mist-900">{num(r.diff)}</dd>
+              </div>
+            ) : null}
+          </dl>
+        ) : null}
+        {r.thresholdSource ? <p className="text-mist-600">Allowed band: {r.thresholdSource}</p> : null}
+      </div>
+    </details>
   );
 }
 
@@ -172,6 +255,12 @@ export default async function DeskReviewPage({ params }: { params: Promise<{ id:
             <StatTile label="Run" value={formatIst(review.created_at)} />
           </div>
 
+          <p className="text-xs text-mist-600">
+            {results.length} checks: {count("pass")} agree, {count("fail")} disagree, {count("pending")} waiting for readings,{" "}
+            {count("not_applicable")} cannot be decided. {notes.length} reading note{notes.length === 1 ? "" : "s"}.{" "}
+            {(readings ?? []).length} figure{(readings ?? []).length === 1 ? "" : "s"} typed from PDFs.
+          </p>
+
           <Card>
             <CardHeader
               title="Materiality and completeness"
@@ -264,6 +353,7 @@ export default async function DeskReviewPage({ params }: { params: Promise<{ id:
                                 ))}
                               </div>
                             ) : null}
+                            <WorkingPanel r={r} />
                             {r.status === "pass" && findingOpen ? (
                               <p className="mt-1.5 text-xs text-mist-600">
                                 This check agrees now. Its finding is still {finding.state}.{" "}
