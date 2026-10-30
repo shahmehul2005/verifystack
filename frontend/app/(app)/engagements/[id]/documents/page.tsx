@@ -21,6 +21,7 @@ import { SlotChecklist } from "./slot-checklist";
 import { SummaryReviewButton } from "./summary-review";
 import { ProformaReviewButton } from "./proforma-review";
 import { DocTypeSelector } from "./doc-type-selector";
+import { DocRow } from "./doc-row";
 
 export const metadata = { title: "Documents" };
 
@@ -133,7 +134,27 @@ export default async function DocumentsPage({
               return (
                 <DocRow
                   key={d.id}
+                  documentId={d.id}
+                  filename={d.original_filename}
                   columns={columns}
+                  hasMapper={isTable && canExtract && ds.length > 0}
+                  canDelete={canUpload}
+                  actions={
+                    <>
+                      {canExtract && !isTable ? <ExtractButton documentId={d.id} engagementId={id} /> : null}
+                      {canDecide && hasProforma && (d.slot === "proforma_workbook" || d.doc_type === "proforma_workbook" || /pro-?forma/i.test(d.original_filename)) && d.mime_type === XLSX_MIME ? (
+                        <ProformaReviewButton documentId={d.id} documentName={d.original_filename} engagementId={id} />
+                      ) : null}
+                      {isTable && canDecide ? (
+                        <SummaryReviewButton
+                          documentId={d.id}
+                          documentName={d.original_filename}
+                          engagementId={id}
+                          targets={targets}
+                        />
+                      ) : null}
+                    </>
+                  }
                   mapper={
                     isTable && canExtract && ds.length > 0 ? (
                       <TableMapper documentId={d.id} datasets={ds} targets={targets} />
@@ -187,50 +208,12 @@ export default async function DocumentsPage({
                   </Td>
                   <Td className="whitespace-nowrap text-right tabular">{formatBytes(d.byte_size)}</Td>
                   <Td className="whitespace-nowrap text-xs text-mist-600">{formatIst(d.created_at)}</Td>
-                  <Td className="text-right">
-                    {canExtract && !isTable ? <ExtractButton documentId={d.id} engagementId={id} /> : null}
-                    {canDecide && hasProforma && (d.slot === "proforma_workbook" || /pro-?forma/i.test(d.original_filename)) && d.mime_type === XLSX_MIME ? (
-                      <ProformaReviewButton documentId={d.id} documentName={d.original_filename} engagementId={id} />
-                    ) : null}
-                    {isTable && canDecide ? (
-                      <SummaryReviewButton
-                        documentId={d.id}
-                        documentName={d.original_filename}
-                        engagementId={id}
-                        targets={targets}
-                      />
-                    ) : null}
-                  </Td>
                 </DocRow>
               );
             })}
           </tbody>
         </Table>
       )}
-    </>
-  );
-}
-
-/** A table row plus, when there is one, a full-width mapping panel beneath it. */
-function DocRow({
-  columns,
-  mapper,
-  children,
-}: {
-  columns: number;
-  mapper: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <>
-      <tr>{children}</tr>
-      {mapper ? (
-        <tr>
-          <td colSpan={columns} className="p-0">
-            {mapper}
-          </td>
-        </tr>
-      ) : null}
     </>
   );
 }

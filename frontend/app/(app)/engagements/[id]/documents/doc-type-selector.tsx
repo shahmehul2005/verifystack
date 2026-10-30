@@ -28,7 +28,13 @@ export function DocTypeSelector({
   const [suggesting, setSuggesting] = useState(false);
 
   const matched = taxonomy.find((t) => t.id === currentType);
-  const displayName = matched ? matched.label : currentType ? humanize(currentType) : "Not classified";
+  const displayName = matched
+    ? matched.label
+    : currentType
+      ? humanize(currentType)
+      : isTable
+        ? "Spreadsheet (unclassified)"
+        : "Not classified";
 
   async function updateType(newType: string | null) {
     const res = await fetch(`/api/documents/${documentId}/type`, {
@@ -68,10 +74,6 @@ export function DocTypeSelector({
     softReload();
   }
 
-  if (isTable) {
-    return <Badge tone="ink">Spreadsheet</Badge>;
-  }
-
   return (
     <div className="relative inline-flex items-center gap-1.5">
       {canEdit ? (
@@ -81,7 +83,7 @@ export function DocTypeSelector({
           className="inline-flex items-center text-left focus:outline-none"
         >
           <Badge
-            tone={currentType ? "neutral" : "draft"}
+            tone={currentType ? (isTable ? "ink" : "neutral") : "draft"}
             className="cursor-pointer hover:bg-mist-200 transition-colors"
           >
             <span className="max-w-[180px] truncate" title={displayName}>
@@ -96,14 +98,14 @@ export function DocTypeSelector({
           </Badge>
         </button>
       ) : (
-        <Badge tone={currentType ? "neutral" : "draft"}>
+        <Badge tone={currentType ? (isTable ? "ink" : "neutral") : "draft"}>
           <span className="max-w-[180px] truncate" title={displayName}>
             {displayName}
           </span>
         </Badge>
       )}
 
-      {canEdit ? (
+      {canEdit && !isTable ? (
         <button
           type="button"
           disabled={suggesting}
@@ -120,7 +122,7 @@ export function DocTypeSelector({
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
           <div className="absolute left-0 top-full z-50 mt-1 max-h-60 w-72 overflow-y-auto rounded-md border border-mist-200 bg-white p-1 shadow-lg text-xs">
             <div className="px-2 py-1 font-semibold text-mist-500 uppercase tracking-wider text-[10px]">
-              Pack Taxonomy
+              {isTable ? "Spreadsheet Role" : "Pack Taxonomy"}
             </div>
             {taxonomy.map((t) => (
               <button

@@ -15,9 +15,33 @@ export const runtime = "nodejs";
 
 const PatchBody = z.object({ doc_type: z.string().min(1).max(80).nullable() });
 
+function deriveSlotFromDocType(docType: string | null, slots: Array<{ id: string }>): string | null {
+  if (!docType) return null;
+  if (slots.some((s) => s.id === docType)) return docType;
+  const MAP: Record<string, string> = {
+    production_log: "production_evidence",
+    cpp_generation_log: "cpp_generation",
+    fuel_invoice: "coal_purchase",
+    lab_certificate: "coal_quality",
+    fuel_lab_log: "coal_quality",
+    electricity_bill: "grid_electricity",
+    proforma_workbook: "proforma_workbook",
+    sampling_plan: "sampling_plan",
+    data_flow_sop: "data_flow_sop",
+    form1: "form1",
+    re_undertaking: "re_undertaking",
+    petcoke_log: "petcoke_log",
+    rec_declaration: "rec_declaration",
+    weighbridge_slip: "coal_purchase",
+  };
+  const target = MAP[docType];
+  if (target && slots.some((s) => s.id === target)) return target;
+  return null;
+}
+
 /**
  * Assign or reassign a document to a pack taxonomy type by hand, or clear it.
- * Audited and validated against pack.document_taxonomy.
+ * Also synchronizes the corresponding evidence slot so the checklist is automatically satisfied.
  */
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -35,7 +59,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     }
     const { data: doc } = await supabase
       .from("documents")
-      .select("id, engagement_id, doc_type")
+      .select("id, engagement_id, doc_type, slot")
       .eq("id", id)
       .eq("organization_id", organizationId)
       .maybeSingle();
@@ -55,12 +79,19 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       );
     }
 
+    const derivedSlot = deriveSlotFromDocType(parsed.data.doc_type, pack.evidence_slots ?? []);
+
+    const updatePayload: { doc_type: string | null; classification_confidence: number; slot?: string | null } = {
+      doc_type: parsed.data.doc_type,
+      classification_confidence: 1.0,
+    };
+    if (derivedSlot !== null || parsed.data.doc_type === null) {
+      updatePayload.slot = derivedSlot;
+    }
+
     const { error } = await supabase
       .from("documents")
-      .update({
-        doc_type: parsed.data.doc_type,
-        classification_confidence: 1.0,
-      })
+      .update(updatePayload)
       .eq("id", id)
       .eq("organization_id", organizationId);
     if (error) throw new Error(error.message);
@@ -71,10 +102,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       action: "document.type_set",
       entityType: "document",
       entityId: id,
-      payload: { from: doc.doc_type ?? null, to: parsed.data.doc_type },
+      payload: { from: doc.doc_type ?? null, to: parsed.data.doc_type, slot: derivedSlot },
     });
 
-    return NextResponse.json({ ok: true, doc_type: parsed.data.doc_type });
+    return NextResponse.json({ ok: true, doc_type: parsed.data.doc_type, slot: derivedSlot });
   } catch (e) {
     return jsonError(e);
   }
@@ -151,14 +182,18 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     }
 
     const { docType, confidence, reasoning } = classified.data;
+    const derivedSlot = deriveSlotFromDocType(docType, pack.evidence_slots ?? []);
 
-    // Save suggested type
+    const updatePayload: { doc_type: string; classification_confidence: number; slot?: string } = {
+      doc_type: docType,
+      classification_confidence: confidence,
+    };
+    if (derivedSlot) updatePayload.slot = derivedSlot;
+
+    // Save suggested type & synced slot
     await supabase
       .from("documents")
-      .update({
-        doc_type: docType,
-        classification_confidence: confidence,
-      })
+      .update(updatePayload)
       .eq("id", id)
       .eq("organization_id", organizationId);
 
@@ -167,6 +202,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       docType,
       confidence,
       reasoning,
+      slot: derivedSlot,
     });
   } catch (e) {
     return jsonError(e);
