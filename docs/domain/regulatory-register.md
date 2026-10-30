@@ -79,7 +79,12 @@ Code: `backend/domain/rules/adeetie.ts`, `ADEETIE_CLAUSE_REFS` in `scheme.ts`, c
 
 Code: `backend/domain/rules/rules.ts`, pack citations in `backend/domain/packs/ccts/shared.ts`,
 `cement.ts`, `ironSteel.ts`, `aluminium.ts`. The same string appears in the rule and in each pack;
-change both.
+change both. The desk review cites these same strings from one place,
+`backend/domain/deskreview/clauses.ts`.
+
+The project owner reported on 30 October 2026 that these references were confirmed against the
+government source. The register records that statement; it does not name a verifier. A desk-review
+check with no clause of its own is cited to the procedure as a whole and is not listed here.
 
 | Rule    | Checks                                                       | Clause reference in code                                              | Status     |
 | ------- | ------------------------------------------------------------ | --------------------------------------------------------------------- | ---------- |
@@ -211,3 +216,5 @@ confirms them.
 | Slashed dates in a workbook are read day-first | dd/mm/yyyy | `domain/deskreview/engine.ts` (`isoDate`) |
 | A figure typed from a PDF needs its source document and page | required | `app/api/desk-review/readings/route.ts` |
 | GCV cell rounding band, when a caller passes one | 0 by default; not used by the desk review | `domain/crosscheck/tieout.ts` (`checkGcvRule`) |
+| The smallest box a snip may have, as a share of the page | 0.5% of the page in each direction | `domain/deskreview/snip.ts` (`MIN_SIDE`) |
+| Cited pages bound into a binder, and the largest cited file bound in | 60 pages; 30 MB | `domain/submission/binder.ts` (`maxEvidencePages`), `app/api/desk-review/binder/route.ts` |

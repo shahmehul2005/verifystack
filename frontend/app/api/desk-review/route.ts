@@ -19,6 +19,7 @@ import {
   type ResolutionState,
 } from "@verifystack/backend/domain/deskreview";
 import { deskEvidenceRefs, deskFindings } from "@verifystack/backend/domain/deskreview/toFindings";
+import { parseRegion } from "@verifystack/backend/domain/deskreview/snip";
 import type { Json } from "@verifystack/backend/lib/supabase/types";
 
 export const runtime = "nodejs";
@@ -56,7 +57,7 @@ export async function POST(req: Request) {
         .limit(40),
       supabase
         .from("desk_readings")
-        .select("key, value, document_id, page, entered_at")
+        .select("key, value, document_id, page, entered_at, bbox, source_text, source_kind")
         .eq("engagement_id", engagementId)
         .eq("organization_id", organizationId),
     ]);
@@ -90,14 +91,17 @@ export async function POST(req: Request) {
     const specByKey = new Map(def.manual.map((s) => [s.key, s]));
     for (const m of manual ?? []) {
       all[m.key] = Number(m.value);
+      const region = parseRegion(m.bbox);
       const spec = specByKey.get(m.key.split("@")[0]!);
       allOrigins[m.key] = {
         slot: spec?.slot ?? "",
         documentId: m.document_id,
         filename: m.document_id ? (docName.get(m.document_id) ?? null) : null,
         location: m.page ? `p. ${m.page}` : null,
-        kind: "typed",
+        kind: m.source_kind === "snip" && region ? "snip" : "typed",
         enteredAt: m.entered_at,
+        ...(m.source_kind === "snip" && region ? { region } : {}),
+        ...(m.source_kind === "snip" && m.source_text ? { sourceText: m.source_text } : {}),
         ...(spec ? { label: spec.label } : {}),
       };
     }
@@ -152,6 +156,9 @@ export async function POST(req: Request) {
               detail: draft.detail,
               clause_ref: draft.clauseRef,
               evidence_refs: draft.evidenceRefs as unknown as Json,
+              magnitude: (draft.magnitude ?? null) as unknown as Json | null,
+              required_response: draft.requiredResponse,
+              generator: "desk_review",
               state: "suggested" as const,
             }))
           )

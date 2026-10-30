@@ -25,6 +25,7 @@ import {
   type SlotCoverage,
 } from "@verifystack/backend/domain/deskreview";
 import { BLOCK_IDS } from "@verifystack/backend/domain/deskreview/toFindings";
+import { parseRegion } from "@verifystack/backend/domain/deskreview/snip";
 import { parseXlsx } from "@verifystack/backend/domain/intake/xlsx";
 import { readProforma, type ProformaReading } from "@verifystack/backend/domain/proforma/reader";
 import { loadPack } from "@verifystack/backend/domain/packs";
@@ -61,7 +62,7 @@ export default async function DeskReviewPage({ params }: { params: Promise<{ id:
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
-    supabase!.from("desk_readings").select("key, value, document_id, page").eq("engagement_id", id).eq("organization_id", session.organizationId),
+    supabase!.from("desk_readings").select("key, value, document_id, page, bbox, source_text").eq("engagement_id", id).eq("organization_id", session.organizationId),
     supabase!.from("documents").select("id, original_filename, slot, doc_type, storage_path, mime_type").eq("engagement_id", id).eq("organization_id", session.organizationId),
     supabase!
       .from("desk_resolutions")
@@ -239,12 +240,15 @@ export default async function DeskReviewPage({ params }: { params: Promise<{ id:
           value: Number(r.value),
           documentId: r.document_id,
           page: r.page,
+          bbox: parseRegion(r.bbox),
+          sourceText: r.source_text,
         }))}
         docs={(docs ?? []).map((d) => ({
           id: d.id,
           name: d.original_filename,
           slot: d.slot ?? inferSlot({ name: d.original_filename, slot: d.slot, docType: d.doc_type }),
           docType: d.doc_type,
+          mimeType: d.mime_type,
         }))}
         proforma={proformaReading}
         proformaFileName={proformaFileName}
@@ -255,6 +259,7 @@ export default async function DeskReviewPage({ params }: { params: Promise<{ id:
         blockIds={[...BLOCK_IDS]}
         resolutionsAvailable={resolutionsAvailable}
         hasSavedRun={Boolean(review)}
+        materiality={materiality}
       />
     </>
   );

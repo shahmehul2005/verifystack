@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Highlight } from "./document-facsimile";
 
 export type ViewerBBox = { x: number; y: number; width: number; height: number };
@@ -10,11 +10,17 @@ export function EvidencePageViewer({
   mimeType,
   page,
   bbox,
+  overlay,
+  onPages,
 }: {
   src: string | null;
   mimeType?: string | null;
   page: number;
   bbox: ViewerBBox | null;
+  /** Drawn over the page, filling it. Used to draw a region on the page. */
+  overlay?: ReactNode;
+  /** Called with the page count once a PDF has loaded. */
+  onPages?: (pages: number) => void;
 }) {
   if (!src) {
     return (
@@ -34,23 +40,32 @@ export function EvidencePageViewer({
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={src} alt="Evidence page" className="block w-full" />
         {bbox ? <Highlight bbox={bbox} /> : null}
+        {overlay}
       </div>
     );
   }
 
-  return <PdfCanvas src={src} page={Math.max(1, page)} bbox={bbox} />;
+  return <PdfCanvas src={src} page={Math.max(1, page)} bbox={bbox} overlay={overlay} onPages={onPages} />;
 }
 
 function PdfCanvas({
   src,
   page,
   bbox,
+  overlay,
+  onPages,
 }: {
   src: string;
   page: number;
   bbox: ViewerBBox | null;
+  overlay?: ReactNode;
+  onPages?: (pages: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const onPagesRef = useRef(onPages);
+  useEffect(() => {
+    onPagesRef.current = onPages;
+  }, [onPages]);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [message, setMessage] = useState("Rendering page…");
@@ -71,6 +86,7 @@ function PdfCanvas({
         void pdf.destroy();
       };
       if (cancelled) return;
+      onPagesRef.current?.(pdf.numPages);
 
       const pageNumber = Math.min(page, pdf.numPages);
       const pdfPage = await pdf.getPage(pageNumber);
@@ -124,6 +140,7 @@ function PdfCanvas({
       ) : null}
       <canvas ref={canvasRef} className="block w-full" />
       {status === "ready" && bbox ? <Highlight bbox={bbox} /> : null}
+      {status === "ready" ? overlay : null}
     </div>
   );
 }

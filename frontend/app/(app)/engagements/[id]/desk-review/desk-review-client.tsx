@@ -17,10 +17,12 @@ import {
   TableProperties,
   ShieldAlert,
   Check,
-  FileSpreadsheet,
 } from "lucide-react";
-import { Table, Td, Th } from "@/components/ui/table";
-import type { DeskOutcome, DeskSourceRef, DeskStatus, ManualReadingSpec } from "@verifystack/backend/domain/deskreview";
+import type { DeskOutcome, DeskSourceRef, DeskStatus, ManualReadingSpec, MaterialityPosition } from "@verifystack/backend/domain/deskreview";
+import { buildLeadSchedule } from "@verifystack/backend/domain/deskreview/leadSchedule";
+import { LeadScheduleView } from "./lead-schedule-view";
+import { SnipDialog, type SnipResult } from "./snip-dialog";
+import type { Region } from "@verifystack/backend/domain/deskreview/snip";
 import { formatIst } from "@/lib/format";
 import type { ProformaReading } from "@verifystack/backend/domain/proforma/reader";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
@@ -43,6 +45,10 @@ export interface SavedReading {
   value: number;
   documentId: string | null;
   page: number | null;
+  /** The box the auditor drew on the page, when the figure was snipped. */
+  bbox?: Region | null;
+  /** What is printed in that box. */
+  sourceText?: string | null;
 }
 
 export interface SlotDoc {
@@ -50,7 +56,11 @@ export interface SlotDoc {
   name: string;
   slot: string | null;
   docType?: string | null;
+  mimeType?: string | null;
 }
+
+/** A page can be drawn on when it is a PDF or an image. */
+const canSnip = (d: SlotDoc | undefined) => Boolean(d?.mimeType && (d.mimeType === "application/pdf" || d.mimeType.startsWith("image/")));
 
 export interface ProposedReadingItem {
   key: string;
@@ -164,6 +174,8 @@ interface DeskReviewStudioProps {
   resolutionsAvailable: boolean;
   /** Decisions land on a saved run's findings, so they wait for one. */
   hasSavedRun: boolean;
+  /** The aggregate position of the saved run, against 2% of the reported total. */
+  materiality: MaterialityPosition | null;
 }
 
 const roundTo4 = (n: number) => String(Math.round(n * 1e4) / 1e4);
@@ -214,11 +226,12 @@ function WorkingPanel({ r }: { r: DeskOutcome }) {
                       )}
                     </td>
                     <td className="py-0.5 text-mist-700">
-                      {src.kind === "typed"
-                        ? `Typed by an auditor${src.enteredAt ? ` on ${formatIst(src.enteredAt)}` : ""}`
+                      {src.kind === "typed" || src.kind === "snip"
+                        ? `${src.kind === "snip" ? "Snipped from the page by an auditor" : "Typed by an auditor"}${src.enteredAt ? ` on ${formatIst(src.enteredAt)}` : ""}`
                         : src.kind === "workbook"
                           ? "Read from the workbook by code"
                           : "Not recorded"}
+                      {src.kind === "snip" && src.sourceText ? <span className="block text-mist-600">Printed in the box: “{src.sourceText}”</span> : null}
                     </td>
                   </tr>
                 );
@@ -270,6 +283,7 @@ export function DeskReviewStudio({
   blockIds,
   resolutionsAvailable,
   hasSavedRun,
+  materiality,
 }: DeskReviewStudioProps) {
   const { softReload, isRefreshing } = useSoftReload();
 
@@ -298,39 +312,24 @@ export function DeskReviewStudio({
   const [raisingFindingId, setRaisingFindingId] = useState<string | null>(null);
   const [raisedFindings, setRaisedFindings] = useState<Set<string>>(new Set());
 
-  async function handleRaiseFinding(args: {
-    ruleId: string;
-    title: string;
-    detail: string;
-    severity?: "block" | "warn" | "info";
-    clauseRef?: string;
-    magnitude?: { value: number; unit: string };
-  }) {
-    setRaisingFindingId(args.ruleId);
+  async function handleRaiseFinding(ruleId: string) {
+    setRaisingFindingId(ruleId);
     try {
-      const res = await fetch("/api/findings/create", {
+      const res = await fetch("/api/desk-review/raise-finding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          engagementId,
-          ruleId: args.ruleId,
-          severity: args.severity ?? "block",
-          title: args.title,
-          detail: args.detail,
-          clauseRef: args.clauseRef ?? "BEE CCTS Detailed Procedure (v1.0, July 2024)",
-          magnitude: args.magnitude,
-        }),
+        body: JSON.stringify({ engagementId, ruleId }),
       });
-      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; created?: boolean };
       if (!res.ok || !json.ok) {
-        toast.error(json.error ?? "Failed to raise finding");
+        toast.error(json.error ?? "Could not raise the finding");
         return;
       }
-      setRaisedFindings((prev) => new Set(prev).add(args.ruleId));
-      toast.success(`Raised ${args.severity === "block" ? "CAR" : "CL"} Finding: "${args.title}"`);
+      setRaisedFindings((prev) => new Set(prev).add(ruleId));
+      toast.success(json.created === false ? "A finding already exists for this check" : "Finding raised");
       softReload();
     } catch {
-      toast.error("Network error while raising finding");
+      toast.error("Network error while raising the finding");
     } finally {
       setRaisingFindingId(null);
     }
@@ -372,6 +371,32 @@ export function DeskReviewStudio({
     }
     return init;
   });
+
+  const [regionOf, setRegionOf] = useState<Record<string, Region | null>>(() => {
+    const init: Record<string, Region | null> = {};
+    for (const s of manualSpecs) {
+      const r = savedReadings.find((x) => x.key === s.key || x.key.startsWith(`${s.key}@`));
+      init[s.key] = r?.bbox ?? null;
+    }
+    return init;
+  });
+  const [quoteOf, setQuoteOf] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const s of manualSpecs) {
+      const r = savedReadings.find((x) => x.key === s.key || x.key.startsWith(`${s.key}@`));
+      init[s.key] = r?.sourceText ?? "";
+    }
+    return init;
+  });
+  const [snip, setSnip] = useState<{ key: string; mode: "draw" | "view" } | null>(null);
+
+  function applySnip(key: string, result: SnipResult, isDaily: boolean) {
+    setPageOf((prev) => ({ ...prev, [key]: String(result.page) }));
+    setRegionOf((prev) => ({ ...prev, [key]: result.region }));
+    setQuoteOf((prev) => ({ ...prev, [key]: result.sourceText }));
+    if (result.value !== null && !isDaily) setValues((prev) => ({ ...prev, [key]: String(result.value) }));
+    setSnip(null);
+  }
 
   const [savingReadings, setSavingReadings] = useState(false);
 
@@ -547,7 +572,10 @@ export function DeskReviewStudio({
       value: number | null;
       documentId?: string | null;
       page?: number | null;
+      bbox?: Region | null;
+      sourceText?: string | null;
     }> = [];
+    const region = (key: string) => ({ bbox: regionOf[key] ?? null, sourceText: regionOf[key] ? (quoteOf[key] ?? "") : null });
 
     for (const spec of manualSpecs) {
       if (spec.kind === "daily") {
@@ -564,6 +592,7 @@ export function DeskReviewStudio({
               value: Number(match[2]),
               documentId: docOf[spec.key] || null,
               page: pageOf[spec.key] ? Number(pageOf[spec.key]) : null,
+              ...region(spec.key),
             });
           }
         }
@@ -574,8 +603,18 @@ export function DeskReviewStudio({
           value: valStr === "" ? null : Number(valStr),
           documentId: docOf[spec.key] || null,
           page: pageOf[spec.key] ? Number(pageOf[spec.key]) : null,
+          ...region(spec.key),
         });
       }
+    }
+
+    const unsourced = manualSpecs.filter((s) =>
+      readingsPayload.some((r) => r.value !== null && (r.key === s.key || r.key.startsWith(`${s.key}@`)) && (!r.documentId || !r.page))
+    );
+    if (unsourced.length > 0) {
+      setSavingReadings(false);
+      toast.error(`Pick the source document and page for: ${unsourced.slice(0, 3).map((s) => s.label).join("; ")}${unsourced.length > 3 ? ` and ${unsourced.length - 3} more` : ""}.`);
+      return;
     }
 
     const res = await fetch("/api/desk-review/readings", {
@@ -602,196 +641,15 @@ export function DeskReviewStudio({
 
   const count = (s: DeskStatus) => results.filter((r) => r.status === s).length;
 
-  // Executive Assurance Tie-Out Lead Schedule
-  interface LeadScheduleRow {
-    id: string;
-    name: string;
-    category: "Scope 1 (Direct)" | "Scope 2 (Indirect)" | "Production / Activity" | "Fuel Quality";
-    cellRef: string;
-    fieldPath: string;
-    declared: number | null;
-    evidenced: number | null;
-    unit: string;
-    variance: number | null;
-    variancePct: number | null;
-    status: "pass" | "fail" | "warn" | "pending";
-    statusLabel: string;
-    ruleId: string;
-    ruleLabel: string;
-    ruleDetail: string;
-    clauseRef: string;
-  }
-
-  const leadScheduleItems = useMemo<LeadScheduleRow[]>(() => {
-    const definitions: Array<{
-      id: string;
-      name: string;
-      category: LeadScheduleRow["category"];
-      cellRef: string;
-      fieldPath: string;
-      unit: string;
-      ruleId: string;
-      clauseRef: string;
-    }> = [
-      {
-        id: "clinker",
-        name: "Clinker Production",
-        category: "Production / Activity",
-        cellRef: "B6",
-        fieldPath: "pf.clinker_t",
-        unit: "Lakh t",
-        ruleId: "scada_clinker_vs_mpr",
-        clauseRef: "BEE CCTS Detailed Procedure, Section 5.8 & Annexure III (Process Emissions)",
-      },
-      {
-        id: "opc",
-        name: "OPC Cement Produced",
-        category: "Production / Activity",
-        cellRef: "B7",
-        fieldPath: "pf.opc_t",
-        unit: "Lakh t",
-        ruleId: "scada_opc_vs_mpr",
-        clauseRef: "BEE CCTS Detailed Procedure, Section 5.8 (Cement Production Reconciliation)",
-      },
-      {
-        id: "ppc",
-        name: "PPC Cement Produced",
-        category: "Production / Activity",
-        cellRef: "B8",
-        fieldPath: "pf.ppc_t",
-        unit: "Lakh t",
-        ruleId: "scada_ppc_vs_mpr",
-        clauseRef: "BEE CCTS Detailed Procedure, Section 5.8 (Cement Production Reconciliation)",
-      },
-      {
-        id: "grid_electricity",
-        name: "Grid Electricity Import",
-        category: "Scope 2 (Indirect)",
-        cellRef: "B15",
-        fieldPath: "pf.grid_kwh",
-        unit: "Lakh kWh",
-        ruleId: "coverage_grid",
-        clauseRef: "BEE CCTS Detailed Procedure, Section 5.10 & CEA Baseline Database v19",
-      },
-      {
-        id: "cpp_power",
-        name: "Captive Power Generation (CPP)",
-        category: "Scope 1 (Direct)",
-        cellRef: "B10",
-        fieldPath: "pf.cpp_kwh",
-        unit: "Lakh kWh",
-        ruleId: "cpp_report_vs_proforma",
-        clauseRef: "BEE CCTS Detailed Procedure, Section 5.16 & Annexure III",
-      },
-      {
-        id: "kiln_coal",
-        name: "Kiln Coal Consumed",
-        category: "Scope 1 (Direct)",
-        cellRef: "B8",
-        fieldPath: "pf.coal_t",
-        unit: "t",
-        ruleId: "coal_log_vs_po",
-        clauseRef: "BEE CCTS Detailed Procedure, Section 5.8 (Fuel Measurement & Stock Balance)",
-      },
-      {
-        id: "coal_gcv",
-        name: "Coal Calorific Value (GCV vs NCV)",
-        category: "Fuel Quality",
-        cellRef: "B11",
-        fieldPath: "pf.gcv_coal",
-        unit: "kcal/kg",
-        ruleId: "gcv_rule",
-        clauseRef: "BEE CCTS Detailed Procedure, Section 5.8.iii & ISO 14064-3 Mandate",
-      },
-      {
-        id: "direct_ghg",
-        name: "Direct GHG Emissions (Scope 1)",
-        category: "Scope 1 (Direct)",
-        cellRef: "B32",
-        fieldPath: "pf.direct_co2",
-        unit: "tCO2e",
-        ruleId: "form1_direct",
-        clauseRef: "BEE CCTS Detailed Procedure, Section 6.1 & Annexure V (E2 Form Undertaking)",
-      },
-      {
-        id: "indirect_ghg",
-        name: "Indirect GHG Emissions (Scope 2)",
-        category: "Scope 2 (Indirect)",
-        cellRef: "B35",
-        fieldPath: "pf.indirect_co2",
-        unit: "tCO2e",
-        ruleId: "form1_indirect",
-        clauseRef: "BEE CCTS Detailed Procedure, Section 5.10 & Section 6.1",
-      },
-      {
-        id: "petcoke",
-        name: "Petcoke Kiln Fuel Stream",
-        category: "Scope 1 (Direct)",
-        cellRef: "—",
-        fieldPath: "pf.petcoke_t",
-        unit: "t",
-        ruleId: "petcoke_cell",
-        clauseRef: "BEE CCTS Detailed Procedure, Section 5.8 (Omission of Fossil Fuel Streams)",
-      },
-    ];
-
-    return definitions.map((def) => {
-      const cell = cellsToDisplay.find((c) => c.fieldPath === def.fieldPath);
-      const rule = resultsById.get(def.ruleId);
-
-      const declared = cell?.value !== null && cell?.value !== undefined ? cell.value : (rule?.expected !== undefined ? rule.expected : null);
-      const evidenced = rule?.actual !== undefined ? rule.actual : null;
-      let diff = rule?.diff !== undefined ? rule.diff : null;
-      if (diff === null && declared !== null && evidenced !== null) {
-        diff = Math.round((evidenced - declared) * 1000) / 1000;
-      }
-
-      let variancePct: number | null = null;
-      if (diff !== null && declared && declared !== 0) {
-        variancePct = Math.round((Math.abs(diff) / Math.abs(declared)) * 10000) / 100;
-      }
-
-      let status: LeadScheduleRow["status"] = "pending";
-      let statusLabel = "Waiting for Readings";
-
-      if (rule) {
-        if (rule.status === "pass") {
-          status = "pass";
-          statusLabel = "Agrees (Within 0.5% tolerance)";
-        } else if (rule.status === "fail") {
-          if (variancePct !== null && variancePct > 2.0) {
-            status = "fail";
-            statusLabel = `Material Misstatement (> 2.0% CCTS threshold: ${variancePct}%)`;
-          } else {
-            status = "warn";
-            statusLabel = `Discrepancy Detected (${variancePct !== null ? variancePct + "%" : "Exceeds tolerance"})`;
-          }
-        } else if (rule.status === "pending") {
-          status = "pending";
-          statusLabel = "Waiting for Primary Evidence Readings";
-        }
-      }
-
-      return {
-        id: def.id,
-        name: def.name,
-        category: def.category,
-        cellRef: cell?.cellRef ?? def.cellRef,
-        fieldPath: def.fieldPath,
-        declared,
-        evidenced,
-        unit: cell?.unit ?? def.unit,
-        variance: diff,
-        variancePct,
-        status,
-        statusLabel,
-        ruleId: def.ruleId,
-        ruleLabel: rule?.label ?? def.name,
-        ruleDetail: rule?.detail ?? "No reading recorded yet.",
-        clauseRef: def.clauseRef,
-      };
-    });
-  }, [cellsToDisplay, resultsById]);
+  const leadSchedule = useMemo(
+    () =>
+      buildLeadSchedule({
+        outcomes: results,
+        materiality,
+        resolutions: Object.fromEntries(Object.entries(resolutions).map(([id, r]) => [id, { state: r.state, reason: r.reason }])),
+      }),
+    [results, materiality, resolutions]
+  );
 
   return (
     <div className="space-y-5">
@@ -936,7 +794,10 @@ export function DeskReviewStudio({
                           <select
                             aria-label={`Document for ${spec.label}`}
                             value={docOf[spec.key] ?? ""}
-                            onChange={(e) => setDocOf({ ...docOf, [spec.key]: e.target.value })}
+                            onChange={(e) => {
+                              setDocOf({ ...docOf, [spec.key]: e.target.value });
+                              setRegionOf((prev) => ({ ...prev, [spec.key]: null }));
+                            }}
                             className="col-span-2 h-7 truncate rounded border border-mist-300 px-1 text-[11px] text-mist-800 bg-white font-mono"
                           >
                             <option value="">(Select Document)</option>
@@ -971,9 +832,38 @@ export function DeskReviewStudio({
                             type="number"
                             placeholder="Page #"
                             value={pageOf[spec.key] ?? ""}
-                            onChange={(e) => setPageOf({ ...pageOf, [spec.key]: e.target.value })}
+                            onChange={(e) => {
+                              setPageOf({ ...pageOf, [spec.key]: e.target.value });
+                              setRegionOf((prev) => ({ ...prev, [spec.key]: null }));
+                            }}
                             className="h-7 text-[11px]"
                           />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-mist-700">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="h-6 px-2 text-[11px]"
+                            disabled={!docOf[spec.key] || !canSnip(docs.find((d) => d.id === docOf[spec.key]))}
+                            onClick={() => setSnip({ key: spec.key, mode: "draw" })}
+                          >
+                            Snip from the page
+                          </Button>
+                          {regionOf[spec.key] ? (
+                            <>
+                              <span>Region kept{pageOf[spec.key] ? `, page ${pageOf[spec.key]}` : ""}</span>
+                              <button type="button" className="font-medium text-teal-800 underline underline-offset-2" onClick={() => setSnip({ key: spec.key, mode: "view" })}>
+                                Show
+                              </button>
+                              <button
+                                type="button"
+                                className="text-mist-600 underline underline-offset-2"
+                                onClick={() => setRegionOf((prev) => ({ ...prev, [spec.key]: null }))}
+                              >
+                                Clear
+                              </button>
+                            </>
+                          ) : null}
                         </div>
                         {docOf[spec.key] ? (
                           <div className="flex items-center gap-1 text-[10px] text-mist-600 truncate" title={docs.find((d) => d.id === docOf[spec.key])?.name}>
@@ -1048,173 +938,20 @@ export function DeskReviewStudio({
         </p>
       </div>
 
-      {/* VIEW A: Executive Assurance Tie-Out Lead Schedule */}
+      {/* VIEW A: the lead tie-out schedule */}
       {activeView === "lead_schedule" ? (
-        <div className="space-y-4">
-          <div className="rounded-lg border border-mist-200 bg-white p-4 shadow-xs space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-semibold text-mist-950 flex items-center gap-2">
-                  <FileSpreadsheet className="size-4 text-teal-800" />
-                  Statutory Tie-Out & Materiality Reconciliation Matrix
-                </h3>
-                <p className="mt-0.5 text-xs text-mist-600">
-                  Cross-checks the Obligated Entity&apos;s declared figures against primary corroborative evidence (DISCOM bills, NABL lab tests, SCADA, weighbridge logs). Discrepancies exceeding 2.0% require mandatory Corrective Action Requests (CAR).
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="secondary" onClick={() => setShowReadingsDrawer(true)}>
-                  <FileText className="size-3.5" />
-                  Corroboration Drawer
-                </Button>
-                {canDecide ? (
-                  <Button size="sm" onClick={() => void runDeskReview()} disabled={running || isRefreshing}>
-                    <Play className="size-3.5" />
-                    {running ? "Checking…" : "Re-evaluate Matrix"}
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-
-            <Table>
-              <thead>
-                <tr>
-                  <Th>Parameter / Stream</Th>
-                  <Th className="text-right">Declared (Pro-Forma)</Th>
-                  <Th className="text-right">Evidenced (Actual)</Th>
-                  <Th className="text-right">Variance (Δ)</Th>
-                  <Th>Assurance Status & Materiality</Th>
-                  <Th className="text-right">Auditor Action</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {leadScheduleItems.map((item) => {
-                  const isFail = item.status === "fail";
-                  const isWarn = item.status === "warn";
-                  const isPass = item.status === "pass";
-                  const isPending = item.status === "pending";
-
-                  return (
-                    <tr key={item.id} className={isFail ? "bg-red-50/20" : undefined}>
-                      <Td className="min-w-[220px]">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-xs text-mist-950">{item.name}</span>
-                            <span className="rounded bg-mist-100 px-1 py-0.5 font-mono text-[10px] text-mist-600">
-                              {item.cellRef}
-                            </span>
-                          </div>
-                          <span className="text-[11px] text-mist-500">{item.category}</span>
-                        </div>
-                      </Td>
-
-                      <Td className="text-right font-mono text-xs whitespace-nowrap">
-                        {item.declared !== null ? (
-                          <span className="font-medium text-mist-900">
-                            {item.declared.toLocaleString()} <span className="text-mist-500 font-sans">{item.unit}</span>
-                          </span>
-                        ) : (
-                          <span className="text-mist-400 italic">Not in sheet</span>
-                        )}
-                      </Td>
-
-                      <Td className="text-right font-mono text-xs whitespace-nowrap">
-                        {item.evidenced !== null ? (
-                          <span className="font-medium text-mist-900">
-                            {item.evidenced.toLocaleString()} <span className="text-mist-500 font-sans">{item.unit}</span>
-                          </span>
-                        ) : (
-                          <span className="text-amber-700 font-sans text-[11px]">Pending reading</span>
-                        )}
-                      </Td>
-
-                      <Td className="text-right font-mono text-xs whitespace-nowrap">
-                        {item.variance !== null ? (
-                          <div>
-                            <span className={Math.abs(item.variance) > 0 ? (isFail ? "font-bold text-red-700" : "font-medium text-amber-800") : "text-emerald-700"}>
-                              {item.variance > 0 ? `+${item.variance.toLocaleString()}` : item.variance.toLocaleString()}
-                            </span>
-                            {item.variancePct !== null && (
-                              <span className={`block text-[10px] ${isFail ? "text-red-700 font-bold" : "text-mist-500"}`}>
-                                ({item.variancePct > 0 ? `${item.variancePct}%` : "0%"})
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-mist-400">—</span>
-                        )}
-                      </Td>
-
-                      <Td className="min-w-[200px]">
-                        <div>
-                          <Badge
-                            tone={isPass ? "ok" : isFail ? "block" : isWarn ? "draft" : "neutral"}
-                            dot
-                            className="text-xs"
-                          >
-                            {item.statusLabel}
-                          </Badge>
-                          <p className="mt-1 text-[11px] text-mist-600 line-clamp-1" title={item.ruleDetail}>
-                            {item.ruleDetail}
-                          </p>
-                        </div>
-                      </Td>
-
-                      <Td className="text-right whitespace-nowrap">
-                        {isFail || isWarn ? (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="h-7 text-xs border-red-200 text-red-800 hover:bg-red-50"
-                            disabled={raisingFindingId === item.ruleId || raisedFindings.has(item.ruleId)}
-                            onClick={() => {
-                              void handleRaiseFinding({
-                                ruleId: item.ruleId,
-                                title: `Material Discrepancy in ${item.name}`,
-                                detail: `Declared: ${item.declared} ${item.unit} vs Evidenced: ${item.evidenced} ${item.unit}. Variance: ${item.variance} (${item.variancePct}%). ${item.ruleDetail}`,
-                                severity: isFail ? "block" : "warn",
-                                clauseRef: item.clauseRef,
-                                magnitude: item.variance !== null ? { value: Math.abs(item.variance), unit: item.unit } : undefined,
-                              });
-                            }}
-                          >
-                            {raisedFindings.has(item.ruleId) ? (
-                              <>
-                                <Check className="size-3 text-emerald-600" />
-                                Raised
-                              </>
-                            ) : raisingFindingId === item.ruleId ? (
-                              "Raising…"
-                            ) : (
-                              <>
-                                <ShieldAlert className="size-3 text-red-600" />
-                                Raise CAR
-                              </>
-                            )}
-                          </Button>
-                        ) : isPending ? (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="h-7 text-xs"
-                            onClick={() => setShowReadingsDrawer(true)}
-                          >
-                            Provide Reading
-                          </Button>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-xs text-emerald-700 font-medium">
-                            <Check className="size-3.5" />
-                            Verified
-                          </span>
-                        )}
-                      </Td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </Table>
-          </div>
-        </div>
+        <LeadScheduleView
+          schedule={leadSchedule}
+          findings={deskFindings}
+          canDecide={canDecide}
+          hasSavedRun={hasSavedRun}
+          raising={raisingFindingId}
+          onRaise={(ruleId) => void handleRaiseFinding(ruleId)}
+          onOpenReadings={() => setShowReadingsDrawer(true)}
+          running={running || isRefreshing}
+          onRun={() => void runDeskReview()}
+          binderHref={hasSavedRun ? `/api/desk-review/binder?engagementId=${engagementId}` : null}
+        />
       ) : null}
 
       {/* VIEW B: Main Dual-Panel Layout: Pro-forma Hub (Left) & Tie-Out Rules (Right) */}
@@ -1554,14 +1291,7 @@ export function DeskReviewStudio({
                                   className="h-7 text-xs border-red-200 text-red-800 hover:bg-red-50"
                                   disabled={raisingFindingId === r.id || raisedFindings.has(r.id)}
                                   onClick={() => {
-                                    void handleRaiseFinding({
-                                      ruleId: r.id,
-                                      title: `Discrepancy in ${r.label}`,
-                                      detail: r.detail,
-                                      severity: r.diff && Math.abs(r.diff) > (r.expected ? r.expected * 0.02 : 1) ? "block" : "warn",
-                                      clauseRef: r.thresholdSource ?? "Detailed Procedure for Compliance Mechanism under CCTS (BEE, July 2024)",
-                                      magnitude: r.diff !== undefined ? { value: Math.abs(r.diff), unit: "delta" } : undefined,
-                                    });
+                                    void handleRaiseFinding(r.id);
                                   }}
                                 >
                                   {raisedFindings.has(r.id) ? (
@@ -1616,6 +1346,31 @@ export function DeskReviewStudio({
         </div>
       </div>
       ) : null}
+
+      {snip
+        ? (() => {
+            const spec = manualSpecs.find((m) => m.key === snip.key);
+            const doc = docs.find((d) => d.id === docOf[snip.key]);
+            if (!spec || !doc) return null;
+            return (
+              <SnipDialog
+                open
+                mode={snip.mode}
+                documentId={doc.id}
+                mimeType={doc.mimeType ?? null}
+                documentName={doc.name}
+                label={spec.label}
+                unit={spec.unit}
+                initialPage={Number(pageOf[snip.key]) || 1}
+                initialRegion={regionOf[snip.key] ?? null}
+                initialText={quoteOf[snip.key] ?? ""}
+                initialValue={values[snip.key] ?? ""}
+                onClose={() => setSnip(null)}
+                onUse={(result) => applySnip(snip.key, result, spec.kind === "daily")}
+              />
+            );
+          })()
+        : null}
     </div>
   );
 }

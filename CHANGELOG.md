@@ -16,6 +16,32 @@ must say which version it bumps. Current versions:
 
 ## [Unreleased]
 
+### Desk review: findings, the lead schedule, snips and the binder
+
+- **One clause registry.** The desk review cites each check to the clause in the register (stock balance,
+  completeness, sampling, NCV basis, materiality, renewable claims, export deduction). A check with no clause of
+  its own is cited to the procedure as a whole and says so; no clause number is invented. The register notes the
+  owner's confirmation. See `backend/domain/deskreview/clauses.ts`.
+- **Raise a finding in one step, built on the server.** `POST /api/desk-review/raise-finding` takes only the
+  engagement and the check. The title, figures, clause, size of the gap, required response and evidence references
+  come from the latest saved run and the registry, and a finding already stored for the check is not duplicated.
+  Runs and decisions store the same fields. `/api/findings/create`, which trusted browser-supplied text and did
+  not check the engagement's organization, is removed.
+- **The lead schedule is built by one function.** `buildLeadSchedule` takes the desk-review results and gives
+  each line its reported and evidenced figures, the difference, the band, the clause and the decision, and the
+  aggregate position against 2% of the reported total. The page and the binder read the same structure. It never
+  calls a line material and never says verified. The previous schedule pointed at checks that no longer exist
+  (`coal_log_vs_po`, `gcv_rule`) and labelled any pass "within 0.5%".
+- **Snip a figure from the page.** Draw a box on the page a typed figure was read from, say what is printed in
+  it, and the box is kept with the value (normalised to the page, as extraction does). A snip is human provenance;
+  nothing reads the box for the auditor. Migration 0020 adds `bbox`, `source_text` and `source_kind` to
+  `desk_readings`.
+- **A binder.** `GET /api/desk-review/binder?engagementId=` returns a PDF with the cover and content digest, the
+  lead schedule, the aggregate, the findings and decisions, an index of every figure with its file hash and page,
+  cell or region, and the cited pages with each snipped region drawn on. The same content gives the same bytes. The
+  file's SHA-256 and the digest are written to the audit log (`desk_review.binder_generated`) and returned in
+  `X-Binder-SHA256` and `X-Binder-Content-Digest`. The layout is generic.
+
 ### A new look for the public site and the shared components
 
 - **Public home page rebuilt.** The hero is a live fragment: press a value on an invoice page, then accept or

@@ -6,6 +6,8 @@ import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
 import { getEngagement } from "@verifystack/backend/lib/data/engagements";
 import { deskReviewFor } from "@verifystack/backend/domain/deskreview";
+import { parseRegion } from "@verifystack/backend/domain/deskreview/snip";
+import type { Json } from "@verifystack/backend/lib/supabase/types";
 
 export const runtime = "nodejs";
 
@@ -20,6 +22,9 @@ const Body = z.object({
         documentId: z.string().uuid().nullable().optional(),
         page: z.number().int().min(1).max(10000).nullable().optional(),
         note: z.string().trim().max(300).nullable().optional(),
+        /** The box the auditor drew on the page, normalised to it. Needs the page and what is printed in the box. */
+        bbox: z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() }).nullable().optional(),
+        sourceText: z.string().trim().max(300).nullable().optional(),
       })
     )
     .min(1)
@@ -52,14 +57,39 @@ export async function PUT(req: Request) {
     if (!supabase) return NextResponse.json({ ok: false, error: "Supabase is not configured" }, { status: 503 });
 
     const specs = new Map(def.manual.map((s) => [s.key, s]));
-    const resolved: { key: string; unit: string; value: number | null; documentId: string | null; page: number | null; note: string | null }[] = [];
+    const resolved: {
+      key: string;
+      unit: string;
+      value: number | null;
+      documentId: string | null;
+      page: number | null;
+      note: string | null;
+      bbox: { x: number; y: number; width: number; height: number } | null;
+      sourceText: string | null;
+    }[] = [];
     for (const r of body.readings) {
       const day = DAILY.exec(r.key);
       const spec = specs.get(day ? day[1]! : r.key);
       if (!spec || Boolean(day) !== (spec.kind === "daily")) {
         return NextResponse.json({ ok: false, error: `"${r.key}" is not a reading this review takes.` }, { status: 422 });
       }
-      resolved.push({ key: r.key, unit: spec.unit, value: r.value, documentId: r.documentId ?? null, page: r.page ?? null, note: r.note ?? null });
+      const bbox = r.bbox ? parseRegion(r.bbox) : null;
+      if (r.bbox && !bbox) {
+        return NextResponse.json({ ok: false, error: `The region for "${r.key}" is not a box on the page.` }, { status: 422 });
+      }
+      if (bbox && r.value !== null && !r.sourceText?.trim()) {
+        return NextResponse.json({ ok: false, error: `Say what is printed in the box for "${r.key}".` }, { status: 422 });
+      }
+      resolved.push({
+        key: r.key,
+        unit: spec.unit,
+        value: r.value,
+        documentId: r.documentId ?? null,
+        page: r.page ?? null,
+        note: r.note ?? null,
+        bbox,
+        sourceText: bbox ? (r.sourceText?.trim() ?? null) : null,
+      });
     }
 
     const unsourced = [...new Set(resolved.filter((r) => r.value !== null && (r.documentId === null || r.page === null)).map((r) => r.key.split("@")[0]!))];
@@ -89,12 +119,12 @@ export async function PUT(req: Request) {
 
     const { data: prior, error: priorError } = await supabase
       .from("desk_readings")
-      .select("key, value, document_id, page")
+      .select("key, value, document_id, page, bbox")
       .eq("engagement_id", body.engagementId)
       .eq("organization_id", organizationId)
       .in("key", resolved.map((r) => r.key));
     if (priorError) throw new Error(priorError.message);
-    const before = new Map((prior ?? []).map((p) => [p.key, { value: Number(p.value), documentId: p.document_id, page: p.page }]));
+    const before = new Map((prior ?? []).map((p) => [p.key, { value: Number(p.value), documentId: p.document_id, page: p.page, ...(p.bbox ? { region: p.bbox } : {}) }]));
 
     const removals = resolved.filter((r) => r.value === null).map((r) => r.key);
     const upserts = resolved.filter((r) => r.value !== null);
@@ -113,6 +143,9 @@ export async function PUT(req: Request) {
           document_id: r.documentId,
           page: r.page,
           note: r.note,
+          bbox: (r.bbox ?? null) as unknown as Json | null,
+          source_text: r.sourceText,
+          source_kind: r.bbox ? ("snip" as const) : ("typed" as const),
           entered_by: session.user.id,
           entered_at: new Date().toISOString(),
         })),
@@ -133,6 +166,7 @@ export async function PUT(req: Request) {
           value: r.value,
           documentId: r.documentId,
           page: r.page,
+          ...(r.bbox ? { region: r.bbox, sourceText: r.sourceText } : {}),
           ...(before.has(r.key) ? { previous: before.get(r.key) } : {}),
         })),
         removed: removals.map((key) => ({ key, ...(before.has(key) ? { previous: before.get(key) } : {}) })),

@@ -703,6 +703,9 @@ export interface Database {
           document_id: string | null;
           page: number | null;
           note: string | null;
+          bbox: Json | null;
+          source_text: string | null;
+          source_kind: "typed" | "snip";
           entered_by: string | null;
           entered_at: string;
         }>;
@@ -716,6 +719,9 @@ export interface Database {
           document_id?: string | null;
           page?: number | null;
           note?: string | null;
+          bbox?: Json | null;
+          source_text?: string | null;
+          source_kind?: "typed" | "snip";
           entered_by?: string | null;
           entered_at?: string;
         }>;

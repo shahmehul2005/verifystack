@@ -89,9 +89,13 @@ export interface ReadingOrigin {
   /** The label printed beside the figure in its own document, when there is one. */
   label?: string;
   /** Read from a workbook by code, or typed by an auditor against a PDF page. Absent on runs saved before this was recorded. */
-  kind?: "workbook" | "typed";
+  kind?: "workbook" | "typed" | "snip";
   /** When an auditor typed the figure. */
   enteredAt?: string;
+  /** The box the auditor drew on the page, for a snipped figure. Normalised to the page. */
+  region?: { x: number; y: number; width: number; height: number };
+  /** What is printed in that box, as the auditor read it. */
+  sourceText?: string;
 }
 
 /** One input of a check, with its value and where it was read from. */
@@ -104,8 +108,10 @@ export interface DeskSourceRef {
   documentId?: string | null;
   filename?: string | null;
   location?: string | null;
-  kind?: "workbook" | "typed";
+  kind?: "workbook" | "typed" | "snip";
   enteredAt?: string;
+  region?: { x: number; y: number; width: number; height: number };
+  sourceText?: string;
 }
 
 export interface DeskOutcome {
@@ -206,6 +212,8 @@ function sourcesFor(def: DeskReviewDef, rule: DeskRule, readings: Readings, orig
       ...(origin ? { slot: origin.slot, documentId: origin.documentId, filename: origin.filename, location: origin.location } : spec ? { slot: spec.slot } : {}),
       ...(origin?.kind ? { kind: origin.kind } : {}),
       ...(origin?.enteredAt ? { enteredAt: origin.enteredAt } : {}),
+      ...(origin?.region ? { region: origin.region } : {}),
+      ...(origin?.sourceText ? { sourceText: origin.sourceText } : {}),
     });
   }
   return out;

@@ -98,6 +98,9 @@ export async function POST(req: Request) {
           detail: draft.detail,
           clause_ref: draft.clauseRef,
           evidence_refs: draft.evidenceRefs as unknown as Json,
+          magnitude: (draft.magnitude ?? null) as unknown as Json | null,
+          required_response: draft.requiredResponse,
+          generator: "desk_review",
           state: "suggested" as const,
         })
         .select("id, severity, state")
