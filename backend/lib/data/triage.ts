@@ -18,6 +18,7 @@ import {
   type Comparison,
   type ComparisonSummary,
 } from "@verifystack/backend/domain/compare/declared";
+import { isSnipProvenance } from "@verifystack/backend/domain/deskreview/snip";
 import type { Tables } from "@verifystack/backend/lib/supabase/types";
 
 export interface EngagementTriage {
@@ -96,6 +97,7 @@ export async function loadEngagementTriage(
     triage_action: f.triage_action,
     state: f.state,
     provenance_type: f.provenance_type,
+    snip: isSnipProvenance(f.provenance),
     declaredMismatch: mismatched.has(f.field_path),
   }));
   const plan = planBulkAccept(engagementId, triageInput, sampleRate);
@@ -105,7 +107,7 @@ export async function loadEngagementTriage(
     risk.set(
       f.id,
       assessRisk(
-        { field_path: f.field_path, confidence: Number(f.confidence), triage_action: f.triage_action },
+        { field_path: f.field_path, confidence: Number(f.confidence), triage_action: f.triage_action, snip: isSnipProvenance(f.provenance) },
         { declaredMismatch: mismatched.has(f.field_path) }
       )
     );

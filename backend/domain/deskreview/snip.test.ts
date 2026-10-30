@@ -50,3 +50,15 @@ describe("describeRegion", () => {
     expect(describeRegion({ x: 0.7, y: 0.8, width: 0.25, height: 0.1 })).toBe("bottom right of the page, 25% wide and 10% high");
   });
 });
+
+describe("snip provenance", () => {
+  it("marks a field as drawn by a person, and only that", async () => {
+    const { SNIP_KIND, isSnipProvenance, snipProvenance } = await import("./snip");
+    expect(snipProvenance("u1", "2026-10-31T09:00:00.000Z")).toEqual({ kind: SNIP_KIND, by: "u1", at: "2026-10-31T09:00:00.000Z" });
+    expect(isSnipProvenance(snipProvenance("u1", "t"))).toBe(true);
+    expect(isSnipProvenance({ kind: "spreadsheet" })).toBe(false);
+    expect(isSnipProvenance(null)).toBe(false);
+    expect(isSnipProvenance([])).toBe(false);
+    expect(isSnipProvenance("snip")).toBe(false);
+  });
+});

@@ -40,6 +40,8 @@ export interface TriageField {
   triage_action: "human_review" | "auto_commit";
   state: "suggested" | "accepted" | "rejected" | "corrected";
   provenance_type?: string | null;
+  /** The value was drawn on the page and typed by a person, not proposed by the model. */
+  snip?: boolean;
 }
 
 export interface RiskAssessment {
@@ -53,10 +55,13 @@ function leafOf(path: string): string {
 }
 
 export function assessRisk(
-  field: Pick<TriageField, "field_path" | "confidence" | "triage_action">,
+  field: Pick<TriageField, "field_path" | "confidence" | "triage_action"> & { snip?: boolean },
   opts: { declaredMismatch?: boolean } = {}
 ): RiskAssessment {
   const reasons: string[] = [];
+  if (field.snip) {
+    reasons.push("Entered from a region drawn on the page: always read by a person.");
+  }
   if (CONFIDENCE_POLICY.alwaysReview.has(leafOf(field.field_path))) {
     reasons.push("High-materiality field: always reviewed.");
   }

@@ -17,6 +17,7 @@ import { loadEngagementTriage } from "@verifystack/backend/lib/data/triage";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { loadPack, packFieldTargets } from "@verifystack/backend/domain/packs";
+import { isSnipProvenance } from "@verifystack/backend/domain/deskreview/snip";
 import { ReviewWorkbench, type ReviewField } from "./review-workbench";
 import type { Json } from "@verifystack/backend/lib/supabase/types";
 
@@ -54,7 +55,7 @@ export default async function AppWorkbenchPage({
     loadEngagementTriage(session.organizationId, id),
     supabase!
       .from("documents")
-      .select("id, storage_path, mime_type")
+      .select("id, storage_path, mime_type, original_filename")
       .eq("engagement_id", id)
       .eq("organization_id", session.organizationId),
   ]);
@@ -90,6 +91,7 @@ export default async function AppWorkbenchPage({
       document_id: documentId,
       fileUrl: doc?.storage_path ? `/api/documents/${documentId}/file` : null,
       mimeType: doc?.mime_type ?? null,
+      snip: isSnipProvenance(f.provenance),
       inSample: triage.sampleIds.has(f.id),
       riskReasons: risk?.tier === "high" ? risk.reasons : undefined,
     };
@@ -97,6 +99,10 @@ export default async function AppWorkbenchPage({
 
   const { plan, comparisonSummary: cs, share } = triage;
   const targets = packFieldTargets(loadPack(engagement.pack_id));
+  // A value can be snipped from any PDF or image in the engagement, including one the model read nothing from.
+  const snipDocs = (docs ?? [])
+    .filter((d) => d.mime_type === "application/pdf" || d.mime_type.startsWith("image/"))
+    .map((d) => ({ id: d.id, name: d.original_filename, mimeType: d.mime_type }));
   const hasLowRisk = plan.lowRiskPending > 0 || plan.sample.length > 0;
 
   return (
@@ -190,7 +196,7 @@ export default async function AppWorkbenchPage({
         </CardBody>
       </Card>
 
-      {mapped.length === 0 ? (
+      {mapped.length === 0 && snipDocs.length === 0 ? (
         <EmptyState
           icon={ListChecks}
           title="Nothing waiting for review"
@@ -205,7 +211,7 @@ export default async function AppWorkbenchPage({
           }}
         />
       ) : (
-        <ReviewWorkbench engagementId={id} fields={mapped} />
+        <ReviewWorkbench engagementId={id} fields={mapped} documents={snipDocs} targets={targets} />
       )}
     </>
   );

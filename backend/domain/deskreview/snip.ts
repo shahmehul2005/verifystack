@@ -69,3 +69,25 @@ export function describeRegion(r: Region): string {
   const place = row === "middle" && col === "middle" ? "centre" : `${row} ${col}`;
   return `${place} of the page, ${Math.round(r.width * 100)}% wide and ${Math.round(r.height * 100)}% high`;
 }
+
+/* ------------------------------------------------------------------ */
+/* A snip in the review workbench                                      */
+/* ------------------------------------------------------------------ */
+
+/** Marks an extracted field as drawn on the page by a person, not read by the model. */
+export const SNIP_KIND = "snip";
+
+export interface SnipProvenance {
+  kind: typeof SNIP_KIND;
+  /** The user who drew the region. */
+  by: string;
+  at: string;
+}
+
+export function snipProvenance(by: string, at: string): SnipProvenance {
+  return { kind: SNIP_KIND, by, at };
+}
+
+export function isSnipProvenance(value: unknown): boolean {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value) && (value as { kind?: unknown }).kind === SNIP_KIND;
+}

@@ -1,11 +1,12 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EvidencePageViewer } from "@/components/workbench/evidence-page-viewer";
-import { describeRegion, regionFromDrag, type Point, type Region } from "@verifystack/backend/domain/deskreview/snip";
+import { RegionDrawLayer } from "@/components/workbench/region-draw-layer";
+import { describeRegion, type Region } from "@verifystack/backend/domain/deskreview/snip";
 
 export interface SnipResult {
   page: number;
@@ -60,39 +61,14 @@ export function SnipDialog({
   const [value, setValue] = useState(initialValue);
   const [live, setLive] = useState<Region | null>(null);
   const [tooSmall, setTooSmall] = useState(false);
-  const start = useRef<Point | null>(null);
-  const size = useRef({ width: 0, height: 0 });
-
-  const point = (e: React.PointerEvent<HTMLDivElement>): Point => {
-    const r = e.currentTarget.getBoundingClientRect();
-    size.current = { width: r.width, height: r.height };
-    return { x: e.clientX - r.left, y: e.clientY - r.top };
-  };
 
   const overlay =
     mode === "draw" ? (
-      <div
-        className="absolute inset-0 z-20 cursor-crosshair touch-none"
-        onPointerDown={(e) => {
-          e.currentTarget.setPointerCapture(e.pointerId);
-          start.current = point(e);
-          setTooSmall(false);
-        }}
-        onPointerMove={(e) => {
-          if (!start.current) return;
-          setLive(regionFromDrag(start.current, point(e), size.current));
-        }}
-        onPointerUp={(e) => {
-          if (!start.current) return;
-          const drawn = regionFromDrag(start.current, point(e), size.current);
-          start.current = null;
-          setLive(null);
+      <RegionDrawLayer
+        onLive={setLive}
+        onDraw={(drawn) => {
           setTooSmall(drawn === null);
           if (drawn) setRegion(drawn);
-        }}
-        onPointerCancel={() => {
-          start.current = null;
-          setLive(null);
         }}
       />
     ) : null;

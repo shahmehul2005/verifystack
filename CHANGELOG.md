@@ -16,6 +16,20 @@ must say which version it bumps. Current versions:
 
 ## [Unreleased]
 
+### Review workbench: snip a value straight into the facts ledger
+
+- **Snip from the document panel.** The workbench's left panel has "Open any uploaded document", a list of every
+  PDF and image in the engagement, not only those the model read. Draw a box around a value; a form then appears
+  to name the field (a dropdown of the fields the methodology binds), type the figure and say what is printed in the
+  box. "Add to facts ledger" records it at once. The panel opens ready to snip when nothing was extracted.
+- **Recorded as a fact, marked as entered by you.** The reviewer drew the box, named the field and typed the figure,
+  so that is the decision: the field is stored accepted by them and the fact is written with its page, region and
+  printed text. It is marked as drawn by a person (`provenance.kind = snip`, `proposed_by`), shown as "Entered
+  from the page", and audited as `field.snipped_accepted`. Only fields the methodology binds can be added and the
+  figure must be a number. Because no second person sees it first, the independent technical review is the check
+  on it. No migration.
+- The drag-to-draw layer is shared with the desk-review snip dialog.
+
 ### Desk review: real PDF reading, period-aware calcination, NABL band, stronger integrity checks
 
 Found by running the Dataset-2 engagement end to end. No engine or pack version changes: the run input and

@@ -24,6 +24,24 @@ function field(i: number, over: Partial<TriageField> = {}): TriageField {
 }
 const many = (n: number) => Array.from({ length: n }, (_, i) => field(i));
 
+describe("a snipped value", () => {
+  it("is always read by a person, however sure the number looks", () => {
+    const r = assessRisk(field(1, { snip: true, confidence: 1 }));
+    expect(r.tier).toBe("high");
+    expect(r.reasons).toEqual(["Entered from a region drawn on the page: always read by a person."]);
+  });
+
+  it("is never eligible for bulk accept and never enters the review sample", () => {
+    const fields = [...many(40), field(100, { snip: true, confidence: 1 }), field(101, { snip: true, confidence: 1 })];
+    const plan = planBulkAccept(ENG, fields);
+    expect(plan.eligibleIds).not.toContain("f100");
+    expect(plan.eligibleIds).not.toContain("f101");
+    expect(plan.sample.map((s) => s.id)).not.toContain("f100");
+    expect(plan.sample.map((s) => s.id)).not.toContain("f101");
+    expect(plan.lowRiskPending).toBe(40);
+  });
+});
+
 describe("assessRisk", () => {
   it("is low for a confident, non-material field", () => {
     expect(assessRisk(field(1))).toEqual({ tier: "low", reasons: [] });

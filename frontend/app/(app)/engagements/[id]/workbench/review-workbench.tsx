@@ -3,7 +3,7 @@
 import { useSoftReload } from "@/lib/soft-reload";
 
 import { useEffect, useState } from "react";
-import { Check, PenLine, X } from "lucide-react";
+import { Check, PenLine, Scissors, X } from "lucide-react";
 import { DocumentFacsimile } from "@/components/workbench/document-facsimile";
 import type { DemoFact } from "@verifystack/backend/fixtures/types";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
 import { EvidencePageViewer } from "@/components/workbench/evidence-page-viewer";
+import { RegionDrawLayer } from "@/components/workbench/region-draw-layer";
+import { describeRegion, type Region } from "@verifystack/backend/domain/deskreview/snip";
 import { toast } from "sonner";
 
 export interface ReviewField {
@@ -27,24 +29,118 @@ export interface ReviewField {
   document_id: string;
   fileUrl: string | null;
   mimeType: string | null;
+  /** Drawn on the page and typed by a person, not read by the model. */
+  snip?: boolean;
   /** In the deterministic low-risk sample that must be read before a bulk accept. */
   inSample?: boolean;
   /** Why this value always needs a person, when it does. */
   riskReasons?: string[];
 }
 
+export interface SnipDocument {
+  id: string;
+  name: string;
+  mimeType: string;
+}
+
+export interface SnipTarget {
+  path: string;
+  label: string;
+  defaultUnit?: string;
+}
+
 export function ReviewWorkbench({
   engagementId,
   fields,
   facsimileDocId,
+  documents = [],
+  targets = [],
 }: {
   engagementId: string;
   fields: ReviewField[];
   facsimileDocId?: string;
+  /** The PDFs and images a region can be drawn on. */
+  documents?: SnipDocument[];
+  /** The fields a snipped value can be added to. */
+  targets?: SnipTarget[];
 }) {
   const { softReload, isRefreshing } = useSoftReload();
-  const [focus, setFocus] = useState<ReviewField | null>(fields[0] ?? null);
+  const [focused, setFocused] = useState<ReviewField | null>(fields[0] ?? null);
   const [correction, setCorrection] = useState("");
+  // The value just added is brought into view as soon as the reloaded list holds it.
+  const [pendingFocus, setPendingFocus] = useState<string | null>(null);
+  const focus = (pendingFocus ? fields.find((f) => f.id === pendingFocus) : undefined) ?? focused;
+  const setFocus = (field: ReviewField | null) => {
+    setPendingFocus(null);
+    setFocused(field);
+  };
+
+  // Snip: draw a box on a page for a value the model missed, and add it for review.
+  const canSnip = documents.length > 0 && targets.length > 0 && !facsimileDocId;
+  const [snipping, setSnipping] = useState(fields.length === 0 && canSnip);
+  const [snipDocId, setSnipDocId] = useState(fields[0]?.document_id ?? documents[0]?.id ?? "");
+  const [snipPage, setSnipPage] = useState(fields[0]?.page ?? 1);
+  const [numPages, setNumPages] = useState<number | null>(null);
+  const [region, setRegion] = useState<Region | null>(null);
+  const [live, setLive] = useState<Region | null>(null);
+  const [tooSmall, setTooSmall] = useState(false);
+  const [snipPath, setSnipPath] = useState("");
+  const [snipValue, setSnipValue] = useState("");
+  const [snipUnit, setSnipUnit] = useState("");
+  const [snipText, setSnipText] = useState("");
+  const [snipSaving, setSnipSaving] = useState(false);
+  const snipDoc = documents.find((d) => d.id === snipDocId);
+
+  function startSnip() {
+    setSnipDocId(focus?.document_id ?? documents[0]?.id ?? "");
+    setSnipPage(focus?.page ?? 1);
+    setRegion(null);
+    setTooSmall(false);
+    setSnipping(true);
+  }
+
+  function stopSnip() {
+    setSnipping(false);
+    setRegion(null);
+    setLive(null);
+    setTooSmall(false);
+    setSnipPath("");
+    setSnipValue("");
+    setSnipUnit("");
+    setSnipText("");
+  }
+
+  async function saveSnip() {
+    if (!region || !snipDoc || !snipPath) return;
+    setSnipSaving(true);
+    const res = await fetch("/api/workbench/snip", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        engagementId,
+        documentId: snipDoc.id,
+        page: snipPage,
+        bbox: region,
+        fieldPath: snipPath,
+        value: snipValue,
+        unit: snipUnit.trim() || null,
+        sourceText: snipText.trim(),
+      }),
+    });
+    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; id?: string };
+    setSnipSaving(false);
+    if (!res.ok || !json.ok) {
+      toast.error(json.error ?? "Could not add the value");
+      return;
+    }
+    toast.success("Added to the facts ledger.");
+    stopSnip();
+    softReload();
+  }
+
+  const snipShown = live ?? region;
+  const snipValueBad = snipValue.trim() === "" || !Number.isFinite(Number(snipValue.replace(/,/g, "")));
+  const canSaveSnip = Boolean(region && snipPath && snipText.trim() && !snipValueBad && !snipSaving);
 
   async function decide(state: "accepted" | "rejected" | "corrected") {
     if (!focus) return;
@@ -92,7 +188,154 @@ export function ReviewWorkbench({
   return (
     <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
       <div className="rounded-lg border border-mist-200 bg-mist-100/70 p-3 lg:sticky lg:top-20">
-        {facsimileDocId ? (
+        {canSnip ? (
+          <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 px-1">
+            {snipping ? (
+              <>
+                <p className="text-[13px] font-medium text-mist-900">Draw a box around a value</p>
+                <Button size="sm" variant="secondary" onClick={stopSnip}>
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <>
+                <label className="flex min-w-0 items-center gap-2 text-xs text-mist-700">
+                  Open any uploaded document
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      if (!e.target.value) return;
+                      setSnipDocId(e.target.value);
+                      setSnipPage(1);
+                      setNumPages(null);
+                      setRegion(null);
+                      setTooSmall(false);
+                      setSnipping(true);
+                    }}
+                    className="h-8 max-w-[13rem] truncate rounded border border-mist-300 bg-white px-1.5 text-[13px]"
+                  >
+                    <option value="">Choose a document…</option>
+                    {documents.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <Button size="sm" variant="secondary" onClick={startSnip}>
+                  <Scissors />
+                  Snip a value
+                </Button>
+              </>
+            )}
+          </div>
+        ) : null}
+
+        {snipping && snipDoc ? (
+          <>
+            <div className="mb-2.5 flex flex-wrap items-center gap-3 px-1 text-[13px] text-mist-800">
+              <label className="flex min-w-0 items-center gap-2">
+                Document
+                <select
+                  value={snipDocId}
+                  onChange={(e) => {
+                    setSnipDocId(e.target.value);
+                    setSnipPage(1);
+                    setNumPages(null);
+                    setRegion(null);
+                  }}
+                  className="h-8 max-w-[14rem] truncate rounded border border-mist-300 bg-white px-1.5 text-[13px]"
+                >
+                  {documents.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-2">
+                Page
+                <Input
+                  type="number"
+                  min={1}
+                  max={numPages ?? undefined}
+                  value={snipPage}
+                  onChange={(e) => {
+                    const n = Math.max(1, Math.floor(Number(e.target.value) || 1));
+                    setSnipPage(numPages ? Math.min(n, numPages) : n);
+                    setRegion(null);
+                  }}
+                  className="h-8 w-20 text-[13px]"
+                />
+              </label>
+              {numPages ? <span className="text-mist-600">of {numPages}</span> : null}
+            </div>
+            <EvidencePageViewer
+              key={snipDocId}
+              src={`/api/documents/${snipDocId}/file`}
+              mimeType={snipDoc.mimeType}
+              page={snipPage}
+              bbox={snipShown}
+              overlay={
+                <RegionDrawLayer
+                  onLive={setLive}
+                  onDraw={(drawn) => {
+                    setTooSmall(drawn === null);
+                    if (drawn) setRegion(drawn);
+                  }}
+                />
+              }
+              onPages={setNumPages}
+            />
+            <div className="mt-3 space-y-2.5 px-1 text-[13px] text-mist-800">
+              {snipShown ? <p className="text-mist-700">Box: {describeRegion(snipShown)}.</p> : <p className="text-mist-600">Drag on the page to draw the box.</p>}
+              {tooSmall ? <p className="text-amber-800">That box is too small. Drag a larger one around the value.</p> : null}
+              {region ? (
+              <div className="grid gap-2.5 sm:grid-cols-2">
+                <label className="flex flex-col gap-1 sm:col-span-2">
+                  Field
+                  <select
+                    value={snipPath}
+                    onChange={(e) => {
+                      setSnipPath(e.target.value);
+                      setSnipUnit(targets.find((t) => t.path === e.target.value)?.defaultUnit ?? "");
+                    }}
+                    className="h-9 rounded border border-mist-300 bg-white px-2 text-[13px]"
+                  >
+                    <option value="">Choose the field this value belongs to</option>
+                    {targets.map((t) => (
+                      <option key={t.path} value={t.path}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1">
+                  Figure
+                  <Input inputMode="decimal" value={snipValue} onChange={(e) => setSnipValue(e.target.value)} className="h-9 text-[13px]" />
+                </label>
+                <label className="flex flex-col gap-1">
+                  Unit
+                  <Input value={snipUnit} onChange={(e) => setSnipUnit(e.target.value)} className="h-9 text-[13px]" />
+                </label>
+                <label className="flex flex-col gap-1 sm:col-span-2">
+                  What is printed in the box
+                  <Input value={snipText} maxLength={300} onChange={(e) => setSnipText(e.target.value)} placeholder="For example: Quantity dispatched 18,247 MT" className="h-9 text-[13px]" />
+                </label>
+              </div>
+              ) : null}
+              {region ? (
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                <Button disabled={!canSaveSnip} onClick={() => void saveSnip()}>
+                  <Scissors />
+                  {snipSaving ? "Adding…" : "Add to facts ledger"}
+                </Button>
+                <p className="text-mist-600">Name the field and type the figure. It goes to the facts ledger with this page and box, marked as entered by you.</p>
+              </div>
+              ) : null}
+            </div>
+          </>
+        ) : facsimileDocId ? (
           <DocumentFacsimile
             documentId={facsimileDocId}
             highlight={
@@ -124,10 +367,12 @@ export function ReviewWorkbench({
             bbox={focus?.bbox ?? null}
           />
         )}
-        <p className="mt-2.5 px-1 text-xs leading-relaxed text-mist-600">
-          The highlighted region is where the value was read. High-materiality fields always need a
-          person&apos;s decision.
-        </p>
+        {!snipping ? (
+          <p className="mt-2.5 px-1 text-xs leading-relaxed text-mist-600">
+            The highlighted region is where the value was read. High-materiality fields always need a
+            person&apos;s decision.
+          </p>
+        ) : null}
       </div>
 
       <div className="space-y-4">
@@ -227,7 +472,7 @@ export function ReviewWorkbench({
                     </span>
                     <span className="flex shrink-0 flex-col items-end gap-1.5">
                       <FieldStateBadges field={f} compact />
-                      <ConfidenceMeter value={f.confidence} />
+                      {f.snip ? <span className="text-xs text-mist-500">By hand</span> : <ConfidenceMeter value={f.confidence} />}
                     </span>
                   </button>
                 </li>
@@ -243,7 +488,9 @@ export function ReviewWorkbench({
 function FieldStateBadges({ field, compact = false }: { field: ReviewField; compact?: boolean }) {
   return (
     <span className="flex flex-wrap justify-end gap-1">
-      {field.state === "suggested" ? (
+      {field.snip ? (
+        <Badge tone="draft">Entered from the page</Badge>
+      ) : field.state === "suggested" ? (
         <Badge tone="ai">AI-proposed</Badge>
       ) : (
         <Badge tone="draft">{field.state === "corrected" ? "Corrected" : field.state}</Badge>
