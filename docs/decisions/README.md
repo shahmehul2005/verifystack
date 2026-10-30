@@ -28,6 +28,7 @@ supersedes it and update the status line of the old one.
 | 0020 | [Generic submission package, built on demand](0020-generic-submission-package.md) | Accepted |
 | 0021 | [Fieldwork: observer is not accepter; offline capture](0021-fieldwork-observer-is-not-accepter.md) | Accepted |
 | 0022 | [Evidence packages: manifest optional, mismatches flagged; spreadsheet totals approved by a person](0022-optional-manifest-and-reviewed-totals.md) | Accepted |
+| 0023 | [Documents can be removed only while nothing accepted rests on them](0023-guarded-document-removal.md) | Proposed |
 
 ## Template
 
