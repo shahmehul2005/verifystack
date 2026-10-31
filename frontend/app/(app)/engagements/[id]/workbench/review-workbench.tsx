@@ -12,7 +12,9 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
 import { EvidencePageViewer } from "@/components/workbench/evidence-page-viewer";
 import { RegionDrawLayer } from "@/components/workbench/region-draw-layer";
+import { useBoxReader } from "@/components/workbench/use-box-reader";
 import { describeRegion, type Region } from "@verifystack/backend/domain/deskreview/snip";
+import type { InputState } from "@verifystack/backend/domain/calc/run";
 import { toast } from "sonner";
 
 export interface ReviewField {
@@ -47,7 +49,13 @@ export interface SnipTarget {
   path: string;
   label: string;
   defaultUnit?: string;
+  /** Where this input stands in the ledger. A filled input is not added to: a second value stops a run. */
+  state?: InputState;
 }
+
+/** The inputs a run still needs, in the order they should be offered. */
+const isMissing = (t: SnipTarget) => t.state === "required" || t.state === "group";
+const isTaken = (t: SnipTarget) => t.state === "filled" || t.state === "conflict";
 
 export function ReviewWorkbench({
   engagementId,
@@ -90,6 +98,14 @@ export function ReviewWorkbench({
   const [snipText, setSnipText] = useState("");
   const [snipSaving, setSnipSaving] = useState(false);
   const snipDoc = documents.find((d) => d.id === snipDocId);
+  // Reads the text printed inside a drawn box, so the figure is confirmed and not retyped. Scans are left to type.
+  const reader = useBoxReader({
+    src: `/api/documents/${snipDocId}/file`,
+    mimeType: snipDoc?.mimeType,
+    page: snipPage,
+    onText: setSnipText,
+    onValue: setSnipValue,
+  });
 
   function startSnip() {
     setSnipDocId(focus?.document_id ?? documents[0]?.id ?? "");
@@ -100,6 +116,7 @@ export function ReviewWorkbench({
   }
 
   function stopSnip() {
+    reader.clear();
     setSnipping(false);
     setRegion(null);
     setLive(null);
@@ -226,6 +243,11 @@ export function ReviewWorkbench({
                   <Scissors />
                   Snip a value
                 </Button>
+                {targets.some(isMissing) ? (
+                  <span className="basis-full text-xs text-amber-800">
+                    {targets.filter(isMissing).length} input{targets.filter(isMissing).length === 1 ? "" : "s"} the calculation needs not found yet.
+                  </span>
+                ) : null}
               </>
             )}
           </div>
@@ -281,7 +303,10 @@ export function ReviewWorkbench({
                   onLive={setLive}
                   onDraw={(drawn) => {
                     setTooSmall(drawn === null);
-                    if (drawn) setRegion(drawn);
+                    if (drawn) {
+                      setRegion(drawn);
+                      void reader.read(drawn);
+                    }
                   }}
                 />
               }
@@ -303,11 +328,37 @@ export function ReviewWorkbench({
                     className="h-9 rounded border border-mist-300 bg-white px-2 text-[13px]"
                   >
                     <option value="">Choose the field this value belongs to</option>
-                    {targets.map((t) => (
-                      <option key={t.path} value={t.path}>
-                        {t.label}
-                      </option>
-                    ))}
+                    {targets.some(isMissing) ? (
+                      <optgroup label="Not found yet">
+                        {targets.filter(isMissing).map((t) => (
+                          <option key={t.path} value={t.path}>
+                            {t.label}
+                            {t.state === "group" ? " (one of these methods is needed)" : ""}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
+                    {targets.some((t) => !isMissing(t) && !isTaken(t)) ? (
+                      <optgroup label="Optional (counted as zero if not added)">
+                        {targets
+                          .filter((t) => !isMissing(t) && !isTaken(t))
+                          .map((t) => (
+                            <option key={t.path} value={t.path}>
+                              {t.label}
+                            </option>
+                          ))}
+                      </optgroup>
+                    ) : null}
+                    {targets.some(isTaken) ? (
+                      <optgroup label="Already in the ledger">
+                        {targets.filter(isTaken).map((t) => (
+                          <option key={t.path} value={t.path} disabled>
+                            {t.label}
+                            {t.state === "conflict" ? " (more than one value: fix it in the facts ledger)" : " (withdraw it in the facts ledger to replace it)"}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
                   </select>
                 </label>
                 <label className="flex flex-col gap-1">
@@ -322,6 +373,25 @@ export function ReviewWorkbench({
                   What is printed in the box
                   <Input value={snipText} maxLength={300} onChange={(e) => setSnipText(e.target.value)} placeholder="For example: Quantity dispatched 18,247 MT" className="h-9 text-[13px]" />
                 </label>
+                {reader.reading || reader.note ? (
+                  <div className="sm:col-span-2" aria-live="polite">
+                    <p className="text-mist-700">{reader.reading ? "Reading the box…" : reader.note}</p>
+                    {reader.candidates.length > 0 ? (
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        {reader.candidates.map((c) => (
+                          <button
+                            key={c.value}
+                            type="button"
+                            onClick={() => setSnipValue(String(c.value))}
+                            className="rounded border border-mist-300 bg-white px-2 py-0.5 font-mono text-xs text-mist-900 hover:border-teal-400 hover:bg-teal-50"
+                          >
+                            {c.text}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
               ) : null}
               {region ? (

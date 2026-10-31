@@ -257,6 +257,7 @@ export function assessRunReadiness(
   const ambiguityBlockers: string[] = [];
   const basisNotes: string[] = [];
   const basisWarnings: string[] = [];
+  const secDuplicateWarnings: string[] = [];
 
   if (pack.calculation_method === "GEI") {
     for (const binding of pack.stream_bindings) {
@@ -313,6 +314,14 @@ export function assessRunReadiness(
   } else if (pack.calculation_method === "SEC") {
     for (const binding of pack.energy_bindings ?? []) {
       const qtyFact = factByPath(facts, binding.quantity.path);
+      const qtyMatches = factsMatching(facts, binding.quantity.path);
+      if (qtyMatches.length > 1) {
+        // A run takes the first of these without asking, so a second value is never silent.
+        const listed = distinctNumericValues(qtyMatches);
+        secDuplicateWarnings.push(
+          `"${binding.label}" has ${qtyMatches.length} accepted values${listed.length > 0 ? ` (${listed.join(", ")})` : ""}. A run uses the first one. Withdraw the wrong one in the facts ledger before running.`
+        );
+      }
       if (!qtyFact) {
         streams.push({
           streamId: binding.streamId,
@@ -377,7 +386,7 @@ export function assessRunReadiness(
       if (!satisfied && !alreadyBlocked) blockers.push(groupMessage(group, active));
     }
   }
-  const warnings: string[] = [...basisWarnings];
+  const warnings: string[] = [...basisWarnings, ...secDuplicateWarnings];
   const unbound = streams.filter(
     (s) => !s.bound && !s.partial && !s.required && !s.inBasisWindow && !conflictedStreamIds.has(s.streamId)
   );
@@ -398,6 +407,66 @@ export function assessRunReadiness(
     warnings,
     basisNotes,
   };
+}
+
+/**
+ * Where one input a pack reads stands in the ledger.
+ * - filled: exactly one fact.
+ * - conflict: more than one fact on it.
+ * - required: no fact, and the run needs one.
+ * - group: no fact, and the run needs one of several alternative methods (none has a fact yet).
+ * - optional: no fact, and a run counts it as zero or does not need it.
+ */
+export type InputState = "filled" | "conflict" | "required" | "group" | "optional";
+
+/**
+ * The state of every input a pack binds, by path, from the same readiness check a run uses, so the
+ * list of what is still missing cannot disagree with what blocks the run. Nothing is computed from a
+ * model; this reads which paths have facts.
+ */
+export function inputStatuses(
+  pack: MethodologyPack,
+  facts: ProvenancedFact[],
+  opts?: { draftMode?: boolean; complianceYear?: string }
+): Record<string, InputState> {
+  const readiness = assessRunReadiness(pack, facts, opts);
+  const out: Record<string, InputState> = {};
+  const set = (path: string, state: InputState, override = false) => {
+    if (override || !(path in out)) out[path] = state;
+  };
+  const filledOrMissing = (path: string, missing: InputState): InputState => {
+    const n = factsMatching(facts, path).length;
+    return n > 1 ? "conflict" : n === 1 ? "filled" : missing;
+  };
+
+  if (pack.calculation_method === "GEI") {
+    const groups = requiredGroups(pack.stream_bindings);
+    for (const b of pack.stream_bindings) {
+      const s = readiness.streams.find((x) => x.streamId === b.streamId);
+      const groupOpen =
+        b.requiredGroup !== undefined &&
+        !(groups.get(b.requiredGroup) ?? []).some((m) => readiness.streams.find((x) => x.streamId === m.streamId)?.bound);
+      const missing: InputState = s?.inBasisWindow ? "optional" : s?.required && !groupOpen ? "required" : groupOpen ? "group" : "optional";
+      const qty = filledOrMissing(b.quantity.path, missing);
+      set(b.quantity.path, qty);
+      if (b.kind === "fuel_combustion") {
+        // A quantity with no calorific value cannot be priced, so the run is blocked until it has one.
+        set(b.calorificValue.path, filledOrMissing(b.calorificValue.path, qty === "filled" ? "required" : missing));
+      }
+    }
+  } else if (pack.calculation_method === "SEC") {
+    for (const e of pack.energy_bindings ?? []) {
+      set(e.quantity.path, filledOrMissing(e.quantity.path, "optional"));
+      if (e.calorificValue?.path) set(e.calorificValue.path, filledOrMissing(e.calorificValue.path, "optional"));
+    }
+  }
+  for (const d of [pack.demand_binding?.contractedDemand, pack.demand_binding?.maximumDemand]) {
+    if (d?.path) set(d.path, filledOrMissing(d.path, "optional"));
+  }
+  if (pack.production_binding) {
+    set(pack.production_binding.path, filledOrMissing(pack.production_binding.path, "required"), true);
+  }
+  return out;
 }
 
 function requireProvenance(fact: ProvenancedFact) {

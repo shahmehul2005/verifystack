@@ -11,6 +11,7 @@ import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { formatIst } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { BookOpen } from "lucide-react";
+import { WithdrawFactButton } from "./withdraw-fact-button";
 import {
   factLabel,
   PROVENANCE_LABEL,
@@ -44,6 +45,15 @@ export default async function FactsPage({ params }: { params: Promise<{ id: stri
     .eq("engagement_id", id)
     .eq("organization_id", session.organizationId)
     .order("accepted_at", { ascending: false });
+  // Without migration 0022 this table is absent: facts still show, and withdrawing waits.
+  const { data: withdrawn } = await supabase!
+    .from("fact_withdrawals")
+    .select("id, field_path, value_json, unit, reason, withdrawn_at")
+    .eq("engagement_id", id)
+    .eq("organization_id", session.organizationId)
+    .order("withdrawn_at", { ascending: false })
+    .limit(200);
+  const canWithdraw = !["signoff", "submitted"].includes(engagement.status);
 
   return (
     <>
@@ -73,6 +83,7 @@ export default async function FactsPage({ params }: { params: Promise<{ id: stri
               <Th>Source text</Th>
               <Th className="text-right">Evidence</Th>
               <Th>Accepted</Th>
+              {canWithdraw ? <Th className="text-right">Withdraw</Th> : null}
             </tr>
           </thead>
           <tbody>
@@ -92,11 +103,48 @@ export default async function FactsPage({ params }: { params: Promise<{ id: stri
                   {describeFactSource(f)}
                 </Td>
                 <Td className="whitespace-nowrap text-xs text-mist-600">{formatIst(f.accepted_at)}</Td>
+                {canWithdraw ? (
+                  <Td className="text-right">
+                    <WithdrawFactButton engagementId={id} factId={f.id} label={f.field_path} />
+                  </Td>
+                ) : null}
               </tr>
             ))}
           </tbody>
         </Table>
       )}
+
+      {withdrawn?.length ? (
+        <section className="mt-8">
+          <h2 className="mb-2 text-sm font-semibold text-mist-900">Withdrawn facts</h2>
+          <p className="mb-3 text-[13px] text-mist-600">
+            Taken out of the ledger a calculation reads, and kept here with who withdrew them and why.
+          </p>
+          <Table>
+            <thead>
+              <tr>
+                <Th>Field</Th>
+                <Th className="text-right">Value</Th>
+                <Th>Reason</Th>
+                <Th>Withdrawn</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {withdrawn.map((w) => (
+                <tr key={w.id}>
+                  <Td className="font-mono text-xs text-mist-700">{w.field_path}</Td>
+                  <Td className="whitespace-nowrap text-right tabular">
+                    <span className="font-medium text-mist-950">{JSON.stringify(w.value_json)}</span>
+                    {w.unit ? <span className="ml-1 text-xs text-mist-500">{w.unit}</span> : null}
+                  </Td>
+                  <Td className="max-w-sm text-xs text-mist-700">{w.reason}</Td>
+                  <Td className="whitespace-nowrap text-xs text-mist-600">{formatIst(w.withdrawn_at)}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        </section>
+      ) : null}
     </>
   );
 }

@@ -7,6 +7,7 @@ import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
 import { getEngagement, ensureEngagementStatus } from "@verifystack/backend/lib/data/engagements";
 import { loadPack, packFieldTargets } from "@verifystack/backend/domain/packs";
 import { parseRegion, snipProvenance } from "@verifystack/backend/domain/deskreview/snip";
+import { matchFactPath } from "@verifystack/backend/domain/extraction/fieldPaths";
 import type { Json } from "@verifystack/backend/lib/supabase/types";
 import { jsonError } from "@/lib/api";
 
@@ -55,13 +56,27 @@ export async function POST(req: Request) {
     const region = parseRegion(body.bbox);
     if (!region) return NextResponse.json({ ok: false, error: "The region is not a box on the page." }, { status: 422 });
 
+    const supabase = createServiceClient() ?? (await createServerSupabase());
+    if (!supabase) return NextResponse.json({ ok: false, error: "Supabase is not configured" }, { status: 503 });
+
+    // A second value on an input stops a run ("the run will not choose one"), so a filled input is not added to.
+    const { data: existing, error: existingError } = await supabase
+      .from("facts")
+      .select("field_path")
+      .eq("engagement_id", body.engagementId)
+      .eq("organization_id", organizationId);
+    if (existingError) throw new Error(existingError.message);
+    if ((existing ?? []).some((f) => matchFactPath(f.field_path, body.fieldPath))) {
+      return NextResponse.json(
+        { ok: false, error: `"${target.label}" already has a value in the facts ledger. Withdraw it there first if it is wrong.` },
+        { status: 409 }
+      );
+    }
+
     const value = typeof body.value === "number" ? body.value : Number(body.value.replace(/,/g, "").trim());
     if (!Number.isFinite(value) || (typeof body.value === "string" && body.value.trim() === "")) {
       return NextResponse.json({ ok: false, error: "The figure must be a number." }, { status: 422 });
     }
-
-    const supabase = createServiceClient() ?? (await createServerSupabase());
-    if (!supabase) return NextResponse.json({ ok: false, error: "Supabase is not configured" }, { status: 503 });
 
     const { data: doc, error: docError } = await supabase
       .from("documents")

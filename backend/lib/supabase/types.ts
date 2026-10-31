@@ -923,6 +923,54 @@ export interface Database {
         }>;
         Relationships: [];
       };
+      fact_withdrawals: {
+        Row: Row<{
+          id: string;
+          organization_id: string;
+          engagement_id: string;
+          fact_id: string;
+          extracted_field_id: string | null;
+          document_id: string | null;
+          field_path: string;
+          value_json: Json;
+          unit: string | null;
+          page: number | null;
+          bbox: Json | null;
+          source_text: string | null;
+          provenance_type: string | null;
+          provenance: Json | null;
+          accept_mode: string | null;
+          accepted_by: string | null;
+          accepted_at: string | null;
+          reason: string;
+          withdrawn_by: string | null;
+          withdrawn_at: string;
+        }>;
+        Insert: Insert<{
+          id?: string;
+          organization_id: string;
+          engagement_id: string;
+          fact_id: string;
+          extracted_field_id?: string | null;
+          document_id?: string | null;
+          field_path: string;
+          value_json: Json;
+          unit?: string | null;
+          page?: number | null;
+          bbox?: Json | null;
+          source_text?: string | null;
+          provenance_type?: string | null;
+          provenance?: Json | null;
+          accept_mode?: string | null;
+          accepted_by?: string | null;
+          accepted_at?: string | null;
+          reason: string;
+          withdrawn_by?: string | null;
+          withdrawn_at?: string;
+        }>;
+        Update: Update<Record<string, never>>;
+        Relationships: [];
+      };
       calculation_runs: {
         Row: Row<{
           id: string;

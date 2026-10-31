@@ -18,6 +18,7 @@ import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { loadPack, packFieldTargets } from "@verifystack/backend/domain/packs";
 import { isSnipProvenance } from "@verifystack/backend/domain/deskreview/snip";
+import { inputStatuses, toProvenancedFact } from "@verifystack/backend/domain/calc/run";
 import { ReviewWorkbench, type ReviewField } from "./review-workbench";
 import type { Json } from "@verifystack/backend/lib/supabase/types";
 
@@ -51,13 +52,14 @@ export default async function AppWorkbenchPage({
   const engagement = await getEngagement(id, session.organizationId);
   if (!engagement) notFound();
   const supabase = createServiceClient() ?? (await createServerSupabase());
-  const [triage, { data: docs }] = await Promise.all([
+  const [triage, { data: docs }, { data: factRows }] = await Promise.all([
     loadEngagementTriage(session.organizationId, id),
     supabase!
       .from("documents")
       .select("id, storage_path, mime_type, original_filename")
       .eq("engagement_id", id)
       .eq("organization_id", session.organizationId),
+    supabase!.from("facts").select("*").eq("engagement_id", id).eq("organization_id", session.organizationId),
   ]);
 
   const docById = new Map((docs ?? []).map((d) => [d.id, d]));
@@ -98,7 +100,13 @@ export default async function AppWorkbenchPage({
   });
 
   const { plan, comparisonSummary: cs, share } = triage;
-  const targets = packFieldTargets(loadPack(engagement.pack_id));
+  // Each input the methodology reads, with where it stands in the ledger, from the same check a run uses.
+  const pack = loadPack(engagement.pack_id);
+  const states = inputStatuses(pack, (factRows ?? []).map(toProvenancedFact), {
+    draftMode: engagement.draft_mode,
+    complianceYear: engagement.compliance_year,
+  });
+  const targets = packFieldTargets(pack).map((t) => ({ ...t, state: states[t.path] ?? ("optional" as const) }));
   // A value can be snipped from any PDF or image in the engagement, including one the model read nothing from.
   const snipDocs = (docs ?? [])
     .filter((d) => d.mime_type === "application/pdf" || d.mime_type.startsWith("image/"))

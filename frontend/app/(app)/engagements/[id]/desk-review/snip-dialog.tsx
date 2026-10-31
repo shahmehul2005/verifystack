@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EvidencePageViewer } from "@/components/workbench/evidence-page-viewer";
 import { RegionDrawLayer } from "@/components/workbench/region-draw-layer";
+import { useBoxReader } from "@/components/workbench/use-box-reader";
 import { describeRegion, type Region } from "@verifystack/backend/domain/deskreview/snip";
 
 export interface SnipResult {
@@ -20,7 +21,8 @@ export interface SnipResult {
 /**
  * Draw a box on the page a figure was read from. The box and what is printed in
  * it are kept with the value, so a reviewer can see exactly where the auditor
- * looked. The figure is typed by a person; nothing here reads it for them.
+ * looked. When the page has a text layer, the text and figure in the box are
+ * read from it and filled in for the auditor to check; a scan is typed by hand.
  *
  * The caller mounts this only while it is open, so each opening starts from
  * what the form holds.
@@ -61,6 +63,14 @@ export function SnipDialog({
   const [value, setValue] = useState(initialValue);
   const [live, setLive] = useState<Region | null>(null);
   const [tooSmall, setTooSmall] = useState(false);
+  // What is printed in a drawn box is read from the PDF's own text, so the figure is confirmed and not retyped.
+  const reader = useBoxReader({
+    src: `/api/documents/${documentId}/file`,
+    mimeType,
+    page,
+    onText: setText,
+    onValue: setValue,
+  });
 
   const overlay =
     mode === "draw" ? (
@@ -68,7 +78,10 @@ export function SnipDialog({
         onLive={setLive}
         onDraw={(drawn) => {
           setTooSmall(drawn === null);
-          if (drawn) setRegion(drawn);
+          if (drawn) {
+            setRegion(drawn);
+            void reader.read(drawn);
+          }
         }}
       />
     ) : null;
@@ -136,6 +149,26 @@ export function SnipDialog({
           </div>
         ) : text ? (
           <p className="text-[13px] text-mist-800">Printed in the box: “{text}”</p>
+        ) : null}
+
+        {mode === "draw" && (reader.reading || reader.note) ? (
+          <div className="text-[13px]" aria-live="polite">
+            <p className="text-mist-700">{reader.reading ? "Reading the box…" : reader.note}</p>
+            {reader.candidates.length > 0 ? (
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {reader.candidates.map((c) => (
+                  <button
+                    key={c.value}
+                    type="button"
+                    onClick={() => setValue(String(c.value))}
+                    className="rounded border border-mist-300 bg-white px-2 py-0.5 font-mono text-xs text-mist-900 hover:border-teal-400 hover:bg-teal-50"
+                  >
+                    {c.text}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
         ) : null}
 
         {tooSmall ? <p className="text-[13px] text-amber-800">That box is too small. Drag a larger one around the figure.</p> : null}

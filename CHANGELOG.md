@@ -16,6 +16,29 @@ must say which version it bumps. Current versions:
 
 ## [Unreleased]
 
+### Snip: the figure in the box is read for you
+
+- **Draw a box and the text and figure are filled in.** When the page has a text layer, code reads the characters
+  inside the box from the PDF itself (no model, nothing sent anywhere), fills "what is printed in the box", and fills
+  the figure when there is exactly one. Indian and western digit grouping are handled. With several figures the form
+  lists them to pick from; with none it says so. The person still checks both and presses Add.
+- **Scans and images are typed by hand**, with a note saying why. Reading those would need a model, which stays off for
+  snips as decided. It works in the workbench and in the desk-review snip dialog, which share the drawing layer.
+
+### Facts ledger: see what is still missing, and take a wrong fact out
+
+- **"Not found yet" in the workbench.** The snip form's field list is grouped by where each input stands, from the same
+  readiness check a run uses: not found yet (the run needs it, or one of a group of alternative methods), optional
+  (counted as zero if not added), and already in the ledger. A filled input cannot be chosen, because a second value on
+  one input stops a run. The Snip button says how many inputs the calculation still needs.
+- **The server refuses it too.** A snip on an input that already has a fact is refused with a 409.
+- **Withdraw a fact, keeping it.** The Facts ledger has "Withdraw" on each fact: it asks why (at least 8 characters),
+  copies the fact in full to the new `fact_withdrawals` table (migration 0022) with who and when, then removes it from
+  `facts`, so a run reads only what stands. The value it came from is marked rejected. Withdrawn facts are listed on the
+  same page. Refused once sign-off has started, and refused if the history cannot be written.
+- **Energy-based runs warn on duplicates.** Two values on one input used to be resolved silently by taking the first.
+  The run now says so and names the values. It does not block, so existing runs behave as before.
+
 ### Desk review: edit and withdraw readings with a history
 
 - **Edit, add and withdraw in the Corroboration drawer.** Changing a figure already on record, or withdrawing it,
