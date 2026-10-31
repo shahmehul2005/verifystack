@@ -7,6 +7,7 @@ import {
   ClipboardList,
   FileText,
   Flag,
+  Layers,
   Lightbulb,
   ListChecks,
   MapPin,
@@ -111,6 +112,11 @@ const SECTION_COPY: Record<string, { icon: LucideIcon; body: string; next: strin
     icon: ClipboardList,
     body: "Risk ratings, sampling rate and the verification plan.",
     next: "approve the verification plan.",
+  },
+  "desk-review": {
+    icon: Layers,
+    body: "Cross-check the documents against each other and the clauses.",
+    next: "run the desk review and resolve the checks.",
   },
   fieldwork: {
     icon: MapPin,

@@ -122,13 +122,14 @@ export const APP_NAV: { href: string; label: string; capability: Capability }[] 
   { href: "/team", label: "Team", capability: "nav.team" },
 ];
 
+/** In the order the work is done: plan, intake, review the extracted values, cross-check, fieldwork, calculate, then findings and sign-off. */
 export const ENGAGEMENT_LINKS: { slug: string; label: string; capability: Capability }[] = [
   { slug: "plan", label: "Plan", capability: "runs.view" },
   { slug: "documents", label: "Documents", capability: "documents.view" },
-  { slug: "desk-review", label: "Desk review", capability: "review.decide" },
-  { slug: "fieldwork", label: "Fieldwork", capability: "fieldwork.record" },
   { slug: "workbench", label: "Workbench", capability: "review.decide" },
   { slug: "facts", label: "Facts ledger", capability: "review.decide" },
+  { slug: "desk-review", label: "Desk review", capability: "review.decide" },
+  { slug: "fieldwork", label: "Fieldwork", capability: "fieldwork.record" },
   { slug: "runs", label: "Calculation", capability: "runs.view" },
   { slug: "findings", label: "Findings", capability: "findings.decide" },
   { slug: "ecm", label: "ECM suggestions", capability: "adeetie.view" },
