@@ -6,7 +6,8 @@ import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
 import { getEngagement } from "@verifystack/backend/lib/data/engagements";
 import { deskReviewFor } from "@verifystack/backend/domain/deskreview";
-import { parseRegion } from "@verifystack/backend/domain/deskreview/snip";
+import { parseRegion, type Region } from "@verifystack/backend/domain/deskreview/snip";
+import { classifyChange, reasonProblem, type ChangeKind, type ReadingState } from "@verifystack/backend/domain/deskreview/readingChange";
 import type { Json } from "@verifystack/backend/lib/supabase/types";
 
 export const runtime = "nodejs";
@@ -17,7 +18,7 @@ const Body = z.object({
     .array(
       z.object({
         key: z.string().min(1).max(120),
-        /** Null removes the reading. */
+        /** Null withdraws the reading. */
         value: z.number().finite().nullable(),
         documentId: z.string().uuid().nullable().optional(),
         page: z.number().int().min(1).max(10000).nullable().optional(),
@@ -25,6 +26,8 @@ const Body = z.object({
         /** The box the auditor drew on the page, normalised to it. Needs the page and what is printed in the box. */
         bbox: z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() }).nullable().optional(),
         sourceText: z.string().trim().max(300).nullable().optional(),
+        /** Why a figure on record was changed or withdrawn. Not needed for a first entry or an unchanged figure. */
+        reason: z.string().trim().max(500).nullable().optional(),
       })
     )
     .min(1)
@@ -33,13 +36,20 @@ const Body = z.object({
 
 const DAILY = /^(.+)@(\d{4}-\d{2}-\d{2})$/;
 
+/** The history table arrives with migration 0021; until then the audit entry keeps the earlier figure. */
+const isMissingTable = (e: { code?: string; message?: string }) => e.code === "42P01" || e.code === "PGRST205" || /desk_reading_history/.test(e.message ?? "");
+
 /**
  * Save the figures an auditor read off PDFs. Only keys the pack's desk review
  * declares are accepted, each stored with its unit from that declaration, the
  * document it came from and the page. A reading never becomes a fact and never
  * feeds a run. A figure with no document or no page is refused: a typed number
- * with nothing behind it cannot be checked. A replaced or removed figure is kept
- * in the audit entry, since the row itself holds only the latest.
+ * with nothing behind it cannot be checked.
+ *
+ * Changing a figure already on record, or withdrawing it, needs a reason. The
+ * earlier figure is kept in desk_reading_history (and the audit entry), so an
+ * edit supersedes it and a withdrawal removes it from the checks without erasing
+ * it. A figure saved unchanged is left as it is.
  */
 export async function PUT(req: Request) {
   try {
@@ -64,8 +74,9 @@ export async function PUT(req: Request) {
       documentId: string | null;
       page: number | null;
       note: string | null;
-      bbox: { x: number; y: number; width: number; height: number } | null;
+      bbox: Region | null;
       sourceText: string | null;
+      reason: string | null;
     }[] = [];
     for (const r of body.readings) {
       const day = DAILY.exec(r.key);
@@ -89,6 +100,7 @@ export async function PUT(req: Request) {
         note: r.note ?? null,
         bbox,
         sourceText: bbox ? (r.sourceText?.trim() ?? null) : null,
+        reason: r.reason?.trim() || null,
       });
     }
 
@@ -119,22 +131,55 @@ export async function PUT(req: Request) {
 
     const { data: prior, error: priorError } = await supabase
       .from("desk_readings")
-      .select("key, value, document_id, page, bbox")
+      .select("key, value, document_id, page, bbox, source_text")
       .eq("engagement_id", body.engagementId)
       .eq("organization_id", organizationId)
       .in("key", resolved.map((r) => r.key));
     if (priorError) throw new Error(priorError.message);
-    const before = new Map((prior ?? []).map((p) => [p.key, { value: Number(p.value), documentId: p.document_id, page: p.page, ...(p.bbox ? { region: p.bbox } : {}) }]));
+    const priorState = new Map<string, ReadingState>(
+      (prior ?? []).map((p) => [p.key, { value: Number(p.value), documentId: p.document_id, page: p.page, bbox: parseRegion(p.bbox), sourceText: p.source_text }])
+    );
+    const previousOf = (key: string): Json | null => {
+      const p = priorState.get(key);
+      return p ? ({ value: p.value, documentId: p.documentId, page: p.page, ...(p.bbox ? { region: p.bbox, sourceText: p.sourceText } : {}) } as unknown as Json) : null;
+    };
 
-    const removals = resolved.filter((r) => r.value === null).map((r) => r.key);
-    const upserts = resolved.filter((r) => r.value !== null);
+    const changes = resolved.map((r) => {
+      const next: ReadingState | null =
+        r.value === null ? null : { value: r.value, documentId: r.documentId, page: r.page, bbox: r.bbox, sourceText: r.sourceText };
+      return { r, kind: classifyChange(priorState.get(r.key) ?? null, next) as ChangeKind };
+    });
+
+    // A figure on record is not changed or withdrawn without saying why.
+    const unexplained = [...new Set(changes.filter((c) => reasonProblem(c.kind, c.r.reason) !== null).map((c) => c.r.key.split("@")[0]!))];
+    if (unexplained.length > 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: `Say why you are changing or withdrawing: ${unexplained.slice(0, 5).join(", ")}${unexplained.length > 5 ? ` and ${unexplained.length - 5} more` : ""}.`,
+          needsReason: unexplained,
+        },
+        { status: 422 }
+      );
+    }
+
+    const removals = changes.filter((c) => c.kind === "withdrawn");
+    const upserts = changes.filter((c) => c.kind === "entered" || c.kind === "edited");
+    const unchanged = changes.filter((c) => c.kind === "unchanged").length;
+
     if (removals.length > 0) {
-      const { error } = await supabase.from("desk_readings").delete().eq("engagement_id", body.engagementId).eq("organization_id", organizationId).in("key", removals);
+      const { error } = await supabase
+        .from("desk_readings")
+        .delete()
+        .eq("engagement_id", body.engagementId)
+        .eq("organization_id", organizationId)
+        .in("key", removals.map((c) => c.r.key));
       if (error) throw new Error(error.message);
     }
+    const now = new Date().toISOString();
     if (upserts.length > 0) {
       const { error } = await supabase.from("desk_readings").upsert(
-        upserts.map((r) => ({
+        upserts.map(({ r }) => ({
           organization_id: organizationId,
           engagement_id: body.engagementId,
           key: r.key,
@@ -147,11 +192,39 @@ export async function PUT(req: Request) {
           source_text: r.sourceText,
           source_kind: r.bbox ? ("snip" as const) : ("typed" as const),
           entered_by: session.user.id,
-          entered_at: new Date().toISOString(),
+          entered_at: now,
         })),
         { onConflict: "engagement_id,key" }
       );
       if (error) throw new Error(error.message);
+    }
+
+    let historyRecorded = true;
+    const recorded = [...upserts, ...removals];
+    if (recorded.length > 0) {
+      const { error } = await supabase.from("desk_reading_history").insert(
+        recorded.map(({ r, kind }) => ({
+          organization_id: organizationId,
+          engagement_id: body.engagementId,
+          key: r.key,
+          action: kind as "entered" | "edited" | "withdrawn",
+          value: r.value,
+          unit: r.unit,
+          document_id: r.documentId,
+          page: r.page,
+          bbox: (r.bbox ?? null) as unknown as Json | null,
+          source_text: r.sourceText,
+          source_kind: r.value === null ? null : r.bbox ? ("snip" as const) : ("typed" as const),
+          previous: previousOf(r.key),
+          reason: kind === "entered" ? "" : (r.reason ?? ""),
+          acted_by: session.user.id,
+          acted_at: now,
+        }))
+      );
+      if (error) {
+        if (!isMissingTable(error)) throw new Error(error.message);
+        historyRecorded = false;
+      }
     }
 
     await auditEvent({
@@ -161,18 +234,25 @@ export async function PUT(req: Request) {
       entityType: "engagement",
       entityId: body.engagementId,
       payload: {
-        saved: upserts.map((r) => ({
+        saved: upserts.map(({ r, kind }) => ({
           key: r.key,
           value: r.value,
           documentId: r.documentId,
           page: r.page,
-          ...(r.bbox ? { region: r.bbox, sourceText: r.sourceText } : {}),
-          ...(before.has(r.key) ? { previous: before.get(r.key) } : {}),
+          change: kind,
+          ...(r.bbox ? { region: { ...r.bbox }, sourceText: r.sourceText } : {}),
+          ...(kind === "edited" ? { reason: r.reason, previous: previousOf(r.key) } : {}),
         })),
-        removed: removals.map((key) => ({ key, ...(before.has(key) ? { previous: before.get(key) } : {}) })),
+        removed: removals.map(({ r }) => ({ key: r.key, reason: r.reason, previous: previousOf(r.key) })),
       },
     });
-    return NextResponse.json({ ok: true, saved: upserts.length, removed: removals.length });
+    return NextResponse.json({
+      ok: true,
+      saved: upserts.length,
+      removed: removals.length,
+      unchanged,
+      historyRecorded,
+    });
   } catch (e) {
     return jsonError(e);
   }

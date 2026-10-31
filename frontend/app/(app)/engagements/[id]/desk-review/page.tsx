@@ -76,6 +76,25 @@ export default async function DeskReviewPage({ params }: { params: Promise<{ id:
       .eq("organization_id", session.organizationId)
       .like("rule_id", "DESK-%"),
   ]);
+  // Without migration 0021 the history table is absent. Readings still save; the history view stays empty.
+  const { data: historyRows } = await supabase!
+    .from("desk_reading_history")
+    .select("id, key, action, value, unit, reason, previous, acted_by, acted_at")
+    .eq("engagement_id", id)
+    .eq("organization_id", session.organizationId)
+    .order("acted_at", { ascending: false })
+    .limit(500);
+  const history = (historyRows ?? []).map((h) => ({
+    id: h.id,
+    key: h.key,
+    action: h.action,
+    value: h.value === null ? null : Number(h.value),
+    unit: h.unit,
+    reason: h.reason,
+    previousValue: ((h.previous ?? null) as { value?: number } | null)?.value ?? null,
+    actedAt: h.acted_at,
+  }));
+
   // Without migration 0019 the table is absent. The checks still show; decisions wait.
   const resolutionsAvailable = !resolutionRows.error;
   const resolutions: Record<string, TriageResolution> = {};
@@ -235,6 +254,7 @@ export default async function DeskReviewPage({ params }: { params: Promise<{ id:
         manualSpecs={def.manual}
         initialResults={results}
         initialNotes={notes}
+        history={history}
         savedReadings={(readings ?? []).map((r) => ({
           key: r.key,
           value: Number(r.value),

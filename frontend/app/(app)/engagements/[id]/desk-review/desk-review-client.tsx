@@ -23,6 +23,7 @@ import { buildLeadSchedule } from "@verifystack/backend/domain/deskreview/leadSc
 import { LeadScheduleView } from "./lead-schedule-view";
 import { SnipDialog, type SnipResult } from "./snip-dialog";
 import type { Region } from "@verifystack/backend/domain/deskreview/snip";
+import { MIN_CHANGE_REASON } from "@verifystack/backend/domain/deskreview/readingChange";
 import { formatIst } from "@/lib/format";
 import type { ProformaReading } from "@verifystack/backend/domain/proforma/reader";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
@@ -50,6 +51,20 @@ export interface SavedReading {
   /** What is printed in that box. */
   sourceText?: string | null;
 }
+
+/** One entry in a figure's history: when it was entered, edited or withdrawn, and why. */
+export interface ReadingHistoryItem {
+  id: string;
+  key: string;
+  action: "entered" | "edited" | "withdrawn";
+  value: number | null;
+  unit: string | null;
+  reason: string;
+  previousValue: number | null;
+  actedAt: string;
+}
+
+const ACTION_LABEL: Record<ReadingHistoryItem["action"], string> = { entered: "Entered", edited: "Edited", withdrawn: "Withdrawn" };
 
 export interface SlotDoc {
   id: string;
@@ -158,6 +173,8 @@ interface DeskReviewStudioProps {
   manualSpecs: ManualReadingSpec[];
   initialResults: DeskOutcome[];
   initialNotes: string[];
+  /** Every entry, edit and withdrawal of a reading, newest first. Empty until migration 0021 is applied. */
+  history: ReadingHistoryItem[];
   savedReadings: SavedReading[];
   docs: SlotDoc[];
   proforma: ProformaReading | null;
@@ -273,6 +290,7 @@ export function DeskReviewStudio({
   manualSpecs,
   initialResults,
   initialNotes,
+  history,
   savedReadings,
   docs,
   proforma,
@@ -399,6 +417,70 @@ export function DeskReviewStudio({
   }
 
   const [savingReadings, setSavingReadings] = useState(false);
+  const [reasonOf, setReasonOf] = useState<Record<string, string>>({});
+
+  const DAILY_LINE = /^(\d{4}-\d{2}-\d{2})\s*[,:\s]\s*(-?\d+(?:\.\d+)?)$/;
+  const savedFor = (spec: ManualReadingSpec) => savedReadings.filter((r) => r.key === spec.key || r.key.startsWith(`${spec.key}@`));
+  const regionText = (r: Region | null | undefined) => (r ? [r.x, r.y, r.width, r.height].map((n) => n.toFixed(6)).join(",") : "");
+
+  /** What saving would do to this reading now: nothing, enter a first figure, edit the one on record, or withdraw it. */
+  function changeKind(spec: ManualReadingSpec): "none" | "entered" | "edited" | "withdrawn" {
+    const saved = savedFor(spec);
+    const doc = docOf[spec.key] ?? "";
+    const page = pageOf[spec.key] ? Number(pageOf[spec.key]) : null;
+    const text = (values[spec.key] ?? "").trim();
+    if (spec.kind === "daily") {
+      const now = new Map<string, number>();
+      for (const line of text.split("\n")) {
+        const m = DAILY_LINE.exec(line.trim());
+        if (m) now.set(`${spec.key}@${m[1]}`, Number(m[2]));
+      }
+      if (saved.length === 0) return now.size > 0 ? "entered" : "none";
+      if (now.size === 0) return "withdrawn";
+      const same =
+        now.size === saved.length &&
+        saved.every((s) => now.get(s.key) === s.value) &&
+        doc === (saved[0]!.documentId ?? "") &&
+        page === (saved[0]!.page ?? null);
+      return same ? "none" : "edited";
+    }
+    const prev = saved[0];
+    if (!prev) return text === "" ? "none" : "entered";
+    if (text === "") return "withdrawn";
+    const same =
+      Number(text) === prev.value &&
+      doc === (prev.documentId ?? "") &&
+      page === (prev.page ?? null) &&
+      regionText(regionOf[spec.key]) === regionText(prev.bbox) &&
+      (!prev.bbox || (quoteOf[spec.key] ?? "").trim() === (prev.sourceText ?? "").trim());
+    return same ? "none" : "edited";
+  }
+
+  /** Put a reading back to what is on record. */
+  function revert(spec: ManualReadingSpec) {
+    const saved = savedFor(spec);
+    const first = saved[0];
+    setValues((prev) => ({
+      ...prev,
+      [spec.key]:
+        spec.kind === "daily"
+          ? [...saved].sort((a, b) => a.key.localeCompare(b.key)).map((r) => `${r.key.slice(spec.key.length + 1)} ${r.value}`).join("\n")
+          : first
+            ? String(first.value)
+            : "",
+    }));
+    setDocOf((prev) => ({ ...prev, [spec.key]: first?.documentId ?? "" }));
+    setPageOf((prev) => ({ ...prev, [spec.key]: first?.page ? String(first.page) : "" }));
+    setRegionOf((prev) => ({ ...prev, [spec.key]: first?.bbox ?? null }));
+    setQuoteOf((prev) => ({ ...prev, [spec.key]: first?.sourceText ?? "" }));
+    setReasonOf((prev) => ({ ...prev, [spec.key]: "" }));
+  }
+
+  /** Empty the reading so the next save withdraws it. It stays in the history. */
+  function withdraw(spec: ManualReadingSpec) {
+    setValues((prev) => ({ ...prev, [spec.key]: "" }));
+    setRegionOf((prev) => ({ ...prev, [spec.key]: null }));
+  }
 
   // Results indexing
   const resultsById = useMemo(() => new Map(results.map((r) => [r.id, r])), [results]);
@@ -585,27 +667,48 @@ export function DeskReviewStudio({
       page?: number | null;
       bbox?: Region | null;
       sourceText?: string | null;
+      reason?: string | null;
     }> = [];
     const region = (key: string) => ({ bbox: regionOf[key] ?? null, sourceText: regionOf[key] ? (quoteOf[key] ?? "") : null });
 
+    // A figure on record is not changed or withdrawn without saying why; the server asks for the same.
+    const unexplained = manualSpecs.filter((s) => {
+      const kind = changeKind(s);
+      return (kind === "edited" || kind === "withdrawn") && (reasonOf[s.key] ?? "").trim().length < MIN_CHANGE_REASON;
+    });
+    if (unexplained.length > 0) {
+      setSavingReadings(false);
+      toast.error(`Say why you are changing or withdrawing (at least ${MIN_CHANGE_REASON} characters): ${unexplained.slice(0, 3).map((s) => s.label).join("; ")}${unexplained.length > 3 ? ` and ${unexplained.length - 3} more` : ""}.`);
+      return;
+    }
+
     for (const spec of manualSpecs) {
+      const reason = (reasonOf[spec.key] ?? "").trim() || null;
       if (spec.kind === "daily") {
         const text = values[spec.key] ?? "";
         const lines = text
           .split("\n")
           .map((l) => l.trim())
           .filter(Boolean);
+        const kept = new Set<string>();
         for (const line of lines) {
-          const match = /^(\d{4}-\d{2}-\d{2})\s*[,:\s]\s*(-?\d+(?:\.\d+)?)$/.exec(line);
+          const match = DAILY_LINE.exec(line);
           if (match) {
+            const key = `${spec.key}@${match[1]}`;
+            kept.add(key);
             readingsPayload.push({
-              key: `${spec.key}@${match[1]}`,
+              key,
               value: Number(match[2]),
               documentId: docOf[spec.key] || null,
               page: pageOf[spec.key] ? Number(pageOf[spec.key]) : null,
               ...region(spec.key),
+              reason,
             });
           }
+        }
+        // A day taken out of the list is withdrawn, with the reason given for this reading.
+        for (const s of savedFor(spec)) {
+          if (!kept.has(s.key)) readingsPayload.push({ key: s.key, value: null, reason });
         }
       } else {
         const valStr = values[spec.key]?.trim() ?? "";
@@ -615,6 +718,7 @@ export function DeskReviewStudio({
           documentId: docOf[spec.key] || null,
           page: pageOf[spec.key] ? Number(pageOf[spec.key]) : null,
           ...region(spec.key),
+          reason,
         });
       }
     }
@@ -634,7 +738,13 @@ export function DeskReviewStudio({
       body: JSON.stringify({ engagementId, readings: readingsPayload }),
     });
 
-    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+    const json = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      error?: string;
+      saved?: number;
+      removed?: number;
+      historyRecorded?: boolean;
+    };
     setSavingReadings(false);
 
     if (!res.ok || !json.ok) {
@@ -642,7 +752,14 @@ export function DeskReviewStudio({
       return;
     }
 
-    toast.success("Readings saved to audit ledger");
+    const changed = (json.saved ?? 0) + (json.removed ?? 0);
+    toast.success(
+      changed === 0
+        ? "Nothing changed."
+        : `${json.saved ? `${json.saved} saved` : ""}${json.saved && json.removed ? ", " : ""}${json.removed ? `${json.removed} withdrawn` : ""}.${andRun ? "" : " Run the desk review to update the checks."}`
+    );
+    if (json.historyRecorded === false) toast.info("The earlier figures are kept in the audit log only: apply migration 0021 to keep a history view.");
+    setReasonOf({});
     if (andRun) {
       await runDeskReview();
     } else {
@@ -739,6 +856,9 @@ export function DeskReviewStudio({
                 const suggestion = suggestions.find((s) => s.key === spec.key);
                 const currentVal = values[spec.key] ?? "";
                 const isDaily = spec.kind === "daily";
+                const kind = changeKind(spec);
+                const onRecord = savedFor(spec).length > 0;
+                const specHistory = history.filter((h) => h.key === spec.key || h.key.startsWith(`${spec.key}@`));
 
                 return (
                   <div
@@ -883,6 +1003,57 @@ export function DeskReviewStudio({
                           </div>
                         ) : null}
                       </div>
+
+                      {/* Changing or withdrawing a figure on record needs a reason; the earlier figure stays in the history. */}
+                      {kind === "edited" || kind === "withdrawn" ? (
+                        <div className="space-y-1 rounded border border-amber-200 bg-amber-50/60 p-2">
+                          <label htmlFor={`reason-${spec.key}`} className="block text-[11px] font-medium text-amber-900">
+                            {kind === "withdrawn" ? "Why is this figure being withdrawn?" : "Why is this figure being changed?"}
+                          </label>
+                          <Input
+                            id={`reason-${spec.key}`}
+                            value={reasonOf[spec.key] ?? ""}
+                            onChange={(e) => setReasonOf((prev) => ({ ...prev, [spec.key]: e.target.value }))}
+                            placeholder={`At least ${MIN_CHANGE_REASON} characters`}
+                            maxLength={500}
+                            className="h-7 text-[11px]"
+                          />
+                          <div className="flex items-center justify-between text-[10px] text-amber-800">
+                            <span>The earlier figure stays in the history.</span>
+                            <button type="button" className="underline underline-offset-2" onClick={() => revert(spec)}>
+                              Revert
+                            </button>
+                          </div>
+                        </div>
+                      ) : onRecord && kind === "none" ? (
+                        <button
+                          type="button"
+                          className="text-[11px] text-mist-600 underline underline-offset-2 hover:text-mist-900"
+                          onClick={() => withdraw(spec)}
+                        >
+                          Withdraw this figure
+                        </button>
+                      ) : kind === "entered" ? (
+                        <p className="text-[10px] text-mist-500">Added by hand. It will be marked as typed by you.</p>
+                      ) : null}
+
+                      {specHistory.length > 0 ? (
+                        <details className="text-[11px] text-mist-700">
+                          <summary className="cursor-pointer select-none text-mist-600">History ({specHistory.length})</summary>
+                          <ul className="mt-1 space-y-1">
+                            {specHistory.map((h) => (
+                              <li key={h.id} className="rounded bg-mist-50 px-1.5 py-1">
+                                <span className="font-medium text-mist-900">{ACTION_LABEL[h.action]}</span>
+                                {h.key !== spec.key ? <span className="font-mono text-mist-500"> {h.key.slice(spec.key.length + 1)}</span> : null}
+                                {h.value !== null ? ` ${roundTo4(h.value)}${h.unit ? ` ${h.unit}` : ""}` : ""}
+                                {h.previousValue !== null ? <span className="text-mist-500"> (was {roundTo4(h.previousValue)})</span> : null}
+                                <span className="block text-[10px] text-mist-500">{formatIst(h.actedAt)}</span>
+                                {h.reason ? <span className="block text-mist-700">Reason: {h.reason}</span> : null}
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      ) : null}
                     </div>
                   </div>
                 );

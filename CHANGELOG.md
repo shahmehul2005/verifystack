@@ -16,6 +16,17 @@ must say which version it bumps. Current versions:
 
 ## [Unreleased]
 
+### Desk review: edit and withdraw readings with a history
+
+- **Edit, add and withdraw in the Corroboration drawer.** Changing a figure already on record, or withdrawing it,
+  asks for a reason (at least 8 characters). The route enforces it, not only the form. A first entry and an
+  unchanged figure need none, and an unchanged figure is no longer rewritten on save, so it keeps who entered it.
+- **Nothing is erased.** Every entry, edit and withdrawal is kept in the new append-only `desk_reading_history`
+  (migration 0021) with who, when, why and the figure it replaced. The drawer shows it per reading under "History".
+  A withdrawal takes the figure out of the checks but not out of the record. A day removed from a daily list is
+  withdrawn the same way. Until 0021 is applied, readings still save and the earlier figure is kept in the audit log.
+- Checks are not recomputed by an edit: run the desk review again to update them.
+
 ### Documents: extract every uploaded file with one button
 
 - **Extract all.** The Documents tab has "Extract all (N)", which reads every PDF and image that has not been

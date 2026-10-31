@@ -736,6 +736,46 @@ export interface Database {
         }>;
         Relationships: [];
       };
+      desk_reading_history: {
+        Row: Row<{
+          id: string;
+          organization_id: string;
+          engagement_id: string;
+          key: string;
+          action: "entered" | "edited" | "withdrawn";
+          value: number | null;
+          unit: string | null;
+          document_id: string | null;
+          page: number | null;
+          bbox: Json | null;
+          source_text: string | null;
+          source_kind: "typed" | "snip" | null;
+          previous: Json | null;
+          reason: string;
+          acted_by: string | null;
+          acted_at: string;
+        }>;
+        Insert: Insert<{
+          id?: string;
+          organization_id: string;
+          engagement_id: string;
+          key: string;
+          action: "entered" | "edited" | "withdrawn";
+          value?: number | null;
+          unit?: string | null;
+          document_id?: string | null;
+          page?: number | null;
+          bbox?: Json | null;
+          source_text?: string | null;
+          source_kind?: "typed" | "snip" | null;
+          previous?: Json | null;
+          reason?: string;
+          acted_by?: string | null;
+          acted_at?: string;
+        }>;
+        Update: Update<Record<string, never>>;
+        Relationships: [];
+      };
       desk_reviews: {
         Row: Row<{
           id: string;
