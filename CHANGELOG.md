@@ -73,6 +73,27 @@ must say which version it bumps. Current versions:
   on it. No migration.
 - The drag-to-draw layer is shared with the desk-review snip dialog.
 
+### Website assistant: guardrails, current knowledge and a plainer panel
+
+Decision record: [0024](docs/decisions/0024-website-assistant-guardrails.md).
+
+- **Screening before anything else.** Messages that try to change the assistant's rules, reveal its prompt or
+  assign it a role are refused. Messages carrying an ID or card number, an access key or a password are refused.
+  Neither kind is retrieved or sent to a model. Email addresses and phone numbers are removed from what is kept.
+- **Scope that cannot be borrowed.** A loose match (for example "what's the best phone?") is never answered from
+  the library alone; the model may judge it, or the question is refused. A follow-up takes the previous question
+  only when it has no words of its own, so an off-topic request cannot inherit the product topic.
+- **Stricter grounding.** A model's wording is shown only if at least 60% of its words come from the entries it
+  cites, and it does not talk about its own instructions.
+- **Knowledge brought up to date.** Entries now cover the desk review and its decisions, the evidence checklist,
+  reading pro forma inputs, the review queue, calculation readiness, DPR measures and savings, starting an
+  engagement, document-type suggestions, what is not yet available, and where to get help. Two claims were
+  corrected: extraction sends PDF pages and images to Gemini, and ECM is not ADEETIE-only. Tests check each
+  entry's routing, that every link is a real page, and that no entry states a scheme threshold.
+- **A plainer panel.** Three starter questions, one link per reply, one line of disclaimer. The topics toggle,
+  the avatars and the extra header controls are gone.
+- **Route.** Responses are `no-store`. The log records the outcome and mode, never the question or the answer.
+
 ### Desk review: real PDF reading, period-aware calcination, NABL band, stronger integrity checks
 
 Found by running the Dataset-2 engagement end to end. No engine or pack version changes: the run input and

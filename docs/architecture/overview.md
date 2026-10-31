@@ -74,7 +74,7 @@ Process numbers match the data-flow diagrams in [`data-flow.md`](data-flow.md).
 | -- | ------------------ | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
 | P1 | Engagement setup   | Engagement is bound to a methodology pack. A database trigger forbids rebinding later.           | `app/api/engagements`, `domain/packs`                       |
 | P2 | Intake             | File is SHA-256 hashed, stored privately under its hash, split into pages.                       | `app/api/documents`, `lib/hash.ts`, `extraction/pages.ts`   |
-| P3 | Extraction         | Digital PDFs are parsed deterministically; scans go to Gemini. Output is validated for provenance. | `extraction/digital.ts`, `gemini.ts`, `provenance.ts`, `inngest/` |
+| P3 | Extraction         | PDF pages and images go to Gemini. `runDocument.ts` calls `chooseRoute` with zero text characters, so the deterministic digital route in `digital.ts` is never taken; this is a known gap. Spreadsheets are not sent to a model. Output is validated for provenance. The desk review's Auto-suggest reads a PDF's text layer with no model (`pdfText.ts`). | `extraction/digital.ts`, `gemini.ts`, `provenance.ts`, `inngest/` |
 | P4 | Review             | A reviewer accepts, corrects or rejects each field. Accepted fields become facts.                | `app/(app)/engagements/[id]/workbench`, `app/api/facts`     |
 | P5 | Calculation        | The engine reads facts through pack bindings and writes a hash-chained run.                      | `domain/calc`, `app/api/runs`                               |
 | P6 | Findings           | Rules raise `block`, `warn` or `info` findings, with a retrieved citation and a CAR draft.       | `domain/rules`, `domain/citations`, `domain/ai`             |
@@ -267,16 +267,30 @@ routes. Auth, invite and model-calling routes are rate limited in memory
 `components/assistant/assistant-widget.tsx` is mounted in the root layout, so it appears on every
 page. It posts to the public `/api/assistant`, which reads no tenant data and stores nothing.
 Its knowledge is the curated list in `backend/domain/assistant/knowledge.ts`; anything not written
-there is something it cannot say. The flow follows the citation pattern:
+there is something it cannot say. The order of checks is the guardrail
+([0024](../decisions/0024-website-assistant-guardrails.md)):
 
-1. Greetings and thanks get fixed replies.
-2. `retrieve.ts` scores entries lexically. If none reaches the threshold, the question is refused
-   as out of scope and no model is called.
-3. Gemini receives only the matched entries and may answer, or say `not_covered` or
-   `out_of_scope`.
-4. `answer.ts` checks that every cited entry was retrieved and that the answer adds no number or
-   link. If the check fails, the top entry's text is shown as written. The same happens when the
-   key is unset or the per-instance model budget (`LIMITS.assistantModelBudget`) is spent.
+1. `guard.ts` screens the message before anything else. A message that tries to change the rules,
+   reveal the prompt or take on a role is refused. A message with an ID, card or secret number, a
+   password or an access key is refused. Email addresses and phone numbers are removed from the
+   text kept. A refused message is never retrieved or sent to a model. Earlier visitor turns are
+   screened the same way.
+2. Greetings and thanks get fixed replies.
+3. `retrieve.ts` scores entries lexically. No match means out of scope, with no model call. The
+   match also reports coverage: the share of the question's words that an entry names as a topic.
+   A follow-up with no words of its own ("tell me more") takes the previous question; a question with
+   words of its own is judged alone.
+4. A clear match (coverage at least 60%) may be answered from the top entry as written when no model
+   is available. A loose match is never answered from the library alone: the model may judge it, or
+   the question is refused.
+5. Gemini receives only the matched entries, and may answer, or say `not_covered` or
+   `out_of_scope`. The call gets one attempt and fifteen seconds, so a busy model never leaves a
+   visitor waiting. Its wording is shown only if it cites entries it was given, adds no number or
+   link or phrase about its own instructions, and takes at least 60% of its words from the cited
+   entries. Otherwise the top entry is shown as written (clear match) or the question is refused.
+6. The route logs the outcome and mode, never the question or the answer, and returns `no-store`.
+
+The model is one step of the pipeline, not the scope check. Its wording is never trusted on its own.
 
 ## 10. External services and failure modes
 

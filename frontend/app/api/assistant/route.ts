@@ -22,8 +22,10 @@ const Body = z.object({
 });
 
 /**
- * Public website assistant. Stores nothing and reads no tenant data: answers
- * come only from the curated knowledge in backend/domain/assistant.
+ * Public website assistant. Stores nothing and reads no tenant data. Each
+ * message is screened for injected instructions and personal or secret details
+ * before anything else; then answers come only from the curated knowledge in
+ * backend/domain/assistant, and a model may only rephrase a matched entry.
  */
 export async function POST(req: Request) {
   const limited = limitExceeded(`assistant:ip:${clientIp(req)}`, LIMITS.assistantPerIp);
@@ -45,5 +47,9 @@ export async function POST(req: Request) {
     },
   });
 
-  return NextResponse.json({ ok: true, ...reply });
+  // The outcome and the mode only. The question and the answer are never logged.
+  console.info("[assistant] outcome", reply.outcome, reply.mode);
+  const res = NextResponse.json({ ok: true, ...reply });
+  res.headers.set("Cache-Control", "no-store");
+  return res;
 }

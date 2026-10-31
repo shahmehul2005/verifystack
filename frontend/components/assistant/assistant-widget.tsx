@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
-import { ArrowUpRight, ChevronDown, Compass, MessageCircle, RotateCcw, SendHorizontal, X } from "lucide-react";
+import { ArrowUpRight, MessageCircle, SendHorizontal, X } from "lucide-react";
 import type { AssistantReply, AssistantSource } from "@verifystack/backend/domain/assistant/answer";
 import { STARTER_QUESTIONS } from "@verifystack/backend/domain/assistant/starters";
 import { LogoMark } from "@/components/brand/logo";
@@ -19,12 +19,15 @@ interface Message {
   error?: boolean;
 }
 
-const WELCOME =
-  "Welcome! I'm the VerifyStack assistant. Ask me about the product, the CCTS and ADEETIE workflows, roles, accounts or security.";
+const WELCOME = "Hi, I'm the VerifyStack assistant. Ask me what VerifyStack does, how an engagement works, or which schemes it supports.";
 
+/**
+ * The website assistant. One conversation at a time, three suggested questions until the
+ * first message, one link per answer, and one line of disclaimer. Everything it says comes
+ * from the server; this component only shows it as text.
+ */
 export function AssistantWidget() {
   const [open, setOpen] = useState(false);
-  const [topicsOpen, setTopicsOpen] = useState(true);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
@@ -77,7 +80,6 @@ export function AssistantWidget() {
 
     push({ role: "user", content: question });
     setDraft("");
-    setTopicsOpen(false);
     setPending(true);
     try {
       const res = await fetch("/api/assistant", {
@@ -121,11 +123,10 @@ export function AssistantWidget() {
   function reset() {
     setMessages([]);
     setDraft("");
-    setTopicsOpen(true);
     inputRef.current?.focus();
   }
 
-  const showStarters = topicsOpen;
+  const hasConversation = messages.length > 0;
 
   return (
     <div className="print:hidden">
@@ -136,60 +137,57 @@ export function AssistantWidget() {
           aria-modal="false"
           aria-labelledby={titleId}
           className={cn(
-            "glass-strong fixed z-35 flex flex-col overflow-hidden rounded-xl border shadow-lg",
-            "inset-x-3 top-3 bottom-22 sm:inset-x-auto sm:top-auto sm:right-5",
-            "sm:h-[min(620px,calc(100dvh-6.5rem))] sm:w-[400px]"
+            "fixed z-35 flex flex-col overflow-hidden rounded-2xl border border-mist-200 bg-white shadow-xl",
+            "inset-x-3 top-3 bottom-22 sm:inset-x-auto sm:top-auto sm:right-5 sm:bottom-24",
+            "sm:h-[min(600px,calc(100dvh-7rem))] sm:w-[380px]"
           )}
         >
-          <header className="flex shrink-0 items-center gap-3 bg-teal-700 px-4 py-3 text-white">
-            <LogoMark inverted className="size-9" />
-            <div className="min-w-0 flex-1">
-              <h2 id={titleId} className="text-[15px] font-semibold leading-tight">
+          <header className="flex shrink-0 items-center justify-between gap-2 border-b border-mist-200 px-4 py-3">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <LogoMark className="size-6" />
+              <h2 id={titleId} className="truncate text-sm font-semibold text-mist-900">
                 VerifyStack assistant
               </h2>
-              <p className="mt-0.5 text-xs text-teal-100">Answers questions about VerifyStack</p>
             </div>
-            {messages.length > 0 ? (
-              <HeaderButton label="Start a new chat" onClick={reset}>
-                <RotateCcw className="size-4" />
-              </HeaderButton>
-            ) : null}
-            <HeaderButton label="Close assistant" onClick={close}>
-              <X className="size-5" />
-            </HeaderButton>
+            <div className="flex shrink-0 items-center gap-1">
+              {hasConversation ? (
+                <button
+                  type="button"
+                  onClick={reset}
+                  className="rounded-md px-2 py-1 text-xs font-medium text-mist-600 transition-colors hover:bg-mist-100 hover:text-mist-900 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-teal-600"
+                >
+                  New chat
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={close}
+                aria-label="Close assistant"
+                className="inline-flex size-8 items-center justify-center rounded-md text-mist-600 transition-colors hover:bg-mist-100 hover:text-mist-900 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-teal-600"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
           </header>
-
-          <div className="shrink-0 border-b border-mist-900/6 bg-white/30 px-4 py-2">
-            <button
-              type="button"
-              onClick={() => setTopicsOpen((v) => !v)}
-              aria-expanded={showStarters}
-              className="inline-flex items-center gap-1.5 rounded-full border border-teal-200 bg-white px-3 py-1.5 text-[13px] font-medium text-teal-800 transition-colors hover:border-teal-300 hover:bg-teal-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600"
-            >
-              <Compass className="size-3.5" />
-              Explore topics
-              <ChevronDown className={cn("size-3.5 transition-transform", showStarters && "rotate-180")} />
-            </button>
-          </div>
 
           <div
             ref={logRef}
             role="log"
             aria-live="polite"
             aria-label="Conversation"
-            className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-4"
+            className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4"
           >
             <AssistantBubble content={WELCOME} />
 
-            {showStarters ? (
-              <div className="flex flex-wrap gap-2 pl-9">
+            {!hasConversation ? (
+              <div className="flex flex-col items-start gap-1.5">
                 {STARTER_QUESTIONS.map((q) => (
                   <button
                     key={q}
                     type="button"
                     disabled={pending}
                     onClick={() => void ask(q)}
-                    className="rounded-full border border-mist-200 bg-white px-3 py-1.5 text-left text-[13px] text-mist-700 transition-colors hover:border-teal-300 hover:bg-teal-50 hover:text-teal-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 disabled:opacity-50"
+                    className="rounded-lg border border-mist-200 bg-white px-3 py-2 text-left text-[13px] text-mist-800 transition-colors hover:border-teal-300 hover:bg-teal-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 disabled:opacity-50"
                   >
                     {q}
                   </button>
@@ -200,7 +198,7 @@ export function AssistantWidget() {
             {messages.map((m) =>
               m.role === "user" ? (
                 <div key={m.id} className="flex justify-end">
-                  <p className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-teal-700 px-3.5 py-2 text-sm leading-relaxed text-white">
+                  <p className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-teal-700 px-3.5 py-2 text-sm leading-relaxed text-white">
                     {m.content}
                   </p>
                 </div>
@@ -216,9 +214,8 @@ export function AssistantWidget() {
             )}
 
             {pending ? (
-              <div className="flex items-end gap-2" aria-label="Assistant is typing">
-                <Avatar />
-                <span className="inline-flex items-center gap-1 rounded-2xl rounded-bl-md border border-mist-200 bg-white px-3.5 py-3">
+              <div className="flex" aria-label="Assistant is typing">
+                <span className="inline-flex items-center gap-1 rounded-2xl rounded-bl-sm bg-mist-100 px-3.5 py-3">
                   {[0, 150, 300].map((delay) => (
                     <span
                       key={delay}
@@ -231,7 +228,7 @@ export function AssistantWidget() {
             ) : null}
           </div>
 
-          <form onSubmit={onSubmit} className="shrink-0 border-t border-mist-900/6 bg-white/50 px-3 pb-2 pt-2.5">
+          <form onSubmit={onSubmit} className="shrink-0 border-t border-mist-200 px-3 pb-3 pt-3">
             <div className="flex items-center gap-2">
               <label htmlFor={`${titleId}-q`} className="sr-only">
                 Your question
@@ -243,21 +240,20 @@ export function AssistantWidget() {
                 onChange={(e) => setDraft(e.target.value)}
                 maxLength={MAX_CHARS}
                 autoComplete="off"
-                placeholder="Type your question here…"
-                className="h-11 min-w-0 flex-1 rounded-full border border-mist-300 bg-white px-4 text-sm text-mist-900 placeholder:text-mist-400 focus:border-teal-600 focus:outline-none focus:ring-3 focus:ring-teal-600/15"
+                placeholder="Ask a question"
+                className="h-10 min-w-0 flex-1 rounded-full border border-mist-300 bg-white px-4 text-sm text-mist-900 placeholder:text-mist-400 focus:border-teal-600 focus:outline-none focus:ring-3 focus:ring-teal-600/15"
               />
               <button
                 type="submit"
                 disabled={pending || !draft.trim()}
                 aria-label="Send question"
-                className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-teal-700 text-white transition-colors hover:bg-teal-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 disabled:bg-mist-300"
+                className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-teal-700 text-white transition-colors hover:bg-teal-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 disabled:bg-mist-300"
               >
-                <SendHorizontal className="size-4.5" />
+                <SendHorizontal className="size-4" />
               </button>
             </div>
-            <p className="mt-1.5 px-1 text-[11px] leading-snug text-mist-500">
-              VerifyStack questions only. Answers can be wrong, and questions may go to Google
-              Gemini, so don&apos;t paste client data.
+            <p className="mt-2 px-1 text-[11px] leading-snug text-mist-500">
+              AI can make mistakes. Don&apos;t share client or personal details.
             </p>
           </form>
         </section>
@@ -269,38 +265,12 @@ export function AssistantWidget() {
         onClick={() => (open ? close() : setOpen(true))}
         aria-expanded={open}
         aria-label={open ? "Close VerifyStack assistant" : "Ask the VerifyStack assistant"}
-        className="fixed bottom-5 right-5 z-35 inline-flex size-14 items-center justify-center rounded-full bg-teal-600 text-white shadow-md transition-colors hover:bg-teal-700 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-teal-600"
+        className="fixed bottom-5 right-5 z-35 inline-flex size-14 items-center justify-center rounded-full bg-teal-700 text-white shadow-lg transition-colors hover:bg-teal-800 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-teal-600"
       >
         {open ? <X className="size-6" /> : <MessageCircle className="size-6" />}
       </button>
     </div>
   );
-}
-
-function HeaderButton({
-  label,
-  onClick,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      className="inline-flex size-8 items-center justify-center rounded-md text-teal-50 transition-colors hover:bg-white/15 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-white"
-    >
-      {children}
-    </button>
-  );
-}
-
-function Avatar() {
-  return <LogoMark className="size-7" />;
 }
 
 function AssistantBubble({
@@ -314,31 +284,26 @@ function AssistantBubble({
   error?: boolean;
   onNavigate?: () => void;
 }) {
-  const links = (sources ?? []).filter((s) => s.href);
+  // One link at most. A reply should point the visitor to one place, not a list.
+  const link = (sources ?? []).find((s) => s.href);
   return (
-    <div className="flex items-end gap-2">
-      <Avatar />
+    <div className="flex">
       <div
         className={cn(
-          "max-w-[85%] rounded-2xl rounded-bl-md border px-3.5 py-2.5 text-sm leading-relaxed",
-          error ? "border-red-200 bg-red-50 text-red-900" : "border-mist-200 bg-white text-mist-800"
+          "max-w-[88%] rounded-2xl rounded-bl-sm px-3.5 py-2.5 text-sm leading-relaxed",
+          error ? "bg-red-50 text-red-900" : "bg-mist-100 text-mist-900"
         )}
       >
         <FormattedText text={content} />
-        {links.length > 0 ? (
-          <div className="mt-2.5 flex flex-wrap gap-x-3 gap-y-1 border-t border-mist-100 pt-2">
-            {links.map((s) => (
-              <Link
-                key={s.id}
-                href={s.href!}
-                onClick={onNavigate}
-                className="inline-flex items-center gap-0.5 text-[13px] font-medium text-teal-700 hover:text-teal-900 hover:underline"
-              >
-                {s.title}
-                <ArrowUpRight className="size-3.5" />
-              </Link>
-            ))}
-          </div>
+        {link ? (
+          <Link
+            href={link.href!}
+            onClick={onNavigate}
+            className="mt-2 inline-flex items-center gap-0.5 text-[13px] font-medium text-teal-700 hover:text-teal-900 hover:underline"
+          >
+            {link.title}
+            <ArrowUpRight className="size-3.5" />
+          </Link>
         ) : null}
       </div>
     </div>
