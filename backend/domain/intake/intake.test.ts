@@ -114,6 +114,61 @@ describe("parseXlsx", () => {
     expect(parsed.sheets[0]!.name).toBe("Data");
     expect(cellAt(parsed.sheets[0]!, "A1")?.value).toBe(42);
   });
+
+  it("reads cells, values, formulas and inline strings when every element is prefixed", () => {
+    // The real shape these exporters write: not just <x:sheet>, but <x:c>, <x:v>,
+    // <x:f> and <x:is><x:t>. Matching only the sheet tag finds the sheet and then
+    // silently drops every row, which is worse than refusing the file.
+    const ct = '<?xml version="1.0"?><Types xmlns="x"/>';
+    const wbXml =
+      '<x:workbook xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="r">' +
+      '<x:sheets><x:sheet name="SCADA Trend" sheetId="1" r:id="rId1"/></x:sheets></x:workbook>';
+    const rels = '<Relationships><Relationship Id="rId1" Type="t" Target="worksheets/sheet1.xml"/></Relationships>';
+    const sheet1 =
+      '<x:worksheet><x:sheetData>' +
+      '<x:row r="1"><x:c r="A1" t="inlineStr"><x:is><x:t>Date</x:t></x:is></x:c>' +
+      '<x:c r="B1" t="inlineStr"><x:is><x:t>Clinker Production (t)</x:t></x:is></x:c></x:row>' +
+      '<x:row r="2"><x:c r="A2" t="inlineStr"><x:is><x:t>2023-11-01</x:t></x:is></x:c>' +
+      '<x:c r="B2"><x:v>400.5</x:v></x:c></x:row>' +
+      '<x:row r="3"><x:c r="A3" t="str"><x:v>2023-11-02</x:v></x:c>' +
+      '<x:c r="B3"><x:f>B2*2</x:f><x:v>801</x:v></x:c></x:row>' +
+      '</x:sheetData></x:worksheet>';
+    const bytes = writeZip([
+      { name: "[Content_Types].xml", data: ct },
+      { name: "xl/workbook.xml", data: wbXml },
+      { name: "xl/_rels/workbook.xml.rels", data: rels },
+      { name: "xl/worksheets/sheet1.xml", data: sheet1 },
+    ]);
+    const parsed = parseXlsx(bytes);
+    const sheet = parsed.sheets[0]!;
+    expect(sheet.name).toBe("SCADA Trend");
+    expect(sheet.cells).toHaveLength(6);
+    expect(sheet.rowCount).toBe(3);
+    expect(sheet.colCount).toBe(2);
+    expect(cellAt(sheet, "B1")?.value).toBe("Clinker Production (t)");
+    expect(cellAt(sheet, "A2")?.value).toBe("2023-11-01");
+    expect(cellAt(sheet, "B2")?.value).toBe(400.5);
+    expect(cellAt(sheet, "B3")?.formula).toBe("B2*2");
+    expect(cellAt(sheet, "B3")?.value).toBe(801);
+  });
+
+  it("reads a shared-string table when the string items are prefixed", () => {
+    const ct = '<?xml version="1.0"?><Types xmlns="x"/>';
+    const wbXml = '<workbook><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>';
+    const rels = '<Relationships><Relationship Id="rId1" Type="t" Target="worksheets/sheet1.xml"/></Relationships>';
+    const strings = '<x:sst xmlns:x="x"><x:si><x:t>Coal Consumed (t)</x:t></x:si><x:si><x:t>Petcoke Log</x:t></x:si></x:sst>';
+    const sheet1 = '<worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row></sheetData></worksheet>';
+    const bytes = writeZip([
+      { name: "[Content_Types].xml", data: ct },
+      { name: "xl/workbook.xml", data: wbXml },
+      { name: "xl/_rels/workbook.xml.rels", data: rels },
+      { name: "xl/sharedStrings.xml", data: strings },
+      { name: "xl/worksheets/sheet1.xml", data: sheet1 },
+    ]);
+    const sheet = parseXlsx(bytes).sheets[0]!;
+    expect(cellAt(sheet, "A1")?.value).toBe("Coal Consumed (t)");
+    expect(cellAt(sheet, "B1")?.value).toBe("Petcoke Log");
+  });
 });
 
 describe("parseTimestamp", () => {

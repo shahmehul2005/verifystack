@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { PDFDocument, StandardFonts, degrees } from "pdf-lib";
 import { pdfItemToPageItem, readBox, type PageTextItem } from "./boxText";
 
+/**
+ * Building a real PDF and loading pdf.js takes about a second alone, and several
+ * seconds when the whole suite is running in parallel. These are correctness tests,
+ * not latency tests, so they get a budget that does not turn load into a failure.
+ */
+const PDF_TIMEOUT_MS = 20_000;
+
 /** A real PDF with text at known places, read back through pdf.js the way the browser does. */
 async function pageItems(rotate: number): Promise<PageTextItem[]> {
   const doc = await PDFDocument.create();
@@ -29,7 +36,7 @@ async function pageItems(rotate: number): Promise<PageTextItem[]> {
 }
 
 describe("reading a box from a real PDF", () => {
-  it("reads the text and the figure inside a box drawn where the line appears on the page", async () => {
+  it("reads the text and the figure inside a box drawn where the line appears on the page", { timeout: PDF_TIMEOUT_MS }, async () => {
     const items = await pageItems(0);
     // On screen the line sits 200 pt from the top of a 600 x 800 page.
     const read = readBox(items, { x: 90 / 600, y: 185 / 800, width: 270 / 600, height: 30 / 800 });
@@ -37,12 +44,12 @@ describe("reading a box from a real PDF", () => {
     expect(read.numbers.map((n) => n.value)).toEqual([18247]);
   });
 
-  it("reads nothing from a box over empty space", async () => {
+  it("reads nothing from a box over empty space", { timeout: PDF_TIMEOUT_MS }, async () => {
     const items = await pageItems(0);
     expect(readBox(items, { x: 0.8, y: 0.8, width: 0.15, height: 0.1 }).text).toBe("");
   });
 
-  it("keeps every item on the page and finds the figure on a rotated page", async () => {
+  it("keeps every item on the page and finds the figure on a rotated page", { timeout: PDF_TIMEOUT_MS }, async () => {
     const items = await pageItems(90);
     expect(items).toHaveLength(4);
     expect(items.every((i) => i.x >= -0.01 && i.y >= -0.01 && i.x + i.width <= 1.01 && i.y + i.height <= 1.01)).toBe(true);

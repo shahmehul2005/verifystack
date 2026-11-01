@@ -32,7 +32,10 @@ export interface EvidenceDocumentCandidate {
 export interface ProposedReading {
   key: string;
   label: string;
-  value: number;
+  /** A quantity. Absent for a reading whose value is a word, such as a moisture basis. */
+  value?: number;
+  /** The value as text, when the reading is not a number. The basis on a laboratory certificate is one. */
+  text?: string;
   rawText?: string;
   unit: string;
   documentId: string;
@@ -82,10 +85,22 @@ const NUMERIC_EXTRACTORS: Record<string, LineExtractor[]> = {
   "grid.bill_kwh": [{ line: new RegExp(String.raw`^Units (?:Consumed|Billed)\s*\(\s*kWh\s*\)\s+${NUM}$`, "i") }],
   "coal.po_t": [{ line: new RegExp(String.raw`^Quantity Ordered\s+${NUM}\s*(?:t|mt|tonnes?)\b`, "i") }],
   // The certificate prints: parameter, internal lab result, NABL external result, deviation.
-  // The reading is the external (NABL) result, the second figure.
+  // The external result is the second figure. The basis is printed on the line above, in
+  // the "Sample / parameter basis" row, and is read separately below.
   "coal.nabl_gcv": [
-    { line: new RegExp(String.raw`^GCV\b[^\d]*?\)?\s+${NUM}\s+${NUM}\s+[+\-\u2212\u2013]?\d`, "i") },
+    { line: new RegExp(String.raw`^(?:Gross calorific value|GCV)\b[^\d]*?\)?\s+${NUM}\s+${NUM}\s+[+\-\u2212\u2013]?\d`, "i") },
   ],
+  // "Gross calorific value (GCV) kcal/kg 4,200 4,230" -> the external figure.
+  "coal.nabl_external_gcv": [
+    { line: new RegExp(String.raw`^(?:Gross calorific value|GCV)\b.*?\s${NUM}\s+${NUM}\s*$`, "i") },
+  ],
+  "coal.nabl_moisture_pct": [
+    { line: new RegExp(String.raw`^(?:Total moisture|Moisture)\b[^\d]*?%?\s+${NUM}\s+${NUM}`, "i") },
+  ],
+  // Clinker chemistry prints the oxide percentage, sometimes as the third figure after
+  // the clinker and sample references.
+  "clinker.cao_pct": [{ line: new RegExp(String.raw`^(?:CaO|Calcium oxide)\b[^\d]*?${NUM}\s*%?`, "i") }],
+  "clinker.mgo_pct": [{ line: new RegExp(String.raw`^(?:MgO|Magnesium oxide)\b[^\d]*?${NUM}\s*%?`, "i") }],
   "form1.eq_product_t": [{ line: new RegExp(String.raw`^Total Equivalent Product\b(?:\s+Tonnes?)?\s+${NUM}$`, "i") }],
   "form1.direct_co2_t": [{ line: new RegExp(String.raw`^Direct GHG Emissions\b.*?\s${NUM}$`, "i") }],
   "form1.indirect_co2_t": [{ line: new RegExp(String.raw`^Indirect GHG Emissions\b.*?\s${NUM}$`, "i") }],
@@ -101,6 +116,26 @@ const NIL_EXTRACTORS: Record<string, RegExp[]> = {
     new RegExp(String.raw`^Open Access\b.*\s${NIL}$`, "i"),
   ],
   "rec.purchases_mwh": [new RegExp(String.raw`^RECs? (?:purchased|obtained)\b.*\s${NIL}$`, "i")],
+};
+
+/**
+ * Readings whose value is one of a few printed words rather than a number. The basis a
+ * laboratory reports a calorific value on is printed beside the result, and the check
+ * that compares two calorific values cannot run without it.
+ */
+const TEXT_EXTRACTORS: Record<string, { line: RegExp; value: (line: string) => string | null }> = {
+  "coal.nabl_basis": {
+    line: /\b(?:sample|parameter)\s*\/?\s*basis\b|\bbasis\b/i,
+    value: (line) => {
+      const t = line.toLowerCase();
+      // A certificate says the coal is tested as it was fired (the wet coal), which is
+      // the as-received basis; "air-dried" and "dry basis" are the other two.
+      if (/as[\s-]?received|as[\s-]?fired|\barb\b/.test(t)) return "ARB";
+      if (/air[\s-]?dried|\badb\b/.test(t)) return "ADB";
+      if (/dry\s+basis|\bdb\b/.test(t)) return "DB";
+      return null;
+    },
+  },
 };
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
@@ -172,6 +207,19 @@ function readNilDeclaration(pages: PdfPageText[], rows: RegExp[]): { page: numbe
   if (found.some((f) => !f)) return null;
   const first = found[0]!;
   return { page: first.page, line: found.map((f) => f!.line).join(" | ") };
+}
+
+/** The first line matching a text extractor, with the value that line yields. */
+function readText(
+  pages: PdfPageText[],
+  extractor: { line: RegExp; value: (line: string) => string | null }
+): { value: string; page: number; line: string } | null {
+  for (const { page, line } of allLines(pages)) {
+    if (!extractor.line.test(line)) continue;
+    const value = extractor.value(line);
+    if (value !== null) return { value, page, line };
+  }
+  return null;
 }
 
 /**
@@ -268,6 +316,19 @@ export function proposeFromDocuments(def: DeskReviewDef, documents: EvidenceDocu
             doc,
             confidence: 0.9,
             found: { value: 0, page: decl.page, sourceText: decl.line, note: "Every row of the declaration prints nil." },
+          });
+        }
+        continue;
+      }
+
+      const text = TEXT_EXTRACTORS[spec.key];
+      if (text) {
+        const hit = readText(pages, text);
+        if (hit) {
+          hits.push({
+            doc,
+            confidence: 0.7,
+            found: { text: hit.value, page: hit.page, sourceText: hit.line, note: `Read from the printed line in ${doc.name}.` },
           });
         }
         continue;

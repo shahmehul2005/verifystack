@@ -30,6 +30,7 @@ supersedes it and update the status line of the old one.
 | 0022 | [Evidence packages: manifest optional, mismatches flagged; spreadsheet totals approved by a person](0022-optional-manifest-and-reviewed-totals.md) | Accepted |
 | 0023 | [Documents can be removed only while nothing accepted rests on them](0023-guarded-document-removal.md) | Proposed |
 | 0024 | [The website assistant screens, scopes and grounds every answer](0024-website-assistant-guardrails.md) | Accepted |
+| 0025 | [Desk review checks the basis, the chemistry and the digits, in code](0025-desk-review-basis-chemistry-digit-screens.md) | Accepted |
 
 ## Template
 

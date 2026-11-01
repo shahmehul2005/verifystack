@@ -427,9 +427,17 @@ function headerParts(s: string): { base: string; unit: string | null } {
  * parenthetical unit are ignored, but only when the units do not disagree:
  * "Clinker Production (kg)" is not "Clinker Production (t)", and a cell that is
  * only a unit matches nothing.
+ *
+ * A reader may also pass the other names plants print for the same column
+ * (`aliases`). Each alias is matched the same way, so the units must still agree,
+ * and a bare "Clinker" never matches "Clinker Production (t)".
  */
-export function headerMatches(cellValue: unknown, target: string): boolean {
+export function headerMatches(cellValue: unknown, target: string, aliases: readonly string[] = []): boolean {
   if (typeof cellValue !== "string") return false;
+  return [target, ...aliases].some((name) => headerMatchesOne(cellValue, name));
+}
+
+function headerMatchesOne(cellValue: string, target: string): boolean {
   if (cellValue.trim().toLowerCase() === target.trim().toLowerCase()) return true;
   const c = headerParts(cellValue);
   const t = headerParts(target);
@@ -460,8 +468,8 @@ export const isFilled = (v: unknown) => v !== null && v !== undefined && v !== "
  * tie, so a serial-number column in A does not hide it. Null when the header is
  * absent or no row has a date.
  */
-export function dailyColumnReport(sheet: XlsxSheet, header: string): DailyColumnReport | null {
-  const h = sheet.cells.find((c) => headerMatches(c.value, header));
+export function dailyColumnReport(sheet: XlsxSheet, header: string, aliases: readonly string[] = []): DailyColumnReport | null {
+  const h = sheet.cells.find((c) => headerMatches(c.value, header, aliases));
   if (!h) return null;
   const idx = indexSheet(sheet);
   const counts = new Map<number, number>();
@@ -520,8 +528,8 @@ export function noteDailyColumn(report: DailyColumnReport, header: string, note?
 }
 
 /** Dated rows of the column under `header`. Null when the header is absent. */
-export function dailyColumn(sheet: XlsxSheet, header: string): DailyRow[] | null {
-  return dailyColumnReport(sheet, header)?.rows ?? null;
+export function dailyColumn(sheet: XlsxSheet, header: string, aliases: readonly string[] = []): DailyRow[] | null {
+  return dailyColumnReport(sheet, header, aliases)?.rows ?? null;
 }
 
 /** Dates of the rows that carry a figure. A pre-filled calendar with empty cells is not evidence. */

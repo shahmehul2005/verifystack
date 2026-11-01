@@ -5,6 +5,10 @@ export * from "./engine";
 export * from "./propose";
 export * from "./summary";
 export * from "./resolution";
+export * from "./calcinationChemistry";
+export * from "./digitScreen";
+export * from "./documentConsistency";
+export * from "./moistureBasis";
 
 const DEFS: Record<string, DeskReviewDef> = {
   [CEMENT_DESK_REVIEW.packId]: CEMENT_DESK_REVIEW,

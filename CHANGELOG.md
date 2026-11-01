@@ -16,6 +16,32 @@ must say which version it bumps. Current versions:
 
 ## [Unreleased]
 
+### Desk review: moisture basis, carbonate floor, slip checks and digit screens
+
+Decision record: [0025](docs/decisions/0025-desk-review-basis-chemistry-digit-screens.md).
+
+- **Spreadsheets that plants send are read.** The XLSX reader accepts a namespace prefix on
+  every element, including cells, values, formulas and strings. Before this, five of the
+  supplied workbooks opened with the right sheet name and no rows, and nothing said so.
+  Column headers may carry per-reader aliases, so `Clinker Output (t)` reads as clinker
+  production while `Clinker Factor` still does not.
+- **Calorific values are compared on one moisture basis.** `gcv_basis_nabl` converts the
+  certificate to the internal log's basis and fails when the two moisture figures do not
+  describe the same coal. A certificate that does not state its basis is reported as such,
+  not assumed.
+- **Calcination has a floor.** `calcination_stoich` fails a declared factor below the
+  carbonate floor set by CaO and MgO, beyond a 2% analytical tolerance. The CO2/CaO and CO2/MgO
+  constants are derived from atomic masses.
+- **A document has to agree with itself.** `weighbridge_slip` checks gross minus tare equals the
+  printed net. `checkProximateAnalysis` catches a proximate analysis that does not close to 100%.
+- **Typed quantities are screened for digit patterns.** Terminal-digit uniformity, and Benford's
+  first digit only where the values span one to three orders of magnitude. A narrow GCV series is
+  declined with a reason instead of being flagged.
+- **Optional readings do not block.** A check whose evidence a pack may not carry reports
+  "not applicable", not "waiting".
+- The lab reader keeps each sample's GCV and the mean moisture; Auto-suggest reads the
+  certificate's basis, moisture and external GCV.
+
 ### Snip: the figure in the box is read for you
 
 - **Draw a box and the text and figure are filled in.** When the page has a text layer, code reads the characters

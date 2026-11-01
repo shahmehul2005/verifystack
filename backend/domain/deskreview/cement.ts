@@ -22,6 +22,10 @@ import { parseCellRef, type XlsxWorkbook } from "../intake/xlsx";
 import { FIRST_TRAJECTORY_PROCESS_BASIS, fyLabelOf, inBasisWindow } from "../packs/emissionBasis";
 import { evaluateWorkbook } from "../proforma/formula";
 import type { ProformaInput } from "../proforma/types";
+import { checkOxideFloor, stoichiometricCalcinationFloor } from "./calcinationChemistry";
+import { benfordApplies, benfordFirstDigit, describeScreen, roundEndingShare, terminalDigitUniformity } from "./digitScreen";
+import { checkWeighbridgeSlip, WEIGHBRIDGE_TOLERANCE_T } from "./documentConsistency";
+import { BASIS_LABEL, convertCalorificValue, type MoistureBasis } from "./moistureBasis";
 import {
   dailyColumn,
   dailyColumnReport,
@@ -57,6 +61,13 @@ const NABL_GCV_SOURCE =
   "internal and NABL results for coal should deviate by less than 71.7 kcal/kg (ISO 1928:1995(E)), and an excess is added " +
   "to the internal lab's analysed parameter for that quarter. Clause 4(10)(i) says external tests are quarterly and " +
   "4(10)(v) says at least monthly; the source is inconsistent, so the cadence is not tested here.";
+/**
+ * How far the total moisture on the certificate and in the internal log may differ before
+ * the two calorific values stop describing the same coal. A screening default of this
+ * product, not a figure from the procedure: the procedure assumes both results are on the
+ * same basis and says nothing about checking that they are.
+ */
+const NABL_MOISTURE_BAND_PCT = 0.5;
 const FORMULA_NOTE = "This is the formula set taken from the sector pro forma structure, not a BEE-issued blank file.";
 const NOT_CONSUMPTION = "The purchase order is not consumption.";
 
@@ -143,6 +154,11 @@ const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
 function plain(n: number): string {
   if (!Number.isFinite(n)) return String(n);
   return String(Math.round(n * 1000) / 1000);
+}
+
+/** A figure at an explicit number of decimals, for values too fine to round to three places. */
+function fixed(n: number, decimals: number): string {
+  return Number.isFinite(n) ? n.toFixed(decimals) : String(n);
 }
 
 function normFormula(formula: string): string {
@@ -241,9 +257,10 @@ function column(
   key: string,
   out: Readings,
   note?: (message: string) => void,
-  keepDaily = false
+  keepDaily = false,
+  aliases: readonly string[] = []
 ) {
-  const report = dailyColumnReport(sheet, header);
+  const report = dailyColumnReport(sheet, header, aliases);
   if (!report) return null;
   noteDailyColumn(report, header, note);
   const rows = report.rows;
@@ -276,13 +293,24 @@ const READERS: WorkbookReader[] = [
     slot: "production_evidence",
     read(sheet, note) {
       const out: Readings = {};
-      const clinker = column(sheet, "Clinker Production (t)", "scada.clinker", out, note, true);
+      // Plants print the same column under several names. Each list is only the
+      // spellings of that one quantity, so "Clinker Factor" never matches here.
+      const clinker = column(
+        sheet,
+        "Clinker Production (t)",
+        "scada.clinker",
+        out,
+        note,
+        true,
+        ["Clinker Output (t)", "Clinker Produced (t)", "Clinker (t)", "Daily Clinker Production (t)"]
+      );
       if (!clinker) return {};
       coverageReadings("scada", clinker, out);
-      column(sheet, "OPC Produced (t)", "scada.opc", out, note);
-      column(sheet, "PPC Produced (t)", "scada.ppc", out, note);
-      column(sheet, "PSC Produced (t)", "scada.psc", out, note);
-      for (const r of dailyColumn(sheet, "Kiln Run Status") ?? []) out[`scada.status@${r.date}`] = String(r.value ?? "");
+      column(sheet, "OPC Produced (t)", "scada.opc", out, note, false, ["OPC Output (t)", "OPC (t)", "Cement - OPC (t)"]);
+      column(sheet, "PPC Produced (t)", "scada.ppc", out, note, false, ["PPC Output (t)", "PPC (t)", "Cement - PPC (t)"]);
+      column(sheet, "PSC Produced (t)", "scada.psc", out, note, false, ["PSC Output (t)", "PSC (t)", "Cement - PSC (t)"]);
+      const status = dailyColumn(sheet, "Kiln Run Status", ["Kiln Status", "Kiln State", "Operating Status"]);
+      for (const r of status ?? []) out[`scada.status@${r.date}`] = String(r.value ?? "");
       return out;
     },
   },
@@ -290,7 +318,11 @@ const READERS: WorkbookReader[] = [
     slot: "cpp_generation",
     read(sheet, note) {
       const out: Readings = {};
-      const rows = column(sheet, "Gross Generation (kWh)", "cpp.kwh", out, note);
+      const rows = column(sheet, "Gross Generation (kWh)", "cpp.kwh", out, note, false, [
+        "Gross Generation (kWh)",
+        "Gross Output (kWh)",
+        "Generation (kWh)",
+      ]);
       if (rows) coverageReadings("cpp", rows, out);
       return out;
     },
@@ -299,8 +331,22 @@ const READERS: WorkbookReader[] = [
     slot: "petcoke_log",
     read(sheet, note) {
       const out: Readings = {};
-      const coal = column(sheet, "Coal Consumed (t)", "petcoke.coal_t", out, note);
-      column(sheet, "Petcoke Consumed (t)", "petcoke.petcoke_t", out, note);
+      const coal = column(sheet, "Coal Consumed (t)", "petcoke.coal_t", out, note, false, [
+        "Coal Input (t)",
+        "Coal Consumed (t)",
+        "Coal Feed (t)",
+      ]);
+      column(sheet, "Petcoke Consumed (t)", "petcoke.petcoke_t", out, note, false, [
+        "Petcoke Input (t)",
+        "Petcoke Consumed (t)",
+        "Petcoke Feed (t)",
+      ]);
+      // A register that records the petcoke share of kiln fuel per posting date.
+      const share = dailyColumn(sheet, "Petcoke Share of Kiln Fuel (%)", ["Petcoke Share (%)", "Petcoke Share of Kiln Fuel"]);
+      if (share) {
+        const values = share.map((r) => Number(r.value)).filter((v) => Number.isFinite(v));
+        if (values.length > 0) out["petcoke.share_pct_mean"] = Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 100) / 100;
+      }
       if (coal) coverageReadings("petcoke", coal, out);
       return out;
     },
@@ -308,7 +354,9 @@ const READERS: WorkbookReader[] = [
   {
     slot: "coal_quality",
     read(sheet) {
-      const rows = dailyColumn(sheet, "GCV (kcal/kg)");
+      // The internal lab prints one row per sample, not one row per day, so the
+      // date column is the sample date and the GCV column is the analysed value.
+      const rows = dailyColumn(sheet, "GCV (kcal/kg)", ["GCV", "Gross Calorific Value (kcal/kg)", "GCV ARB (kcal/kg)"]);
       if (!rows) return {};
       const dated = rows.filter((r) => Number.isFinite(Number(r.value)) && Number(r.value) > 0);
       const vals = dated.map((r) => Number(r.value));
@@ -320,11 +368,42 @@ const READERS: WorkbookReader[] = [
         const labDates = dated.map((r) => r.date).sort();
         out["lab.first_date"] = labDates[0]!;
         out["lab.last_date"] = labDates[labDates.length - 1]!;
+        // A sample the lab measured and the workbook left out is only visible if the
+        // sample itself is kept, so each dated GCV is a reading of its own.
+        for (const r of dated) {
+          if (Number(r.value) > 0) out[`lab.gcv@${r.date}`] = Number(r.value);
+        }
       }
+      // Moisture and ash decide whether a calorific value is on an as-received or a
+      // dried basis, and a proximate analysis has to close to 100%.
+      const means = meanOf(sheet, ["Moisture (%)", "Total Moisture (%)"], ["Ash (%)", "Ash Content (%)"], ["Hydrogen (%)", "H (%)"]);
+      if (means.moisture !== null) out["lab.moisture_mean_pct"] = means.moisture;
+      if (means.ash !== null) out["lab.ash_mean_pct"] = means.ash;
+      if (means.hydrogen !== null) out["lab.hydrogen_mean_pct"] = means.hydrogen;
       return out;
     },
   },
 ];
+
+/** Column mean for each of a named set of columns, or null where the column is absent. */
+function meanOf(
+  sheet: Parameters<WorkbookReader["read"]>[0],
+  ...columns: readonly string[][]
+): { moisture: number | null; ash: number | null; hydrogen: number | null } {
+  const mean = (names: string[]) => {
+    for (const name of names) {
+      const rows = dailyColumn(sheet, name);
+      if (!rows) continue;      const values = rows.map((r) => Number(r.value)).filter((v) => Number.isFinite(v));
+      if (values.length > 0) return Math.round((values.reduce((a, b) => a + b, 0) / values.length) * 100) / 100;
+    }
+    return null;
+  };
+  return {
+    moisture: mean(columns[0] ?? []),
+    ash: mean(columns[1] ?? []),
+    hydrogen: mean(columns[2] ?? []),
+  };
+}
 
 const one = (id: string, section: string, label: string, needs: string[], f: (r: Readings) => CheckResult): DeskRule => ({
   id,
@@ -333,6 +412,40 @@ const one = (id: string, section: string, label: string, needs: string[], f: (r:
   needs,
   evaluate: f,
 });
+
+/**
+ * A check whose inputs a pack may not carry at all. A missing reading makes it
+ * not applicable rather than pending: pending means "waiting for a reading someone
+ * is expected to enter", and an engagement without a clinker chemistry report or a
+ * weighbridge slip would otherwise wait forever.
+ */
+const optional = (id: string, section: string, label: string, needs: string[], f: (r: Readings) => CheckResult): DeskRule => ({
+  id,
+  section,
+  label,
+  needs: [],
+  evaluate: (r) => {
+    const present = needs.every((k) => k in r);
+    if (!present) {
+      return {
+        id,
+        label,
+        status: "not_applicable",
+        detail: `Not checked: this pack has no ${needs.filter((k) => !(k in r)).join(", ")}. Enter them from the evidence to run this check.`,
+      };
+    }
+    return f(r);
+  },
+});
+
+/** Parse one of the four moisture bases an auditor may type, tolerating case and spaces. */
+function parseBasis(text: Readings[string]): MoistureBasis {
+  const t = String(text ?? "").trim().toUpperCase();
+  if (t === "ARB" || t.includes("AS RECEIVED") || t.includes("AS-RECEIVED")) return "ARB";
+  if (t === "ADB" || t.includes("AIR DRIED") || t.includes("AIR-DRIED")) return "ADB";
+  if (t === "DB" || t.includes("DRY BASIS")) return "DB";
+  return "NA";
+}
 
 function emissionPortions(r: Readings) {
   const coal = round6(num(r, "pf.coal_energy_tj") * num(r, "pf.ef_coal"));
@@ -880,6 +993,147 @@ const RULES: DeskRule[] = [
       detail: n === 0 ? "Every non-zero pro forma input has a stream in the calculation." : `The pro forma holds inputs the calculation has no stream for, so a run leaves them out: ${r["pf.unmapped_list"]}.`,
     };
   }),
+
+  // ---- Calorific value basis (Process 5.2) -------------------------------------------
+  optional(
+    "gcv_basis_nabl",
+    "Fuels and power",
+    "NABL GCV against the internal lab, on the same moisture basis",
+    ["coal.nabl_gcv", "coal.nabl_basis", "coal.nabl_moisture_pct", "lab.gcv_mean", "lab.moisture_mean_pct"],
+    (r) => {
+      const external = num(r, "coal.nabl_gcv");
+      const basis = parseBasis(r["coal.nabl_basis"]);
+      const externalMoisture = num(r, "coal.nabl_moisture_pct");
+      const internal = num(r, "lab.gcv_mean");
+      const internalMoisture = num(r, "lab.moisture_mean_pct");
+
+      // Both figures on the as-received basis. The internal figure is the mean of the
+      // daily log, whose moisture column is the as-fired basis the log states.
+      const converted = convertCalorificValue(
+        { value: external, basis, totalMoisturePct: externalMoisture, inherentMoisturePct: null },
+        "ARB"
+      );
+      const externalArb = basis === "ARB" ? external : converted.ok ? converted.value : null;
+      if (externalArb === null) {
+        const why = converted.ok ? "the basis could not be applied" : converted.reason;
+        return {
+          id: "gcv_basis_nabl",
+          label: "NABL GCV against the internal lab, on the same moisture basis",
+          status: "not_applicable",
+          detail: `The NABL figure cannot be put on an as-received basis, so it is not compared: ${why}`,
+        };
+      }
+      const moistureGap = externalMoisture - internalMoisture;
+      // The moisture has to describe the same coal before the two calorific values can
+      // be compared at all. A gap beyond the stated band is the double-count signature.
+      const moistureAgrees = Math.abs(moistureGap) <= NABL_MOISTURE_BAND_PCT + 1e-9;
+      const deviation = round6(Math.abs(externalArb - internal));
+      const exceeds = deviation > NABL_GCV_BAND_KCAL + 1e-9;
+      const status = !moistureAgrees || exceeds ? "fail" : "pass";
+      return {
+        id: "gcv_basis_nabl",
+        label: "NABL GCV against the internal lab, on the same moisture basis",
+        status,
+        detail:
+          `NABL ${plain(external)} kcal/kg printed as ${BASIS_LABEL[basis]} at ${plain(externalMoisture)}% total moisture` +
+          (basis === "ARB" ? "" : `, which is ${plain(externalArb)} kcal/kg as received`) +
+          `. The internal log averages ${plain(internal)} kcal/kg at ${plain(internalMoisture)}% moisture. ` +
+          (moistureAgrees
+            ? `The two moistures agree within ${plain(NABL_MOISTURE_BAND_PCT)} percentage points, so the figures describe the same coal, and the deviation is ${plain(deviation)} kcal/kg against the ${plain(NABL_GCV_BAND_KCAL)} band. `
+            : `The moisture differs by ${plain(round6(moistureGap))} percentage points, more than the ${plain(NABL_MOISTURE_BAND_PCT)} allowed, so the two figures do not describe the same coal. A calorific value compared across a moisture gap, or a moisture deduction applied to the tonnage as well, counts the water twice. `) +
+          (exceeds ? `The deviation is over the ${plain(NABL_GCV_BAND_KCAL)} kcal/kg band. ` : "") +
+          `The Procedure does not say whether the "difference" it adds back is signed, so no corrected value is computed here; that is an open item.`,
+        actual: externalArb,
+        expected: internal,
+        diff: round6(externalArb - internal),
+        thresholdSource: `${NABL_GCV_SOURCE} Moisture agreement band ${NABL_MOISTURE_BAND_PCT} percentage points is a firm screening default, not a scheme figure.`,
+      };
+    }
+  ),
+
+  // ---- Calcination stoichiometry (Process 5.7) ---------------------------------------
+  optional(
+    "calcination_stoich",
+    "Recalculation",
+    "Calcination factor against the carbonate floor",
+    ["clinker.cao_pct", "clinker.mgo_pct"],
+    (r) => {
+      const cao = num(r, "clinker.cao_pct") / 100;
+      const mgo = num(r, "clinker.mgo_pct") / 100;
+      const floor = stoichiometricCalcinationFloor(cao, mgo);
+      // The declared factor, where the pro forma carries one.
+      const declared = r["pf.calcination_state"] === "quantified" && "pf.calcination_co2" in r ? num(r, "pf.calcination_co2") : null;
+      const clinkerT = "pf.clinker_t" in r ? num(r, "pf.clinker_t") : null;
+      if (declared === null || clinkerT === null || clinkerT <= 0) {
+        return {
+          id: "calcination_stoich",
+          label: "Calcination factor against the carbonate floor",
+          status: "not_applicable",
+          detail:
+            `CaO ${fixed(cao * 100, 2)}% and MgO ${fixed(mgo * 100, 2)}% set a floor of ${fixed(floor, 4)} tCO2 per tonne of clinker. ` +
+            `The pro forma carries no calcination figure or no clinker tonnage to divide by, so there is no declared factor to test against it.`,
+          actual: floor,
+        };
+      }
+      const declaredPerTonne = round6(declared / clinkerT);
+      const verdict = checkOxideFloor({ caoFraction: cao, mgoFraction: mgo, declaredFactor: declaredPerTonne });
+      return {
+        id: "calcination_stoich",
+        label: "Calcination factor against the carbonate floor",
+        status: verdict.status === "impossible" ? "fail" : verdict.status === "possible" ? "pass" : "not_applicable",
+        detail: verdict.detail,
+        actual: declaredPerTonne,
+        expected: round6(floor),
+        diff: verdict.status === "impossible" ? round6(declaredPerTonne - floor) : undefined,
+        thresholdSource:
+          "Stoichiometry of CaCO3 and MgCO3 decomposition, CO2/CaO and CO2/MgO from atomic masses (Annexure II.G.1). A 2% analytical tolerance is a firm default, not a scheme figure.",
+      };
+    }
+  ),
+
+  // ---- Self-consistency of one document (Processes 3.0 and 4.3) ----------------------
+  optional("weighbridge_slip", "Fuels and power", "Weighbridge slip agrees with itself", ["slip.gross_t", "slip.tare_t", "slip.net_t"], (r) => {
+    const verdict = checkWeighbridgeSlip({
+      grossT: num(r, "slip.gross_t"),
+      tareT: num(r, "slip.tare_t"),
+      netT: num(r, "slip.net_t"),
+    });
+    return {
+      id: "weighbridge_slip",
+      label: "Weighbridge slip agrees with itself",
+      status: verdict.status === "inconsistent" ? "fail" : verdict.status === "consistent" ? "pass" : "not_applicable",
+      detail: verdict.detail,
+      ...(verdict.status !== "not_applicable" ? { actual: verdict.computedNet, expected: num(r, "slip.net_t") } : {}),
+      thresholdSource: `Rounding band ${WEIGHBRIDGE_TOLERANCE_T} t on a slip's three weights.`,
+    };
+  }),
+
+  // ---- Digit patterns in typed quantities (Process 13.3) -----------------------------
+  one("gcv_digit_screen", "Fuels and power", "Coal GCV readings: digit pattern", ["lab.gcv@*"], (r) => {
+    const values = series(r, "lab.gcv").map((s) => Number(s.value)).filter((n) => Number.isFinite(n) && n > 0);
+    const applies = benfordApplies(values);
+    const benford = benfordFirstDigit(values);
+    const terminal = terminalDigitUniformity(values);
+    const round = roundEndingShare(values);
+    const terminalDeviates = !terminal.smallSample && terminal.pValue < 0.01;
+    const benfordDeviates = applies.ok && !benford.smallSample && benford.pValue < 0.01;
+    const suspicious = benfordDeviates || terminalDeviates;
+    const benfordNote = applies.ok ? describeScreen("First digit", benford) : `First digit not tested: ${applies.reason}`;
+    return {
+      id: "gcv_digit_screen",
+      label: "Coal GCV readings: digit pattern",
+      status: suspicious ? "fail" : "pass",
+      detail:
+        `${benfordNote} ${describeScreen("Terminal digit", terminal)} ` +
+        `${round.n > 0 ? `${Math.round(round.share * 100)}% of ${round.n} values end in 0 or 5. ` : ""}` +
+        (suspicious
+          ? `A digit pattern like this does not prove a figure wrong, but it is a reason to pull the originals and check that the figures were copied, not typed.`
+          : `Nothing in the digits of these readings calls them into question.`),
+      actual: terminalDeviates ? terminal.pValue : benford.pValue,
+      thresholdSource:
+        "Terminal-digit uniformity for a typed quantity, and Benford's first digit where the values span one to three orders of magnitude. A p-value below 0.01 is reported as a strong deviation. Product screens, not a scheme requirement.",
+    };
+  }),
 ];
 
 const m = (key: string, label: string, unit: string, slot: string, hint?: string) => ({ key, label, unit, slot, ...(hint ? { hint } : {}) });
@@ -922,6 +1176,31 @@ export const CEMENT_DESK_REVIEW: DeskReviewDef = {
     m("coal.closing_t", "Coal stock: closing", "t", "coal_purchase", `${NOT_CONSUMPTION} Enter closing stock for the evidenced period.`),
     m("coal.weighfeeder_t", "Coal weigh-feeder total", "t", "coal_purchase", `${NOT_CONSUMPTION} Enter the weigh-feeder total for the evidenced period.`),
     m("coal.nabl_gcv", "NABL certificate: coal GCV", "kcal/kg", "coal_quality"),
+    m(
+      "coal.nabl_basis",
+      "NABL certificate: moisture basis of the GCV",
+      "text",
+      "coal_quality",
+      "Type ARB, ADB, DB or NA. The certificate prints its basis beside the parameter; a value with no stated basis cannot be compared with the workbook."
+    ),
+    m("coal.nabl_moisture_pct", "NABL certificate: total moisture", "%", "coal_quality", "As printed on the certificate."),
+    m(
+      "clinker.cao_pct",
+      "Clinker analysis: CaO",
+      "%",
+      "production_evidence",
+      "From the clinker chemistry report. The stoichiometric floor cannot be checked without it."
+    ),
+    m("clinker.mgo_pct", "Clinker analysis: MgO", "%", "production_evidence", "From the clinker chemistry report."),
+    m(
+      "slip.gross_t",
+      "Weighbridge slip: gross weight",
+      "t",
+      "coal_purchase",
+      `${NOT_CONSUMPTION} Enter one slip's gross, tare and net to check that the slip agrees with itself.`
+    ),
+    m("slip.tare_t", "Weighbridge slip: tare weight", "t", "coal_purchase", `${NOT_CONSUMPTION} From the same slip as the gross weight.`),
+    m("slip.net_t", "Weighbridge slip: net weight as printed", "t", "coal_purchase", `${NOT_CONSUMPTION} From the same slip as the gross and tare.`),
     m("rec.claim_mwh", "REC declaration: renewable claim", "MWh", "rec_declaration", "Enter 0 for a nil declaration"),
     m("rec.purchases_mwh", "REC declaration: certificates purchased", "MWh", "rec_declaration"),
     m("form1.eq_product_t", "Form 1: total equivalent product", "t", "form1"),

@@ -89,17 +89,43 @@ function attr(tag: string, name: string): string | undefined {
   return m ? decodeXml(m[1]!) : undefined;
 }
 
-/** Concatenate the <t> runs inside a shared-string or inline-string item. */
+/**
+ * Some exporters (LibreOffice, several SCADA and legacy ERP writers) prefix every
+ * element with the namespace alias they declare, `<x:c>` rather than `<c>`. The alias
+ * is any NCName, so each element pattern accepts an optional `prefix:`. Missing this
+ * does not fail loudly: sheets are found, and every cell is silently dropped.
+ */
+const PREFIX = String.raw`(?:[A-Za-z_][\w.-]*:)?`;
+
+/** The opening tag of a prefixed element, with its attributes. */
+function openTag(name: string): RegExp {
+  return new RegExp(String.raw`<${PREFIX}${name}\b([^>]*?)(?:\/>|>([\s\S]*?)<\/${PREFIX}${name}>)`, "g");
+}
+
+/** The first simple element's text, prefixed or not. */
+function firstText(xml: string, name: string): string | undefined {
+  return new RegExp(String.raw`<${PREFIX}${name}\b[^>]*>([\s\S]*?)<\/${PREFIX}${name}>`).exec(xml)?.[1];
+}
+
+/** True when an unqualified attribute exists, whatever namespace prefixes the element carries. */
+function attrValue(head: string, name: string): string | undefined {
+  const m = new RegExp(String.raw`(?:\s|^)${name}="([^"]*)"`).exec(head);
+  return m ? decodeXml(m[1]!) : undefined;
+}
+
+/** Concatenate the text runs inside a shared-string or inline-string item, prefixed or not. */
 function textRuns(xml: string): string {
   let out = "";
-  for (const m of xml.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)) out += decodeXml(m[1]!);
+  for (const m of xml.matchAll(new RegExp(String.raw`<${PREFIX}t\b[^>]*>([\s\S]*?)<\/${PREFIX}t>`, "g"))) {
+    out += decodeXml(m[1]!);
+  }
   return out;
 }
 
 function readSharedStrings(zip: ZipArchive): string[] {
   if (!zip.has("xl/sharedStrings.xml")) return [];
   const xml = zip.readText("xl/sharedStrings.xml");
-  return [...xml.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)].map((m) => textRuns(m[1]!));
+  return [...xml.matchAll(openTag("si"))].map((m) => textRuns(m[2] ?? ""));
 }
 
 function resolveTarget(target: string): string {
@@ -131,16 +157,17 @@ export function parseXlsx(
   const workbook = zip.readText("xl/workbook.xml");
   const rels = zip.has("xl/_rels/workbook.xml.rels") ? zip.readText("xl/_rels/workbook.xml.rels") : "";
   const relTarget = new Map<string, string>();
-  for (const m of rels.matchAll(/<Relationship\b[^>]*>/g)) {
-    const id = attr(m[0], "Id");
-    const target = attr(m[0], "Target");
+  for (const m of rels.matchAll(new RegExp(String.raw`<${PREFIX}Relationship\b([^>]*)>`, "g"))) {
+    const head = m[1] ?? "";
+    const id = attrValue(head, "Id") ?? attr(head, "Id");
+    const target = attrValue(head, "Target") ?? attr(head, "Target");
     if (id && target) relTarget.set(id, target);
   }
 
   // Sheet tags may carry an XML namespace prefix (e.g. <x:sheet .../>) in
   // workbooks that declare a default or explicit namespace on the root element.
   // The prefix can be any NCName, so we match the optional "prefix:" part.
-  const sheetTags = [...workbook.matchAll(/<(?:[A-Za-z_][\w.]*:)?sheet\b[^>]*\/?>/g)].map((m) => m[0]);
+  const sheetTags = [...workbook.matchAll(new RegExp(String.raw`<${PREFIX}sheet\b[^>]*\/?>`, "g"))].map((m) => m[0]);
   if (sheetTags.length === 0) throw new XlsxError("The workbook has no sheets.");
   if (sheetTags.length > limits.maxSheets) {
     throw new XlsxError(`The workbook has ${sheetTags.length} sheets; the limit is ${limits.maxSheets}.`);
@@ -163,15 +190,15 @@ export function parseXlsx(
     let maxRow = 0;
     let maxCol = 0;
 
-    for (const m of xml.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+    for (const m of xml.matchAll(openTag("c"))) {
       const head = m[1] ?? "";
       const body = m[2] ?? "";
-      const ref = attr(head, "r");
+      const ref = attrValue(head, "r") ?? attr(head, "r");
       const pos = ref ? parseCellRef(ref) : null;
       if (!ref || !pos) continue;
-      const t = attr(head, "t");
-      const rawV = /<v\b[^>]*>([\s\S]*?)<\/v>/.exec(body)?.[1];
-      const formula = /<f\b[^>]*>([\s\S]*?)<\/f>/.exec(body)?.[1];
+      const t = attrValue(head, "t") ?? attr(head, "t");
+      const rawV = firstText(body, "v");
+      const formula = firstText(body, "f");
 
       let value: CellValue = null;
       if (t === "inlineStr") {
