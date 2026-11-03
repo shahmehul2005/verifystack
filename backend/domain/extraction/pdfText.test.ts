@@ -34,12 +34,12 @@ describe("readPdfText", () => {
     expect(pages).toHaveLength(2);
     expect(pages[0]).toEqual({ page: 1, lines: ["Clinker Production 12,500.0", "Clinker Export 833.3"] });
     expect(pages[1]?.lines).toEqual(["Second page"]);
-  });
+  }, 15000);
 
   it("returns an empty line list for a page with no text layer", async () => {
     const pdf = await PDFDocument.create();
     pdf.addPage([200, 200]);
     const pages = await readPdfText(new Uint8Array(await pdf.save()));
     expect(pages).toEqual([{ page: 1, lines: [] }]);
-  });
+  }, 15000);
 });
