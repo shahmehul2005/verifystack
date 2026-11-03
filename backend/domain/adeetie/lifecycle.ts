@@ -60,7 +60,8 @@ export function documentFeedsSecPhase(
 }
 
 export interface PhaseTagged {
-  document_id: string;
+  /** Null for site observations, which carry no document and belong to no phase. */
+  document_id?: string | null;
 }
 
 export function filterFactsForSecPhase<T extends PhaseTagged>(
@@ -69,7 +70,10 @@ export function filterFactsForSecPhase<T extends PhaseTagged>(
   secPhase: SecPhase
 ): T[] {
   return facts.filter((f) =>
-    documentFeedsSecPhase(documentPhaseById.get(f.document_id) ?? null, secPhase)
+    documentFeedsSecPhase(
+      f.document_id ? (documentPhaseById.get(f.document_id) ?? null) : null,
+      secPhase
+    )
   );
 }
 

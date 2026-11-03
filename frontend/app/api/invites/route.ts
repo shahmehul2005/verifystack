@@ -2,10 +2,14 @@ import { NextResponse } from "next/server";
 import { verifyFirmInvite } from "@verifystack/backend/lib/auth/firmInvite";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { ROLE_LABEL } from "@verifystack/backend/lib/auth/roles";
+import { LIMITS } from "@verifystack/backend/lib/rateLimit";
+import { clientIp, limitExceeded } from "@/lib/api";
 
 export const runtime = "nodejs";
 
 export async function GET(req: Request) {
+  const limited = limitExceeded(`invite-lookup:${clientIp(req)}`, LIMITS.inviteLookupPerIp);
+  if (limited) return limited;
   const token = new URL(req.url).searchParams.get("token") ?? "";
   let payload: ReturnType<typeof verifyFirmInvite> = null;
   try {

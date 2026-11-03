@@ -1,9 +1,68 @@
 import type { Unit } from "../units";
 import type { FuelPhase } from "../factors";
+import type { ProformaInput } from "../proforma/types";
 
-export type PackScheme = "CCTS" | "ADEETIE";
+/**
+ * CBAM and GREEN_HYDROGEN exist as structure only (pack schema v2). They are
+ * code-resident, never seeded into the `packs` table, and cannot start work.
+ */
+export type PackScheme = "CCTS" | "ADEETIE" | "CBAM" | "GREEN_HYDROGEN";
 export type PackStatus = "runnable" | "scaffold";
-export type CalculationMethod = "GEI" | "SEC" | "TBD";
+/**
+ * `GEI` and `SEC` are implemented. `EMBEDDED_EMISSIONS` and `H2_INTENSITY` are
+ * declared by the structure-only packs and refused by the dispatcher until a
+ * method is specified and verified. `SAVINGS_DPR` is not a pack's primary
+ * method: it is a separate versioned layer over an ADEETIE engagement
+ * (backend/domain/savings).
+ */
+export type CalculationMethod =
+  | "GEI"
+  | "SEC"
+  | "EMBEDDED_EMISSIONS"
+  | "H2_INTENSITY"
+  | "TBD";
+
+/** Pack schema version. v1 packs omit the field. */
+export type PackSchemaVersion = 1 | 2;
+
+/** One input a structure-only pack says its method will need, and how it will be evidenced. */
+export interface PackStructureInput {
+  key: string;
+  label: string;
+  /** Which provenance types may evidence it, from backend/domain/provenance. */
+  evidence: Array<"document_page" | "spreadsheet_cell" | "time_series_range" | "site_observation">;
+  /** Unit family only. A structure pack carries no numeric factor, limit or default. */
+  unitFamily?: string;
+}
+
+/**
+ * The shape of a methodology the product does not yet implement. It records the
+ * boundary and the inputs so intake and planning can be designed against it,
+ * while every figure, formula and threshold stays an open item.
+ */
+export interface PackMethodStructure {
+  summary: string;
+  boundary: string[];
+  requiredInputs: PackStructureInput[];
+  /** What must be confirmed with the regulator or a domain expert before this can run. */
+  openItems: string[];
+}
+
+export interface PackStage {
+  id: string;
+  label: string;
+  phase?: "IGEA" | "DPR" | "MV";
+}
+
+/** Output formats a scheme or portal asks for in a submission package (DFD 8.7). */
+export interface PackSubmissionFormat {
+  id: string;
+  label: string;
+  kind: "csv" | "json" | "pdf";
+  /** True when the exact column layout comes from a scheme template we have not seen. */
+  layoutUnverified: boolean;
+  notes?: string;
+}
 
 export interface PackDocType {
   id: string;
@@ -50,6 +109,27 @@ interface PackStreamBindingBase {
    * simply omitted — appropriate where a plant may genuinely not use the fuel.
    */
   required?: boolean;
+  /**
+   * Alternative methods for one quantity. A run needs at least one stream in the group
+   * bound, not all of them: calcination can be estimated from the clinker output or from
+   * the raw meal input, never both. Streams in a group are individually optional.
+   */
+  requiredGroup?: string;
+  /**
+   * Compliance years in which this stream is outside the intensity basis. In that window
+   * the stream is not required. A figure that is supplied is still counted, and the run
+   * warns that the intensity is not on the same basis as a target set without it.
+   */
+  basisWindow?: PackBasisWindow;
+}
+
+/** A page-cited window of compliance years in which a stream is outside the intensity basis. */
+export interface PackBasisWindow {
+  /** First and last financial-year start (FY2024-25 is 2024), inclusive. */
+  fromFyStart: number;
+  toFyStart: number;
+  /** The primary source and page, in words an auditor can check. */
+  citation: string;
 }
 
 export interface PackFuelStreamBinding extends PackStreamBindingBase {
@@ -157,6 +237,24 @@ export interface PackCluster {
   cluster: string;
 }
 
+/**
+ * One labelled place in a pack's evidence checklist. Several documents may sit
+ * under one slot (three electricity bills, a PDF and a CSV export). A slot is
+ * ticked once it holds at least one document.
+ *
+ * `gate` says what an empty slot blocks: a calculation run, a submission, or
+ * nothing (corroboration only). The source list in `basis` is what the slot was
+ * proposed from. A slot stays "proposed" until a practitioner confirms it.
+ */
+export interface EvidenceSlot {
+  id: string;
+  label: string;
+  gate: "run" | "submission" | "none";
+  /** Plain-language description of the files this slot takes. */
+  accepts: string;
+  basis: string;
+}
+
 export interface MethodologyPack {
   pack_id: string;
   scheme: PackScheme;
@@ -180,6 +278,41 @@ export interface MethodologyPack {
   production_binding?: PackProductionBinding;
   sec_config?: PackSecConfig;
   adeetie?: PackAdeetieConfig;
+  /** Pack schema v2. Absent on v1 packs, which behave exactly as before. */
+  schema_version?: PackSchemaVersion;
+  /** Required on structure-only packs; they must also be `scaffold`. */
+  structure_only?: PackMethodStructure;
+  /**
+   * Whether an independent technical review must be recorded before sign-off.
+   * Defaults to false: which schemes require one is an open item in the
+   * regulatory register, so no pack switches it on without a source.
+   */
+  technical_review_required?: boolean;
+  /**
+   * Evidence checklist (verification-first intake). When present, a calculation
+   * run is refused until every slot with `gate: "run"` holds a document.
+   */
+  evidence_slots?: EvidenceSlot[];
+  /**
+   * When true, a run uses only accepted spreadsheet-cell and time-series facts
+   * (plus site observations and explicit overrides). PDF readings stay on the
+   * ledger and are left out of the run. Changing this changes run results, so it
+   * is a pack version change. Absent or false keeps the existing behaviour.
+   */
+  workbook_required?: boolean;
+  /**
+   * Where each calculation input sits in the master pro forma workbook. When
+   * present, the inputs a run needs are read from that workbook alone, and
+   * formula cells are recomputed in code. No OCR and no hand-keying.
+   */
+  proforma_inputs?: ProformaInput[];
+  /** Submission package outputs (DFD 8.7). Empty or absent means the generic package only. */
+  submission_formats?: PackSubmissionFormat[];
+  /**
+   * Stage list for the stage manager (DFD 1.5), in order. Absent means the
+   * scheme's stage list is not defined yet and no tracker is shown.
+   */
+  stages?: PackStage[];
   reconciliation_rules: string[];
   clause_citations: PackClauseCitation[];
   report_template: string;

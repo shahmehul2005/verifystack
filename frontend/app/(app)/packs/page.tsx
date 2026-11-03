@@ -1,13 +1,17 @@
 import Link from "next/link";
+import { Layers } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Table, Td, Th } from "@/components/ui/table";
 import { EmptyState } from "@/components/states";
-import { listPacks } from "@verifystack/backend/domain/packs";
+import { cn } from "@/lib/cn";
+import { listPacks, listStructurePacks } from "@verifystack/backend/domain/packs";
 import type {
   MethodologyPack,
   PackScheme,
 } from "@verifystack/backend/domain/packs";
+
+export const metadata = { title: "Methodology packs" };
 
 const SCHEMES: PackScheme[] = ["CCTS", "ADEETIE"];
 
@@ -33,12 +37,12 @@ export default async function PacksPage({
   return (
     <>
       <PageHeader
-        kicker="D3"
+        kicker="Library"
         title="Methodology packs"
-        description="Process 3.0 and 5.0 load a pack record. They never contain sector if-branches. All nine CCTS sectors and all fourteen ADEETIE Phase 1 sectors are runnable."
+        description="Each pack holds a sector's document types, calculation bindings, factors and clause references as data. The calculation engine reads the pack; it never branches on sector."
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      <div className="mb-6 flex flex-wrap items-center gap-2" role="group" aria-label="Filter by scheme">
         <SchemeFilter active={active} label="All schemes" href="/packs" count={all.length} />
         {SCHEMES.map((s) => (
           <SchemeFilter
@@ -54,26 +58,78 @@ export default async function PacksPage({
 
       {groups.length === 0 ? (
         <EmptyState
-          title="No packs"
+          icon={Layers}
+          title="No packs match"
           body="No methodology pack matches this filter."
           action={{ href: "/packs", label: "Clear filter" }}
         />
       ) : (
-        groups.map((group) => (
-          <section key={group.scheme} className="mb-8">
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <h2 className="text-sm font-semibold">{group.scheme}</h2>
-              <Badge>{group.packs.length} pack(s)</Badge>
-              <Badge tone="ok">
-                {group.packs.filter((p) => p.status === "runnable").length} runnable
-              </Badge>
-              <Badge tone="draft">
-                {group.packs.filter((p) => p.status === "scaffold").length} scaffold
-              </Badge>
-            </div>
-            <PackTable packs={group.packs} />
-          </section>
-        ))
+        groups.map((group) => {
+          const runnable = group.packs.filter((p) => p.status === "runnable").length;
+          const notYet = group.packs.length - runnable;
+          return (
+            <section key={group.scheme} className="mb-8">
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <h2 className="text-sm font-semibold text-mist-900">{group.scheme}</h2>
+                <span className="text-xs text-mist-500">
+                  {group.packs.length} {group.packs.length === 1 ? "pack" : "packs"}
+                </span>
+                <Badge tone="ok" dot>
+                  {runnable} runnable
+                </Badge>
+                {notYet > 0 ? (
+                  <Badge tone="draft" dot>
+                    {notYet} not yet runnable
+                  </Badge>
+                ) : null}
+              </div>
+              <PackTable packs={group.packs} />
+            </section>
+          );
+        })
+      )}
+
+      {active ? null : (
+        <section className="mb-8" aria-labelledby="structure-heading">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <h2 id="structure-heading" className="text-sm font-semibold text-mist-900">
+              Structure only
+            </h2>
+            <Badge tone="neutral">Not runnable</Badge>
+          </div>
+          <p className="mb-3 max-w-3xl text-sm text-mist-600">
+            These describe the boundary and the inputs a methodology will need. They hold no emission
+            factor, formula or threshold, because none has been sourced. No engagement can be started on
+            them.
+          </p>
+          <Table>
+            <thead>
+              <tr>
+                <Th>Pack</Th>
+                <Th>Scope</Th>
+                <Th>Inputs declared</Th>
+                <Th>Open items</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {listStructurePacks().map((p) => (
+                <tr key={p.pack_id}>
+                  <Td>
+                    <Link
+                      href={`/packs/${p.pack_id}`}
+                      className="font-mono text-[13px] font-medium text-teal-800 hover:underline"
+                    >
+                      {p.pack_id}
+                    </Link>
+                  </Td>
+                  <Td className="text-mist-900">{p.sector_or_cluster}</Td>
+                  <Td className="text-[13px] tabular">{p.structure_only?.requiredInputs.length ?? 0}</Td>
+                  <Td className="text-[13px] tabular">{p.structure_only?.openItems.length ?? 0}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        </section>
       )}
     </>
   );
@@ -96,14 +152,16 @@ function SchemeFilter({
   return (
     <Link
       href={href}
-      className={
+      aria-current={selected ? "page" : undefined}
+      className={cn(
+        "inline-flex h-8 items-center gap-2 rounded-full border px-3 text-[13px] font-medium transition-colors",
         selected
-          ? "inline-flex h-8 items-center bg-stone-900 px-2.5 text-[12px] text-white"
-          : "inline-flex h-8 items-center bg-white px-2.5 text-[12px] text-stone-700 ring-1 ring-stone-300 hover:bg-stone-50"
-      }
+          ? "border-teal-700 bg-teal-700 text-white"
+          : "border-mist-200 bg-white text-mist-700 hover:border-mist-300 hover:bg-mist-50"
+      )}
     >
       {label}
-      <span className="ml-2 text-stone-400">{count}</span>
+      <span className={cn("text-xs tabular", selected ? "text-teal-100" : "text-mist-500")}>{count}</span>
     </Link>
   );
 }
@@ -114,7 +172,7 @@ function PackTable({ packs }: { packs: MethodologyPack[] }) {
       <thead>
         <tr>
           <Th>Pack</Th>
-          <Th>Sector / cluster</Th>
+          <Th>Sector or cluster</Th>
           <Th>Method</Th>
           <Th>Bindings</Th>
           <Th>Clusters</Th>
@@ -129,26 +187,27 @@ function PackTable({ packs }: { packs: MethodologyPack[] }) {
               : `${p.stream_bindings.length} stream`;
           return (
             <tr key={p.pack_id}>
-              <Td className="font-mono text-[12px]">
-                <Link href={`/packs/${p.pack_id}`} className="hover:underline">
+              <Td>
+                <Link
+                  href={`/packs/${p.pack_id}`}
+                  className="font-mono text-[13px] font-medium text-teal-800 hover:underline"
+                >
                   {p.pack_id}
                 </Link>
-                <div className="text-[11px] text-stone-500">v{p.version}</div>
+                <div className="text-xs text-mist-500">v{p.version}</div>
               </Td>
-              <Td>{p.sector_or_cluster}</Td>
-              <Td>{p.calculation_method}</Td>
-              <Td className="text-[12px] text-stone-600">{bindings}</Td>
-              <Td className="text-[12px]">
-                {p.adeetie ? (
-                  <span className="flex flex-wrap items-center gap-1">
-                    {p.adeetie.clusters.length}
-                  </span>
-                ) : (
-                  <span className="text-stone-400">—</span>
-                )}
+              <Td className="text-mist-900">{p.sector_or_cluster}</Td>
+              <Td>
+                <Badge>{p.calculation_method}</Badge>
+              </Td>
+              <Td className="text-[13px] text-mist-600">{bindings}</Td>
+              <Td className="text-[13px] tabular">
+                {p.adeetie ? p.adeetie.clusters.length : <span className="text-mist-400">—</span>}
               </Td>
               <Td>
-                <Badge tone={p.status === "runnable" ? "ok" : "draft"}>{p.status}</Badge>
+                <Badge tone={p.status === "runnable" ? "ok" : "draft"} dot>
+                  {p.status === "runnable" ? "Runnable" : "Not yet runnable"}
+                </Badge>
               </Td>
             </tr>
           );

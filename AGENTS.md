@@ -14,8 +14,10 @@ npm workspaces monorepo with exactly two source workspaces.
 
 | Path        | Contents                                                                                |
 | ----------- | --------------------------------------------------------------------------------------- |
-| `backend/`  | `@verifystack/backend` — `domain/`, `lib/`, `inngest/`, `demo/`, `supabase/` (SQL + seed) |
+| `backend/`  | `@verifystack/backend` — `domain/`, `lib/`, `inngest/`, `fixtures/` (synthetic test data), `scripts/` (CLIs), `supabase/` (SQL + seed) |
 | `frontend/` | The Next.js project root — `app/`, `components/`, `lib/`, `public/`, `proxy.ts`           |
+| `docs/`     | Architecture, product briefs, operating guides                                            |
+| `scripts/`  | Supabase probe and end-to-end smoke scripts (`npm run supabase:probe`, `e2e:*`)           |
 | root        | workspace `package.json`, `tsconfig.json` (shared base), `vitest.config.mts`, `eslint.config.mjs`, `.env.example`, CI |
 
 `next dev` regenerates `frontend/AGENTS.md` and `frontend/CLAUDE.md`. This file is not regenerated.
@@ -43,3 +45,26 @@ npm run lint
 npm run build
 npm run dev
 ```
+
+## Before you change anything
+
+Read [`docs/architecture/overview.md`](docs/architecture/overview.md) for the system and its
+invariants, and [`CONTRIBUTING.md`](CONTRIBUTING.md) for conventions. Design decisions are in
+[`docs/decisions/`](docs/decisions/README.md).
+
+## Working agreements
+
+1. **Run the full gate before claiming done:** `npm run typecheck && npm test && npm run lint`.
+2. **Code computes; models never do.** No model output may become a number in a calculation.
+3. **Never skip a retrieval or groundedness step**, not even for a demo. That shortcut is how a
+   hallucinated citation reaches a regulator.
+4. **Never widen a capability to make something work.** If a page needs data a role cannot see,
+   the design is wrong, not the capability map.
+5. **Never edit an applied migration.** Add the next numbered file.
+6. **Escalate rather than improvise** on factor values, regulatory text, scheme thresholds or
+   engineering advice. Record open items in
+   [`docs/domain/regulatory-register.md`](docs/domain/regulatory-register.md).
+7. **Ingest only the sectors the working pack covers** into the citation corpus; expand later.
+8. **Never commit `.env*` files** other than `.env.example`.
+9. The team uses **PowerShell on Windows**. `curl` is an alias for `Invoke-WebRequest`, so use
+   `curl.exe`. Use `Move-Item` / `git mv`, not `mv`.

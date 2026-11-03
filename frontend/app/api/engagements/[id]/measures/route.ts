@@ -12,11 +12,13 @@ import {
 import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
 
 const Body = z.object({
-  description: z.string(),
+  description: z.string().max(2000),
   projectedAnnualSaving: z.number(),
-  savingUnit: z.string(),
+  savingUnit: z.string().max(40),
   capitalCostINR: z.number(),
-  basis: z.string(),
+  basis: z.string().max(2000),
+  /** Rupee value of the annual saving, with its basis stated above. Optional: payback is not computed without it. */
+  annualCostSavingINR: z.number().min(0).max(1e13).optional(),
 });
 
 export async function GET(
@@ -93,6 +95,7 @@ export async function POST(
         saving_unit: parsed.data.savingUnit.trim(),
         capital_cost_inr: parsed.data.capitalCostINR,
         basis: parsed.data.basis.trim(),
+        annual_cost_saving_inr: parsed.data.annualCostSavingINR ?? null,
         created_by: session.user.id,
       })
       .select("*")
@@ -100,6 +103,7 @@ export async function POST(
     if (error) throw new Error(error.message);
     await auditEvent({
       organizationId,
+      actorUserId: session.user.id,
       action: "adeetie.measure_added",
       entityType: "adeetie_measure",
       entityId: data.id,
@@ -128,7 +132,7 @@ export async function DELETE(
     }
     const url = new URL(req.url);
     const measureId = url.searchParams.get("measureId");
-    if (!measureId) {
+    if (!measureId || !z.string().uuid().safeParse(measureId).success) {
       return NextResponse.json({ ok: false, error: "measureId required" }, { status: 400 });
     }
     const supabase = createServiceClient() ?? (await createServerSupabase());
@@ -144,6 +148,7 @@ export async function DELETE(
     if (error) throw new Error(error.message);
     await auditEvent({
       organizationId,
+      actorUserId: session.user.id,
       action: "adeetie.measure_removed",
       entityType: "adeetie_measure",
       entityId: measureId,

@@ -1,8 +1,9 @@
-import { CCTS_CEMENT_V1 } from "./cement";
-import { CCTS_IRON_AND_STEEL_V1 } from "./ironsteel";
-import { CCTS_ALUMINIUM_V1 } from "./aluminium";
+import { CCTS_CEMENT_V1 } from "./ccts/cement";
+import { CCTS_IRON_AND_STEEL_V1 } from "./ccts/ironSteel";
+import { CCTS_ALUMINIUM_V1 } from "./ccts/aluminium";
 import { CCTS_REMAINING_PACKS } from "./ccts/remaining";
 import { ADEETIE_PACKS } from "./adeetie";
+import { STRUCTURE_ONLY_PACKS } from "./structure";
 import { PackError, type MethodologyPack, type PackScheme } from "./types";
 
 export { PackError };
@@ -38,7 +39,7 @@ const REGISTRY: MethodologyPack[] = [
   ...ADEETIE_PACKS,
 ];
 
-const BY_ID = new Map(REGISTRY.map((p) => [p.pack_id, p]));
+const BY_ID = new Map([...REGISTRY, ...STRUCTURE_ONLY_PACKS].map((p) => [p.pack_id, p]));
 
 /** Load a methodology pack by id. Process 3.0 and 5.0 must go through this. */
 export function loadPack(packId: string): MethodologyPack {
@@ -82,6 +83,26 @@ export function canStartWork(pack: MethodologyPack) {
  */
 export function validatePack(pack: MethodologyPack): string[] {
   const problems: string[] = [];
+
+  if (pack.structure_only) {
+    if (pack.status !== "scaffold") {
+      problems.push(`${pack.pack_id}: a structure-only pack must be scaffold.`);
+    }
+    if (pack.emission_or_energy_factors.length > 0 || pack.stream_bindings.length > 0) {
+      problems.push(
+        `${pack.pack_id}: a structure-only pack records no factors or stream bindings; every figure is an open item.`
+      );
+    }
+    if (pack.structure_only.openItems.length === 0) {
+      problems.push(`${pack.pack_id}: a structure-only pack must list its open items.`);
+    }
+    if (pack.technical_review_required) {
+      problems.push(`${pack.pack_id}: technical_review_required needs a cited source; it is off until one exists.`);
+    }
+  }
+  if (pack.schema_version === 2 && pack.status === "runnable" && pack.structure_only) {
+    problems.push(`${pack.pack_id}: structure_only and runnable are mutually exclusive.`);
+  }
 
   if (pack.status !== "runnable") return problems;
 
@@ -127,7 +148,12 @@ export function validatePack(pack: MethodologyPack): string[] {
 }
 
 export function validateRegistry(): string[] {
-  return REGISTRY.flatMap(validatePack);
+  return [...REGISTRY, ...STRUCTURE_ONLY_PACKS].flatMap(validatePack);
+}
+
+/** Packs that describe a methodology's shape only. Browsable, never startable. */
+export function listStructurePacks(): MethodologyPack[] {
+  return STRUCTURE_ONLY_PACKS.map((p) => structuredClone(p));
 }
 
 export { REGISTRY as PACK_REGISTRY };

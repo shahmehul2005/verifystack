@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireCapability } from "@verifystack/backend/lib/auth/requireRole";
-import { jsonError } from "@/lib/api";
+import { jsonError, limitExceeded } from "@/lib/api";
+import { LIMITS } from "@verifystack/backend/lib/rateLimit";
 import { GeminiExtractionProvider } from "@verifystack/backend/domain/extraction/gemini";
 import {
   DOC_SCHEMAS,
@@ -15,9 +16,10 @@ export const runtime = "nodejs";
 
 const Body = z.object({
   evidenceId: z.string().min(1).max(80),
-  pageNumber: z.number().int().positive().default(1),
+  pageNumber: z.number().int().positive().max(10_000).default(1),
   mimeType: z.enum(["image/png", "image/jpeg", "application/pdf"]),
-  data: z.string().min(20),
+  // About 15 MB of file once base64 is decoded.
+  data: z.string().min(20).max(20_000_000),
   docType: z
     .enum([
       "fuel_invoice",
@@ -41,7 +43,9 @@ const Body = z.object({
  */
 export async function POST(req: Request) {
   try {
-    await requireCapability("documents.extract");
+    const session = await requireCapability("documents.extract");
+    const limited = limitExceeded(`model:${session.user.id}`, LIMITS.modelCallsPerUser);
+    if (limited) return limited;
   } catch (e) {
     return jsonError(e);
   }

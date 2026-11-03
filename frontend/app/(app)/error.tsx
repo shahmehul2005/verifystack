@@ -1,6 +1,7 @@
 "use client";
 
 import { ErrorState } from "@/components/states";
+import { Button } from "@/components/ui/button";
 
 export default function AppError({
   error,
@@ -10,11 +11,11 @@ export default function AppError({
   reset: () => void;
 }) {
   return (
-    <div className="space-y-3">
-      <ErrorState title="Workbench error" body={error.message} />
-      <button type="button" className="text-sm underline" onClick={reset}>
+    <div className="space-y-4">
+      <ErrorState title="This page could not be loaded" body={error.message} />
+      <Button variant="secondary" onClick={reset}>
         Try again
-      </button>
+      </Button>
     </div>
   );
 }

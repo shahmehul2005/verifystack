@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireCapability, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
-import { jsonError } from "@/lib/api";
+import { appOrigin, jsonError, limitExceeded } from "@/lib/api";
+import { LIMITS } from "@verifystack/backend/lib/rateLimit";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
@@ -17,16 +18,10 @@ const PatchBody = z.object({
 });
 
 const InviteBody = z.object({
-  email: z.string().email(),
+  email: z.string().email().max(254),
   role: z.enum(["firm_admin", "lead_verifier", "verifier", "independent_reviewer"]),
   displayName: z.string().min(1).max(120).optional(),
 });
-
-function requestOrigin(req: Request) {
-  const origin = req.headers.get("origin");
-  if (origin) return origin;
-  return new URL(req.url).origin;
-}
 
 async function findUserIdByEmail(
   admin: NonNullable<ReturnType<typeof createServiceClient>>,
@@ -47,6 +42,8 @@ export async function POST(req: Request) {
   try {
     const session = await requireCapability("team.manage");
     const organizationId = assertOrgId(session.organizationId);
+    const limited = limitExceeded(`invites:${session.user.id}`, LIMITS.invitesPerUser);
+    if (limited) return limited;
     const parsed = InviteBody.safeParse(await req.json().catch(() => null));
     if (!parsed.success) {
       return NextResponse.json(
@@ -95,7 +92,7 @@ export async function POST(req: Request) {
       role,
       displayName,
     });
-    const inviteUrl = inviteSignupUrl(requestOrigin(req), token);
+    const inviteUrl = inviteSignupUrl(appOrigin(req), token);
     const { data: organization } = await admin
       .from("organizations")
       .select("name")
@@ -114,6 +111,7 @@ export async function POST(req: Request) {
 
     await auditEvent({
       organizationId,
+      actorUserId: session.user.id,
       action: "membership.invited",
       entityType: "membership",
       entityId: null,
@@ -179,6 +177,7 @@ export async function PATCH(req: Request) {
 
     await auditEvent({
       organizationId,
+      actorUserId: session.user.id,
       action: "membership.role_changed",
       entityType: "membership",
       entityId: target.id,

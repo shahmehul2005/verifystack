@@ -4,8 +4,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { MEMBERSHIP_ROLES, ROLE_LABEL } from "@verifystack/backend/lib/auth/roles";
 import type { MembershipRole } from "@verifystack/backend/lib/supabase/types";
+import { Check, Copy, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input, Label } from "@/components/ui/input";
+import { Alert } from "@/components/ui/alert";
+import { Input, Label, Select } from "@/components/ui/input";
 
 export function InviteMemberForm() {
   const router = useRouter();
@@ -78,29 +80,34 @@ export function InviteMemberForm() {
   return (
     <form
       onSubmit={onSubmit}
-      className="mb-6 border border-stone-200 bg-white p-4"
+      className="mb-6 rounded-lg border border-mist-200 bg-white p-5 shadow-xs"
     >
-      <h2 className="text-sm font-semibold">Add to this firm</h2>
-      <p className="mt-1 text-[12px] text-stone-600">
-        Choose their role, then send them the create-account link. They join{" "}
-        <span className="font-medium">this</span> firm. Do not tell them to open Create account on
-        their own — that would start a separate firm.
+      <h2 className="text-[15px] font-semibold text-mist-900">Add someone to this firm</h2>
+      <p className="mt-0.5 max-w-2xl text-[13px] leading-relaxed text-mist-600">
+        Choose their role, then send them the create-account link so they join{" "}
+        <span className="font-medium text-mist-800">this</span> firm. If they sign up on their own,
+        they start a separate firm instead.
       </p>
       {error ? (
-        <p className="mt-3 border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">{error}</p>
+        <Alert tone="error" className="mt-4">
+          {error}
+        </Alert>
       ) : null}
       {info ? (
-        <p className="mt-3 border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-800">{info}</p>
+        <Alert tone="ok" className="mt-4">
+          {info}
+        </Alert>
       ) : null}
       {inviteUrl ? (
-        <div className="mt-2 flex items-start gap-2">
-          <p className="min-w-0 flex-1 break-all font-mono text-[11px] text-stone-600">{inviteUrl}</p>
+        <div className="mt-2 flex items-center gap-2 rounded-md border border-mist-200 bg-mist-50 px-3 py-2">
+          <p className="min-w-0 flex-1 break-all font-mono text-xs text-mist-700">{inviteUrl}</p>
           <Button type="button" variant="secondary" size="sm" onClick={copyInviteUrl}>
-            {copyState === "copied" ? "Copied!" : copyState === "error" ? "Copy failed" : "Copy"}
+            {copyState === "copied" ? <Check /> : <Copy />}
+            {copyState === "copied" ? "Copied" : copyState === "error" ? "Copy failed" : "Copy link"}
           </Button>
         </div>
       ) : null}
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <Label htmlFor="invite-email">Email</Label>
           <Input
@@ -123,9 +130,8 @@ export function InviteMemberForm() {
         </div>
         <div>
           <Label htmlFor="invite-role">Role</Label>
-          <select
+          <Select
             id="invite-role"
-            className="h-9 w-full border border-stone-300 bg-white px-3 text-sm"
             value={role}
             onChange={(e) => setRole(e.target.value as MembershipRole)}
           >
@@ -134,10 +140,11 @@ export function InviteMemberForm() {
                 {ROLE_LABEL[r]}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
         <div className="flex items-end">
           <Button type="submit" disabled={pending} className="w-full">
+            <UserPlus />
             {pending ? "Adding…" : "Add member"}
           </Button>
         </div>

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { ScanText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export function ExtractButton({
@@ -49,6 +50,11 @@ export function ExtractButton({
 
   return (
     <Button size="sm" variant="secondary" disabled={pending} onClick={() => void onClick()}>
+      {pending ? (
+        <span className="size-3.5 animate-spin rounded-full border-2 border-mist-200 border-t-teal-600" />
+      ) : (
+        <ScanText />
+      )}
       {pending ? "Extracting…" : "Extract"}
     </Button>
   );

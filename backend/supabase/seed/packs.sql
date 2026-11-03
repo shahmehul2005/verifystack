@@ -11,19 +11,19 @@ insert into public.methodology_packs (
   'CCTS-CEMENT-v1', 'CCTS', 'Cement', 'runnable', '1.0.0',
   'GEI', '[]'::jsonb, '{}'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
   'ccts-gei-form-ab-v1',
-  'Runnable. Pack contents live in backend/domain/packs/cement.ts.'
+  'Runnable. Pack contents live in backend/domain/packs/ccts/cement.ts.'
 ),
 (
   'CCTS-IRON-AND-STEEL-v1', 'CCTS', 'Iron & Steel', 'runnable', '1.0.0',
   'GEI', '[]'::jsonb, '{}'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
   'ccts-gei-form-ab-v1',
-  'Runnable. Pack contents live in backend/domain/packs/ironsteel.ts.'
+  'Runnable. Pack contents live in backend/domain/packs/ccts/ironSteel.ts.'
 ),
 (
   'CCTS-ALUMINIUM-v1', 'CCTS', 'Aluminium', 'runnable', '1.0.0',
   'GEI', '[]'::jsonb, '{}'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
   'ccts-gei-form-ab-v1',
-  'Runnable. Pack contents live in backend/domain/packs/aluminium.ts.'
+  'Runnable. Pack contents live in backend/domain/packs/ccts/aluminium.ts.'
 ),
 (
   'CCTS-CHLOR-ALKALI-v1', 'CCTS', 'Chlor-Alkali', 'runnable', '1.0.0',

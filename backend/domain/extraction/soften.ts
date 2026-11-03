@@ -61,6 +61,9 @@ function isStringyKey(key: string) {
 }
 
 export function coerceIsoDate(raw: unknown): string | null {
+  if (typeof raw === "number" && raw > 20000 && raw < 80000) {
+    return new Date(Math.round((raw - 25569) * 86400000)).toISOString().slice(0, 10);
+  }
   if (typeof raw !== "string") return null;
   const s = raw.trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
@@ -79,13 +82,36 @@ export function coerceIsoDate(raw: unknown): string | null {
     const b = Number(numeric[2]);
     const year = expandYear(Number(numeric[3]));
     if (!year) return null;
-    // Indian documents are DD-MM-YYYY. Only accept when the day is unambiguous
-    // or both parts are valid months would still prefer day-first when a > 12.
+    // Indian industrial compliance standard is DD/MM/YYYY.
     if (a > 12 && b >= 1 && b <= 12) return iso(year, b, a);
     if (a >= 1 && a <= 12 && b > 12 && b <= 31) return iso(year, a, b);
+    if (a >= 1 && a <= 31 && b >= 1 && b <= 12) return iso(year, b, a);
     return null;
   }
   return null;
+}
+
+export function normalizeCalorificBasis(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const s = raw.trim().toLowerCase();
+  if (/gcv|gross|arb|adb/.test(s)) return "GCV";
+  if (/ncv|net/.test(s)) return "NCV";
+  return raw.trim().toUpperCase();
+}
+
+export function normalizeFuelKind(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const s = raw.trim().toLowerCase();
+  if (/coal/.test(s)) return "coal";
+  if (/petcoke|coke/.test(s)) return "petcoke";
+  if (/lignite/.test(s)) return "lignite";
+  if (/diesel/.test(s)) return "diesel";
+  if (/furnace\s*oil/.test(s)) return "furnace_oil";
+  if (/png/.test(s)) return "png";
+  if (/lpg/.test(s)) return "lpg";
+  if (/gas/.test(s)) return "natural_gas";
+  if (/biomass/.test(s)) return "biomass";
+  return s;
 }
 
 function expandYear(y: number): number | null {
@@ -170,6 +196,8 @@ function softenProvenanced(o: Record<string, unknown>, page: number, key: string
   const prov = (o.provenance ?? {}) as Record<string, unknown>;
   let value = o.value;
   if (isDateKey(key)) value = coerceIsoDate(value) ?? value;
+  else if (/calorificbasis/i.test(key)) value = normalizeCalorificBasis(value) ?? value;
+  else if (/fuelkind/i.test(key)) value = normalizeFuelKind(value) ?? value;
   else if (isMoneyOrQtyKey(key) || "unitAsPrinted" in o || "unit" in o) {
     value = coerceNumber(value) ?? value;
   } else if (isStringyKey(key) && typeof value === "number") {
@@ -195,7 +223,15 @@ function wrapLeaf(key: string, raw: unknown, page: number, unit?: string) {
   if (raw === null || raw === undefined) return null;
   if (isDateKey(key)) {
     const isoDate = coerceIsoDate(raw);
-    return isoDate ? wrap(isoDate, page, { sourceText: String(raw) }) : null;
+    return isoDate ? wrap(isoDate, page, { sourceText: String(raw) }) : wrap(String(raw), page, { sourceText: String(raw) });
+  }
+  if (/calorificbasis/i.test(key)) {
+    const norm = normalizeCalorificBasis(raw) ?? String(raw);
+    return wrap(norm, page, { sourceText: String(raw) });
+  }
+  if (/fuelkind/i.test(key)) {
+    const norm = normalizeFuelKind(raw) ?? String(raw);
+    return wrap(norm, page, { sourceText: String(raw) });
   }
   if (isMoneyOrQtyKey(key) || unit !== undefined) {
     const n = coerceNumber(raw);

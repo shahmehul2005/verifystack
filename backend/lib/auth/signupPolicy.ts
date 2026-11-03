@@ -3,11 +3,10 @@ import "server-only";
 /**
  * Who may create an account without an invite.
  *
- * Self-serve signup writes a confirmed user with the service role, bypassing
- * email verification, because hosted Supabase Auth caps outbound mail on new
- * projects. That trade is acceptable while the product is a pilot and is not
- * acceptable once a firm holds real engagements, so the gate is configurable
- * and the default is recorded here rather than assumed at the call site.
+ * Self-serve signup creates a new firm with the signer as its admin. An open
+ * door is acceptable while the product is a pilot and is not acceptable once a
+ * firm holds real engagements, so the gate is configurable and the default is
+ * recorded here rather than assumed at the call site.
  *
  *   AUTH_OPEN_SIGNUP=false             closes self-serve signup entirely;
  *                                      members arrive by firm-admin invite

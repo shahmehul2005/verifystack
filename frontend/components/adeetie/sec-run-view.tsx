@@ -1,4 +1,7 @@
+import { Calculator } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Alert } from "@/components/ui/alert";
+import { cn } from "@/lib/cn";
 import { Table, Td, Th } from "@/components/ui/table";
 import { EmptyState } from "@/components/states";
 import { formatIn, formatIst } from "@/lib/format";
@@ -22,7 +25,8 @@ export function SecRunView({
   if (!set.runs.length) {
     return (
       <EmptyState
-        title="No SEC run"
+        icon={Calculator}
+        title="No SEC run yet"
         body="Accept facts for the energy streams and the production log, then run the calculation. A baseline SEC is required before the savings gate can be evaluated."
       />
     );
@@ -30,7 +34,7 @@ export function SecRunView({
 
   return (
     <>
-      <div className="mb-6 grid gap-2 sm:grid-cols-3">
+      <div className="mb-6 grid gap-3 sm:grid-cols-3">
         <Stat
           label="Baseline SEC"
           value={
@@ -82,43 +86,44 @@ function SavingsSummary({
   if (savings.kind === "ok") {
     const a = savings.assessment;
     return (
-      <div
-        className={
-          a.meetsThreshold
-            ? "mb-6 border border-emerald-300 bg-emerald-50 px-3 py-2.5 text-[12px] text-emerald-900"
-            : "mb-6 border border-red-300 bg-red-50 px-3 py-2.5 text-[12px] text-red-900"
+      <Alert
+        tone={a.meetsThreshold ? "ok" : "error"}
+        className="mb-6"
+        title={
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>
+              {thresholdPct}% gate {a.meetsThreshold ? "met" : "not met"}
+            </span>
+            <span className="font-mono text-xs font-normal tabular">
+              {formatIn(a.baselineSec, { maximumFractionDigits: 4 })} →{" "}
+              {formatIn(a.postSec, { maximumFractionDigits: 4 })} {a.secUnitLabel}
+            </span>
+          </span>
         }
       >
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge tone={a.meetsThreshold ? "ok" : "block"}>
-            {thresholdPct}% gate {a.meetsThreshold ? "met" : "not met"}
-          </Badge>
-          <span className="font-mono tabular">
-            {formatIn(a.baselineSec, { maximumFractionDigits: 4 })} →{" "}
-            {formatIn(a.postSec, { maximumFractionDigits: 4 })} {a.secUnitLabel}
-          </span>
-          <span>
-            Energy saved at post-implementation output:{" "}
+        <p>
+          Energy saved at post-implementation output:{" "}
+          <span className="tabular">
             {formatIn(a.energySavedAtPostOutput.value, { maximumFractionDigits: 3 })}{" "}
             {a.energySavedAtPostOutput.unit}
           </span>
-        </div>
+        </p>
         {a.comparabilityWarnings.length > 0 ? (
-          <ul className="mt-1.5 list-disc space-y-0.5 pl-4">
+          <ul className="mt-1 list-disc space-y-0.5 pl-4">
             {a.comparabilityWarnings.map((w) => (
               <li key={w}>{w}</li>
             ))}
           </ul>
         ) : null}
-        <p className="mt-1.5 font-mono text-[11px]">
+        <p className="mt-1 font-mono text-xs opacity-80">
           baseline {a.baselineInputHash.slice(0, 16)}… · post {a.postInputHash.slice(0, 16)}…
         </p>
-      </div>
+      </Alert>
     );
   }
   return (
-    <div className="mb-6 border border-stone-300 bg-stone-50 px-3 py-2.5 text-[12px] text-stone-700">
-      <Badge>{thresholdPct}% gate — not evaluated</Badge>
+    <div className="mb-6 rounded-lg border border-mist-200 bg-white px-4 py-3 text-[13px] text-mist-700">
+      <Badge>{thresholdPct}% gate · not evaluated yet</Badge>
       <p className="mt-1.5 max-w-3xl leading-relaxed">{savings.reason}</p>
     </div>
   );
@@ -129,17 +134,17 @@ function SecRunSection({ run }: { run: SecRun }) {
 
   return (
     <section className="mb-8">
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <h2 className="text-sm font-semibold">{PHASE_LABEL[r.phase]}</h2>
+      <div className="mb-1.5 flex flex-wrap items-center gap-2">
+        <h2 className="text-[15px] font-semibold text-mist-950">{PHASE_LABEL[r.phase]}</h2>
         <Badge tone="ink">{r.periodLabel}</Badge>
-        <span className="text-[12px] text-stone-500">{formatIst(run.row.created_at)}</span>
+        <span className="text-xs text-mist-500">{formatIst(run.row.created_at)}</span>
       </div>
-      <p className="mb-3 font-mono text-[11px] text-stone-500">
+      <p className="mb-4 font-mono text-xs text-mist-500">
         sec-engine {r.secEngineVersion} · factors {r.factorSetVersion} · pack {run.row.pack_id}@
         {run.row.pack_version} · input {r.inputsHash.slice(0, 16)}…
       </p>
 
-      <div className="mb-3 grid gap-2 sm:grid-cols-3">
+      <div className="mb-3 grid gap-3 sm:grid-cols-3">
         <Stat
           label="Total energy"
           value={`${formatIn(r.totalEnergy.value, { maximumFractionDigits: 3 })} ${r.totalEnergy.unit}`}
@@ -169,7 +174,7 @@ function SecRunSection({ run }: { run: SecRun }) {
             <tr key={s.streamId}>
               <Td>
                 <div className="text-[13px]">{s.label}</div>
-                <div className="font-mono text-[11px] text-stone-500">
+                <div className="font-mono text-xs text-mist-500">
                   {s.streamId} · {s.kind}
                 </div>
               </Td>
@@ -178,17 +183,17 @@ function SecRunSection({ run }: { run: SecRun }) {
                   {formatIn(s.energyReported.value, { maximumFractionDigits: 3 })}{" "}
                   {s.energyReported.unit}
                 </div>
-                <div className="text-[11px] text-stone-500">
+                <div className="text-xs text-mist-500">
                   {formatIn(s.energyMJ.value, { maximumFractionDigits: 1 })} MJ
                 </div>
               </Td>
               <Td className="tabular">{formatIn(s.sharePct, { maximumFractionDigits: 2 })}%</Td>
-              <Td className="max-w-md font-mono text-[11px] leading-relaxed text-stone-600">
+              <Td className="max-w-md font-mono text-xs leading-relaxed text-mist-600">
                 {s.derivation}
               </Td>
-              <Td className="text-[11px]">
+              <Td className="text-xs">
                 {s.factorsUsed.length === 0 ? (
-                  <span className="text-stone-500">none — exact conversion</span>
+                  <span className="text-mist-500">none — exact conversion</span>
                 ) : (
                   <ul className="space-y-1">
                     {s.factorsUsed.map((f) => (
@@ -207,7 +212,7 @@ function SecRunSection({ run }: { run: SecRun }) {
       </Table>
 
       {r.demand ? (
-        <p className="mt-2 text-[12px] text-stone-600">
+        <p className="mt-2 text-xs text-mist-600">
           Contracted demand {r.demand.contractedDemandKVA ?? "—"} kVA · maximum demand{" "}
           {r.demand.maximumDemandKVA ?? "—"} kVA · utilisation{" "}
           {r.demand.demandUtilisationPct ?? "—"}%. Apparent power is never summed into the energy
@@ -216,14 +221,13 @@ function SecRunSection({ run }: { run: SecRun }) {
       ) : null}
 
       {r.warnings.length > 0 ? (
-        <div className="mt-3 border border-stone-200 bg-white px-3 py-2 text-[12px] text-stone-700">
-          <p className="text-[11px] uppercase tracking-wide text-stone-500">Run warnings</p>
-          <ul className="mt-1 list-disc space-y-0.5 pl-4 leading-relaxed">
+        <Alert tone="warn" title="Run warnings" className="mt-3">
+          <ul className="list-disc space-y-0.5 pl-4">
             {r.warnings.map((w, i) => (
               <li key={`${i}-${w.slice(0, 24)}`}>{w}</li>
             ))}
           </ul>
-        </div>
+        </Alert>
       ) : null}
     </section>
   );
@@ -238,16 +242,22 @@ function Stat({
   value: string;
   tone?: "neutral" | "ok" | "block";
 }) {
-  const border =
-    tone === "ok"
-      ? "border-emerald-300"
-      : tone === "block"
-        ? "border-red-300"
-        : "border-stone-200";
   return (
-    <div className={`border ${border} bg-white p-3`}>
-      <p className="text-[11px] uppercase tracking-wide text-stone-500">{label}</p>
-      <p className="font-mono text-lg tabular">{value}</p>
+    <div
+      className={cn(
+        "rounded-lg border bg-white px-4 py-3.5 shadow-xs",
+        tone === "ok" ? "border-green-200" : tone === "block" ? "border-red-200" : "border-mist-200"
+      )}
+    >
+      <p className="text-xs font-medium text-mist-600">{label}</p>
+      <p
+        className={cn(
+          "mt-1 text-lg font-semibold tracking-tight tabular",
+          tone === "ok" ? "text-green-800" : tone === "block" ? "text-red-700" : "text-mist-950"
+        )}
+      >
+        {value}
+      </p>
     </div>
   );
 }

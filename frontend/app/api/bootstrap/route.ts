@@ -3,7 +3,10 @@ import { z } from "zod";
 import { requireSession } from "@verifystack/backend/lib/auth/requireRole";
 import { parseMembershipRole } from "@verifystack/backend/lib/auth/roles";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
-import { jsonError } from "@/lib/api";
+import { signupGate } from "@verifystack/backend/lib/auth/signupPolicy";
+import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
+import { LIMITS } from "@verifystack/backend/lib/rateLimit";
+import { jsonError, limitExceeded } from "@/lib/api";
 import type { MembershipRole } from "@verifystack/backend/lib/supabase/types";
 
 const Body = z.object({
@@ -29,9 +32,19 @@ export async function POST(req: Request) {
       });
     }
 
+    const limited = limitExceeded(`bootstrap:${session.user.id}`, LIMITS.bootstrapPerUser);
+    if (limited) return limited;
+
     const parsed = Body.safeParse(await req.json().catch(() => ({})));
     if (!parsed.success) {
       return NextResponse.json({ ok: false, error: "Invalid body" }, { status: 400 });
+    }
+
+    // Google sign-in creates an Auth user without passing through
+    // /api/auth/signup, so the self-serve gate is applied here as well.
+    const gate = signupGate(session.user.email ?? "");
+    if (!gate.allowed) {
+      return NextResponse.json({ ok: false, error: gate.reason }, { status: 403 });
     }
 
     const admin = createServiceClient();
@@ -95,12 +108,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: memError.message }, { status: 500 });
     }
 
-    await admin.rpc("append_audit_event", {
-      p_organization_id: org.id,
-      p_action: "org.bootstrap",
-      p_entity_type: "organization",
-      p_entity_id: org.id,
-      p_payload: { created_by: session.user.id, role },
+    await auditEvent({
+      organizationId: org.id,
+      actorUserId: session.user.id,
+      action: "org.bootstrap",
+      entityType: "organization",
+      entityId: org.id,
+      payload: { created_by: session.user.id, role },
     });
 
     return NextResponse.json({ ok: true, organizationId: org.id, alreadyMember: false, role });

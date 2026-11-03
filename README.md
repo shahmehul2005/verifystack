@@ -1,109 +1,175 @@
 # VerifyStack
 
-Operational verification workbench for India's BEE-administered compliance schemes — **CCTS** (Accredited Carbon Verification Agencies) and **ADEETIE** (empanelled energy auditors).
+Verification workbench for India's BEE-administered compliance schemes:
 
-Sold only to **verifiers**. Never to the audited entity.
+- **CCTS** (Carbon Credit Trading Scheme) — greenhouse-gas emission intensity (GEI) verification
+  for Accredited Carbon Verification Agencies.
+- **ADEETIE** — specific energy consumption (SEC), eligibility and savings verification for
+  BEE-empanelled energy auditors.
 
-## Status
+VerifyStack is sold to verifiers only, never to the audited entity.
 
-Production build in progress. The deterministic core (units, factors, calculation engine, reconciliation rules) is tested. App Router shells, methodology packs, hashed document intake, review workbench, hash-chained calculation runs, findings, and named sign-off are in the tree. Live Supabase / Inngest / Gemini are optional: the app boots without keys.
+## Principles
 
-## Quickstart
+1. **Code computes, models never do.** The calculation engine is pure and versioned. Models
+   classify, extract and draft; they never do arithmetic.
+2. **No value without provenance.** Every fact carries document, page, bounding box and source
+   text, or it is dropped.
+3. **AI proposes, humans decide.** Extracted fields, citations, CAR drafts and ECM suggestions
+   start as suggestions and need a named accept, edit or reject.
+4. **Reproducible runs.** Every run records engine version, pack version and input hash, and is
+   hash-chained to the previous run.
+5. **Unverified reference data is flagged, never hidden.** The engine refuses unverified factors
+   by default; the app runs them with an explicit warning until the platform steward cites them.
+
+## Architecture
+
+One Next.js application in two npm workspaces. There is no HTTP hop between them: the frontend
+imports backend modules directly and Next bundles them from source.
+
+| Workspace  | Package                 | Role                                                       |
+| ---------- | ----------------------- | ---------------------------------------------------------- |
+| `backend`  | `@verifystack/backend`  | Domain logic, data access, auth, background jobs, SQL      |
+| `frontend` | `@verifystack/frontend` | Next.js App Router: pages, route handlers, UI components   |
+
+External services: **Supabase** (Postgres + pgvector, Auth, Storage), **Gemini** (extraction and
+citation embeddings), **Inngest** (background intake and extraction), **Resend** (email),
+**Sentry** (errors). Only Supabase is needed to sign in; the rest degrade with a clear error.
+
+See the [architecture overview](docs/architecture/overview.md) for how the pieces fit, and
+[`docs/architecture/data-flow.md`](docs/architecture/data-flow.md) for the process-level data flow
+diagrams.
+
+## Repository layout
+
+```
+.
+├── backend/
+│   ├── domain/            Pure domain logic (no I/O)
+│   │   ├── units/         Quantities and unit conversion
+│   │   ├── factors/       Emission and energy factor catalogue
+│   │   ├── calc/          GEI engine, SEC engine, hash-chained runs
+│   │   ├── rules/         Reconciliation and eligibility rules
+│   │   ├── packs/         Methodology packs (ccts/, adeetie/) and loader
+│   │   ├── extraction/    Document schemas, Gemini extraction, provenance checks
+│   │   ├── citations/     Regulatory citation retrieval and groundedness gate
+│   │   ├── ecm/           Energy conservation measure matching
+│   │   ├── ai/            Grounded CAR drafting
+│   │   ├── adeetie/       ADEETIE lifecycle (IGEA → DPR → M&V)
+│   │   ├── engagements/   Engagement status machine
+│   │   ├── signoff/       Maker–checker sign-off guards
+│   │   ├── esign/         Signature provider interface
+│   │   └── reports/       PDF report templates
+│   ├── lib/
+│   │   ├── auth/          Session, roles, capabilities, invites, audit log
+│   │   ├── data/          Organisation-scoped queries
+│   │   ├── email/         Transactional email
+│   │   └── supabase/      Clients, generated Database types, session refresh
+│   ├── inngest/           Background functions (intake, extract)
+│   ├── fixtures/          Synthetic sample plants and documents for tests
+│   ├── scripts/           Backend CLIs (citation ingest)
+│   └── supabase/          Migrations and catalogue seed
+├── frontend/
+│   ├── app/
+│   │   ├── (marketing)/   Landing and privacy pages
+│   │   ├── (auth)/        Login, signup, invites, password reset
+│   │   ├── (app)/         Engagements, review queue, packs, factors, team, audit
+│   │   ├── api/           Route handlers
+│   │   └── auth/          OAuth callback
+│   ├── components/        UI kit, app shell, feature components
+│   ├── lib/               Formatting and route-handler helpers
+│   ├── public/            Static assets
+│   └── proxy.ts           Session gate
+├── docs/                  Architecture, decisions, domain reference, guides
+├── scripts/               Supabase probe and end-to-end smoke scripts
+└── .github/workflows/     CI
+```
+
+## Getting started
+
+Requires Node.js 20 or later.
 
 ```bash
 npm install
-cp .env.example frontend/.env.local   # optional; marketing works without keys
-npm test
-npm run typecheck
-npm run dev
+cp .env.example frontend/.env.local   # then fill in the Supabase keys
+npm run dev                           # http://localhost:3000
 ```
 
-- Open `/` for marketing.
-- Open `/login` — if Supabase env is missing you will see a configure empty state.
-- Pack catalogue at `/packs` (all 9 CCTS sectors and all 14 ADEETIE Phase 1 sectors are runnable).
+Next.js reads environment variables from `frontend/`, so `.env.local` belongs there, not at the
+repo root. Without Supabase keys the marketing pages load and the app shows a configuration
+notice. Database setup is in [`docs/guides/supabase-setup.md`](docs/guides/supabase-setup.md).
 
-### With Supabase
+## Scripts
 
-Apply `backend/supabase/migrations/0001_init.sql` and `backend/supabase/seed/packs.sql` to a project. Set:
+Run everything from the repo root.
 
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE` (server only — hashed uploads and signed storage)
+| Command                    | Purpose                                                   |
+| -------------------------- | --------------------------------------------------------- |
+| `npm run dev`              | Start the development server                              |
+| `npm run build`            | Production build                                          |
+| `npm start`                | Serve the production build                                |
+| `npm test`                 | Unit tests (Vitest) for both workspaces                   |
+| `npm run typecheck`        | TypeScript, backend then frontend                         |
+| `npm run lint`             | ESLint                                                    |
+| `npm run typegen`          | Generate Next.js route types (CI runs this before tsc)    |
+| `npm run supabase:probe`   | Check Supabase connectivity; prints counts, never keys    |
+| `npm run citations:ingest` | Load the synthetic citation corpus into pgvector          |
+| `npm run e2e:firm`         | Smoke test: signup → firm → engagements                   |
+| `npm run e2e:flow`         | Smoke test: full CCTS flow through sign-off               |
 
-Env vars are read by Next, so they belong in `frontend/.env.local` (or the deployment
-environment), not the repo root.
+The Supabase probe and smoke scripts read `frontend/.env.local`. The smoke scripts create real
+users in the configured Supabase project and expect `npm run dev` on port 3000.
 
-Then create an organisation + membership and start a **CCTS-CEMENT-v1** engagement. See `backend/supabase/seed/aravalli.md`.
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs typegen, lint, typecheck, tests
+and build on every push and pull request.
 
-Gemini (`GEMINI_API_KEY`) enables live classify/extract. Inngest (`INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY`) runs intake and extraction jobs. Without those keys, upload still hashes and stores; extraction jobs fail with a clear error.
+## Contributing
 
-## Design rules
+Workflow, code conventions and the rules for engine, pack, migration and AI changes are in
+[`CONTRIBUTING.md`](CONTRIBUTING.md). Report vulnerabilities as described in
+[`SECURITY.md`](SECURITY.md).
 
-1. **Code computes, models never do.** The calculation engine is pure and versioned. Models never perform arithmetic.
-2. **No value without provenance.** Document, page, bounding box, source text — or the value is dropped to the audit log.
-3. **AI proposes, humans decide.** High-materiality fields always require a named reviewer.
-4. **Reproducible forever.** Every run records engine version, pack version, and input hash, and is hash-chained.
-5. **Unverified factors are refused** unless the engagement is in draft mode.
+## Deployment
 
-## Layout
+Vercel runs the `frontend/` app, which bundles `backend/` from source.
 
-Two npm workspaces, `backend/` and `frontend/`. The frontend imports the backend
-directly as a workspace package — there is no HTTP hop between them.
+1. Import the repository in Vercel. Framework preset **Next.js**, root directory **`frontend`**,
+   and enable *Include source files outside of the Root Directory in the Build Step*.
+2. Keep the install and build commands from `frontend/vercel.json`.
+3. Add the variables from `.env.example`. Never put `SUPABASE_SERVICE_ROLE` or `GEMINI_API_KEY`
+   behind a `NEXT_PUBLIC_` name.
+4. Apply the migrations and seed as described in the Supabase setup guide, and add the
+   production `/auth/callback` URL to Supabase Auth.
+5. Multi-page extraction sets `maxDuration = 300`, which needs a Vercel Pro plan, or run
+   extraction through Inngest.
 
-```
-backend/domain/            units, factors, engine, rules, packs, extraction, calc/run.ts
-backend/lib/supabase/      clients, Database types, session
-backend/lib/auth/          getSession, requireRole, auditEvent
-backend/lib/data/          engagement queries
-backend/inngest/           intake + extract functions
-backend/demo/              Aravalli cement seed + pipeline
-backend/supabase/          Postgres migrations + RLS + evidence bucket, seed data
-frontend/app/(marketing)   landing + privacy / DPDP
-frontend/app/(auth)        login + invite
-frontend/app/(app)         engagements, review queue, packs, factors, audit, team
-frontend/app/workbench     public cement demo (HTML facsimiles)
-frontend/app/api/          route handlers
-frontend/components/       UI kit, app shell, workbench viewer
-frontend/lib/              cn, format, route-handler error mapping
-frontend/proxy.ts          Next 16 session gate
-```
+## Documentation
 
-`frontend/` is the Next.js project root; run every npm script from the repo root.
-Backend modules are imported as `@verifystack/backend/<path>`; frontend-internal
-imports keep the `@/` alias.
+Start with the [architecture overview](docs/architecture/overview.md). The full index is in
+[`docs/README.md`](docs/README.md).
 
-Process 3.0 and 5.0 load a **Methodology Pack**. They do not contain sector `if` branches.
+| Document                                                       | Purpose                                    |
+| -------------------------------------------------------------- | ------------------------------------------ |
+| [Architecture overview](docs/architecture/overview.md)         | How the system works, end to end           |
+| [Decision records](docs/decisions/README.md)                   | Why it is built this way                   |
+| [Regulatory register](docs/domain/regulatory-register.md)      | Every regulatory value and its verification status |
+| [Glossary](docs/domain/glossary.md)                            | Scheme, role and product terms             |
+| [Supabase setup](docs/guides/supabase-setup.md)                | Database, storage and auth setup           |
+| [Open questions](docs/product/open-questions.md)               | Decisions waiting on founders or reviewers |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md)                           | Workflow and conventions                   |
+| [`SECURITY.md`](SECURITY.md)                                   | Controls, known gaps, reporting            |
+| [`CHANGELOG.md`](CHANGELOG.md)                                 | Release history and engine versions        |
 
-## Privacy / DPDP
+## Privacy
 
-Evidence files may be sent to Google Gemini for classification and extraction when a Gemini key is configured. See `/privacy`.
-
-## Tests
-
-```bash
-npm test          # units, engine, rules, pack loader, hash/dedupe, RLS helpers, run hashing, sign-off guards
-npm run typecheck
-npm run lint
-```
-
-CI: `.github/workflows/ci.yml` (lint, tsc, vitest).
-
-## Deploy on Vercel
-
-This is **one Next.js app**, not a split frontend/backend. Vercel runs `frontend/`; that app imports `backend/` from source. Host Postgres/Auth/Storage on [Supabase](https://supabase.com). Optional: [Inngest Cloud](https://www.inngest.com) for long extracts, Gemini for document extraction.
-
-1. Push this repo to GitHub (already the default remote).
-2. [Import the project](https://vercel.com/new) from `shahmehul2005/verifystack`.
-3. Framework Preset: **Next.js**. Root Directory: **`frontend`**. Enable *Include source files outside of the Root Directory in the Build Step*.
-4. Leave Install / Build as the values in `frontend/vercel.json` (`npm install --prefix ..` then `npm run build`).
-5. Add env vars from `.env.example` (never put `SUPABASE_SERVICE_ROLE` or `GEMINI_API_KEY` on a `NEXT_PUBLIC_` name).
-6. Apply every file in `backend/supabase/migrations/` on the Supabase project, then `backend/supabase/seed/packs.sql`.
-7. Hobby functions time out at 10s; multi-page extract sets `maxDuration = 300` and needs **Pro** (or run extracts via Inngest).
+When a Gemini key is configured, evidence files may be sent to Google Gemini for classification
+and extraction. See `/privacy` in the app.
 
 ## Out of scope
 
-ICM portal, vendor e-sign (DocuSign etc.), verifying CEA/IPCC numbers, extractors for production_log/weighbridge beyond Cement, offline app, second LLM cross-check.
+ICM portal integration, vendor e-signature, independent verification of CEA/IPCC figures,
+extractors beyond the shipped document schemas, offline use, and a second-model cross-check.
 
-## License & contact
+## License
 
-This repository is maintained by the VerifyStack authors. See LICENSE for terms.
+Proprietary. © VerifyStack. All rights reserved.

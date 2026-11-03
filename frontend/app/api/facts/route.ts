@@ -6,14 +6,14 @@ import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { getEngagement, ensureEngagementStatus } from "@verifystack/backend/lib/data/engagements";
 import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
-import { CONFIDENCE_POLICY } from "@verifystack/backend/domain/extraction/schemas";
+import { assertAccepterIndependent } from "@verifystack/backend/domain/fieldwork/observation";
 import type { Json } from "@verifystack/backend/lib/supabase/types";
 
 const Body = z.object({
   engagementId: z.string().uuid(),
   extractedFieldId: z.string().uuid(),
   state: z.enum(["accepted", "rejected", "corrected"]),
-  correction: z.string().optional(),
+  correction: z.string().max(2000).optional(),
 });
 
 export async function POST(req: Request) {
@@ -40,9 +40,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Field not found" }, { status: 404 });
     }
 
-    const leaf = field.field_path.split(".").pop() ?? field.field_path;
-    if (CONFIDENCE_POLICY.alwaysReview.has(leaf) && parsed.data.state === "accepted") {
-      // still a human decision — allowed; just never auto-commit these
+    if (field.state === "accepted" || field.state === "rejected") {
+      return NextResponse.json({ ok: false, error: "That value has already been decided." }, { status: 409 });
+    }
+
+    // The person who recorded a site observation cannot be the one who makes it a fact.
+    if (
+      field.provenance_type === "site_observation" &&
+      field.proposed_by &&
+      (parsed.data.state === "accepted" || parsed.data.state === "corrected")
+    ) {
+      assertAccepterIndependent(field.proposed_by, session.user.id);
     }
 
     const valueJson: Json =
@@ -57,6 +65,7 @@ export async function POST(req: Request) {
         correction_json: parsed.data.state === "corrected" ? (parsed.data.correction ?? null) : null,
         reviewed_by: session.user.id,
         reviewed_at: new Date().toISOString(),
+        accept_mode: "individual",
       })
       .eq("id", field.id);
 
@@ -72,13 +81,17 @@ export async function POST(req: Request) {
         page: field.page,
         bbox: field.bbox,
         source_text: field.source_text,
+        provenance_type: field.provenance_type,
+        provenance: field.provenance,
         accepted_by: session.user.id,
+        accept_mode: "individual",
       });
       if (insErr) throw new Error(insErr.message);
     }
 
     await auditEvent({
       organizationId,
+      actorUserId: session.user.id,
       action: `field.${parsed.data.state}`,
       entityType: "extracted_field",
       entityId: field.id,
@@ -90,6 +103,7 @@ export async function POST(req: Request) {
       if (engagement) {
         await ensureEngagementStatus({
           organizationId,
+          actorUserId: session.user.id,
           engagementId: engagement.id,
           current: engagement.status,
           target: "review",

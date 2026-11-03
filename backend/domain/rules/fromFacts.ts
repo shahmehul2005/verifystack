@@ -78,9 +78,12 @@ function firstMatch(facts: ProvenancedFact[], path: string): ProvenancedFact | u
 function groupByDocument(facts: ProvenancedFact[]): Map<string, ProvenancedFact[]> {
   const groups = new Map<string, ProvenancedFact[]>();
   for (const f of facts) {
-    const list = groups.get(f.document_id) ?? [];
+    // Site observations have no document; they share one group so rules
+    // that compare within a document never mix them with a real one.
+    const key = f.document_id ?? "site-observation";
+    const list = groups.get(key) ?? [];
     list.push(f);
-    groups.set(f.document_id, list);
+    groups.set(key, list);
   }
   return groups;
 }

@@ -14,7 +14,11 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit -p backend/tsconfig.json && tsc --noEmit -p frontend/tsconfig.json",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "citations:ingest": "tsx --conditions=react-server --tsconfig backend/tsconfig.json backend/scripts/ingestCitations.ts",
+    "supabase:probe": "node scripts/probe-supabase.mjs",
+    "e2e:firm": "node scripts/e2e-firm.mjs",
+    "e2e:flow": "node scripts/e2e-flow.mjs"
   },
   "devDependencies": {
     "@types/node": "^20",

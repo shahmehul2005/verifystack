@@ -2,6 +2,7 @@ import { requireCapability, assertOrgId } from "@verifystack/backend/lib/auth/re
 import { jsonError } from "@/lib/api";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
+import { contentDisposition, isEvidenceMimeType } from "@verifystack/backend/lib/evidence";
 
 /**
  * Same-origin stream of evidence bytes so PDF.js can load the page
@@ -21,7 +22,7 @@ export async function GET(
     }
     const { data: doc } = await supabase
       .from("documents")
-      .select("*")
+      .select("id, storage_path, mime_type, original_filename, organization_id")
       .eq("id", id)
       .eq("organization_id", organizationId)
       .single();
@@ -29,17 +30,22 @@ export async function GET(
       return Response.json({ ok: false, error: "Not found" }, { status: 404 });
     }
 
-    const admin = createServiceClient() ?? supabase;
-    const { data, error } = await admin.storage.from("evidence").download(doc.storage_path);
+    const { data, error } = await supabase.storage.from("evidence").download(doc.storage_path);
     if (error || !data) {
       throw new Error(error?.message ?? "Storage object missing");
     }
 
+    // Anything outside the evidence types is downloaded, never rendered.
+    const renderable = isEvidenceMimeType(doc.mime_type);
     return new Response(data, {
       headers: {
-        "Content-Type": doc.mime_type || "application/octet-stream",
+        "Content-Type": renderable ? doc.mime_type : "application/octet-stream",
         "Cache-Control": "private, max-age=60",
-        "Content-Disposition": `inline; filename="${doc.original_filename.replace(/"/g, "")}"`,
+        "Content-Disposition": contentDisposition(
+          renderable ? "inline" : "attachment",
+          doc.original_filename
+        ),
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch (e) {

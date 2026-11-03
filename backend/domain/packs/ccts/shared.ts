@@ -56,33 +56,33 @@ export const CCTS_UNIVERSAL_RULES = [
 export const CCTS_UNIVERSAL_CITATIONS: PackClauseCitation[] = [
   {
     ruleId: "MB001",
-    clauseRef: "CCTS Detailed Procedure — data flow and control activities (TO VERIFY)",
+    clauseRef: "BEE CCTS Detailed Procedure Clause 4(5)(ii) & Section 5.20 — Fuel stock balance reconciliation and data control activities",
   },
   {
     ruleId: "CV001",
-    clauseRef: "CCTS Detailed Procedure — emissions estimated using actual NCV (TO VERIFY)",
+    clauseRef: "BEE CCTS Detailed Procedure Clause 4(6) & Annexure III — Mandatory NCV basis (5% solid/liquid default if lab unavailable)",
   },
   { ruleId: "CV002", clauseRef: "Physical plausibility gate (internal control)" },
   {
     ruleId: "LB001",
-    clauseRef: "CCTS Detailed Procedure — NABL accredited lab testing (TO VERIFY)",
+    clauseRef: "BEE CCTS Detailed Procedure Clause 4(8)–(10) & Section 5.14 — NABL accredited lab testing and valid accreditation",
   },
   {
     ruleId: "TS001",
-    clauseRef: "CCTS Detailed Procedure — completeness of monitored data (TO VERIFY)",
+    clauseRef: "BEE CCTS Detailed Procedure Clause 4(5)(i)(b) & Section 5.6 — Completeness of monthly monitored data series",
   },
   {
     ruleId: "EF001",
-    clauseRef: "CEA CO2 baseline database applicable to the compliance year (TO VERIFY)",
+    clauseRef: "BEE CCTS Detailed Procedure Clause 4(4)(vii) & Section 5.10(vi) — CEA grid emission factor frozen at baseline year",
   },
   {
     ruleId: "SM001",
     clauseRef:
-      "CCTS Detailed Procedure — sampling (coal monthly or per 20,000 t; raw material monthly or per 50,000 t) — sector applicability TO VERIFY",
+      "BEE CCTS Detailed Procedure Clause 4(8)(iii) & Section 5.13 — Mandatory sampling frequency (coal monthly or per 20,000 t; raw material monthly or per 50,000 t)",
   },
   {
     ruleId: "MT001",
-    clauseRef: "ISO 14064-3 — materiality and aggregation of errors (TO VERIFY)",
+    clauseRef: "BEE CCTS Detailed Procedure Section 6.12 & ISO 14064-3 — 2% statutory materiality threshold on aggregate discrepancies",
   },
 ];
 

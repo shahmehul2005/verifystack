@@ -1,7 +1,7 @@
 import type { MethodologyPack, PackDocType, PackEnergyBinding } from "../types";
 import type { Unit } from "../../units";
+import { ADEETIE_STAGES } from "../../stages/stages";
 import {
-  ADEETIE_SECTORS,
   CLUSTERS_VERIFIED,
   CLUSTER_SOURCE_NOTE,
   clustersForSector,
@@ -372,6 +372,7 @@ function adeetiePack(spec: SectorSpec): MethodologyPack {
     reconciliation_rules: ADEETIE_RULES,
     clause_citations: ADEETIE_CLAUSE_CITATIONS,
     report_template: "adeetie-dpr-v1",
+    stages: ADEETIE_STAGES.map((s) => ({ ...s })),
     notes: spec.notes,
   };
 }

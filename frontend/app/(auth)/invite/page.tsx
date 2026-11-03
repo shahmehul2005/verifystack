@@ -7,6 +7,8 @@ import { createBrowserSupabase } from "@verifystack/backend/lib/supabase/client"
 import { MIN_PASSWORD_LENGTH, passwordIssue } from "@verifystack/backend/lib/auth/redirect";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
+import { Alert } from "@/components/ui/alert";
+import { AuthFooter, AuthHeading, authLinkClass } from "@/components/auth/auth-heading";
 import { ConfigureSupabase } from "@/components/states";
 
 /**
@@ -53,25 +55,31 @@ export default function InvitePage() {
 
   return (
     <div>
-      <p className="text-[11px] uppercase tracking-[0.2em] text-stone-500">Invite</p>
-      <h1 className="mt-1 text-lg font-semibold">Set your password</h1>
-      <p className="mt-1 text-sm text-stone-600">
-        New invites open <span className="font-medium">Create account</span> with a link from your
-        firm admin. Use this page only if you still have an older invite email session.
-      </p>
+      <AuthHeading
+        title="Set your password"
+        description={
+          <>
+            New invites open <span className="font-medium text-mist-800">Create account</span> with
+            a link from your firm admin. Use this page only if you still have an older invite
+            email session.
+          </>
+        }
+      />
       {error ? (
-        <p className="mt-4 border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">{error}</p>
+        <Alert tone="error" className="mt-5">
+          {error}
+        </Alert>
       ) : null}
       {ready && !hasSession ? (
-        <p className="mt-4 border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-700">
-          No invite session on this browser. Ask your firm admin for a new create-account link, or{" "}
-          <Link href="/login" className="underline">
+        <Alert tone="warn" className="mt-5" title="No invite session in this browser">
+          Ask your firm admin for a new create-account link, or{" "}
+          <Link href="/login" className={authLinkClass}>
             sign in
           </Link>
           .
-        </p>
+        </Alert>
       ) : (
-        <form onSubmit={onSubmit} className="mt-6 space-y-3">
+        <form onSubmit={onSubmit} className="mt-7 space-y-4">
           <div>
             <Label htmlFor="password">New password</Label>
             <Input
@@ -96,20 +104,20 @@ export default function InvitePage() {
               required
             />
           </div>
-          <Button type="submit" className="w-full" disabled={pending || !hasSession}>
-            Save password
+          <Button type="submit" size="lg" className="w-full" disabled={pending || !hasSession}>
+            {pending ? "Saving…" : "Save password"}
           </Button>
         </form>
       )}
-      <p className="mt-6 text-center text-[12px] text-stone-500">
-        <Link href="/signup" className="underline">
+      <AuthFooter>
+        <Link href="/signup" className={authLinkClass}>
           Create account
         </Link>
-        {" · "}
-        <Link href="/login" className="underline">
+        <span className="mx-2 text-mist-300">·</span>
+        <Link href="/login" className={authLinkClass}>
           Sign in
         </Link>
-      </p>
+      </AuthFooter>
     </div>
   );
 }

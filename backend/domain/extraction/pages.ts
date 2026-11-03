@@ -42,6 +42,30 @@ export async function countEvidencePages(buf: Buffer, mimeType: string): Promise
   }
 }
 
+/**
+ * The first page alone, for naming a document. Unlike `splitEvidencePages` it
+ * copies one page and has no page cap, so a long packet can still be named from
+ * its first page without holding every page in memory.
+ */
+export async function firstEvidencePage(buf: Buffer, mimeType: string): Promise<SplitPage> {
+  const image = imageMime(mimeType);
+  if (image) return { pageNumber: 1, mimeType: image, bytes: new Uint8Array(buf) };
+  if (mimeType !== "application/pdf") {
+    throw new PageSplitError(`Cannot read ${mimeType}. Use PDF, PNG, or JPEG.`);
+  }
+  let pdf: PDFDocument;
+  try {
+    pdf = await PDFDocument.load(buf, { ignoreEncryption: true });
+  } catch {
+    throw new PageSplitError("This PDF could not be opened. It may be damaged or password-protected.");
+  }
+  if (pdf.getPageCount() < 1) throw new PageSplitError("This PDF has no pages.");
+  const one = await PDFDocument.create();
+  const [copied] = await one.copyPages(pdf, [0]);
+  one.addPage(copied);
+  return { pageNumber: 1, mimeType: "application/pdf", bytes: await one.save() };
+}
+
 export async function splitEvidencePages(
   buf: Buffer,
   mimeType: string

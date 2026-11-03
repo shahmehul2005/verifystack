@@ -1,0 +1,115 @@
+{
+  "format": "verifystack-evidence-pack",
+  "version": 1,
+  "createdAt": "2026-10-26T12:49:01.146Z",
+  "source": {
+    "system": "Synthetic test set for VerifyStack pipeline testing",
+    "name": "shyamrock_cement_works.zip, 14 files (normalization-only files 05 and 14 removed)"
+  },
+  "entity": {
+    "name": "Shyamrock Cement Works Ltd.",
+    "plant": "Chandrapur, Maharashtra",
+    "period": "2023-24"
+  },
+  "files": [
+    {
+      "path": "01_scada_production_trend.xlsx",
+      "sha256": "3e6fee530dd11a6186f1d48f8718b94cec8b1a8fc90075d93dd87616a4715779",
+      "mediaType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "docType": "scada_production_trend",
+      "title": "SCADA production trend, Nov 2023"
+    },
+    {
+      "path": "02_daily_production_report.pdf",
+      "sha256": "80601346ffea7fed393f6ccbb6bf10c874aac2057b9809ae55dadc55c6c3140d",
+      "mediaType": "application/pdf",
+      "docType": "daily_production_report",
+      "title": "Daily production report, sample days"
+    },
+    {
+      "path": "03_monthly_production_report.pdf",
+      "sha256": "c35db63ca5d29bcef02832aef83a74a2999b76ac6ded15eaf5fdc3ac32177053",
+      "mediaType": "application/pdf",
+      "docType": "monthly_production_report",
+      "title": "Monthly production report, Nov 2023"
+    },
+    {
+      "path": "04_sap_pp_module_printout.pdf",
+      "sha256": "1001d059003077f84f7a995593aa514a3aef6702be3ecf1ef31fb019f4d7ac91",
+      "mediaType": "application/pdf",
+      "docType": "sap_production_printout",
+      "title": "SAP PP production order printout"
+    },
+    {
+      "path": "06_cpp_daily_generation_report.xlsx",
+      "sha256": "6e4c447a95df42fb30e51f05b5766b0144219bced559cc7b4c4151a25e28f130",
+      "mediaType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "docType": "cpp_daily_generation",
+      "title": "CPP daily generation report, Nov 2023"
+    },
+    {
+      "path": "07_cpp_monthly_generation_report.pdf",
+      "sha256": "3cc9e48ec237868afc62100766d4f9b3ee408100c712af364a60857ef04f2679",
+      "mediaType": "application/pdf",
+      "docType": "cpp_monthly_generation",
+      "title": "CPP monthly generation report"
+    },
+    {
+      "path": "08_coal_internal_lab_report.xlsx",
+      "sha256": "3873af5e453bf831a461b9decd9d0a1dc9b74290169365304c6a41cfd9890ffa",
+      "mediaType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "docType": "coal_internal_lab",
+      "title": "Coal internal lab report, Nov 2023"
+    },
+    {
+      "path": "09_coal_nabl_external_certificate.pdf",
+      "sha256": "bf10aa717251bcedb1dae2080730448f1fc1ea9e14580728d883ab950f56445b",
+      "mediaType": "application/pdf",
+      "docType": "coal_nabl_certificate",
+      "title": "Coal NABL external certificate, Q3"
+    },
+    {
+      "path": "10_coal_purchase_order.pdf",
+      "sha256": "6b13b3165fecbb020c43685d4f2b4b8e44b0e0215fa4966916b834528465211f",
+      "mediaType": "application/pdf",
+      "docType": "coal_purchase_order",
+      "title": "Coal purchase order, Nov 2023"
+    },
+    {
+      "path": "11_petcoke_consumption_log.xlsx",
+      "sha256": "f075123d844f84fdfd4a73770eaec27b80cdcbea15aa1ce15ae54d171c551671",
+      "mediaType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "docType": "petcoke_consumption_log",
+      "title": "Petcoke consumption log, Nov 2023"
+    },
+    {
+      "path": "12_grid_electricity_bill.pdf",
+      "sha256": "005531c2cd8d1c005ded0156238c8947d3707dd12d964a7031334d7107c19f44",
+      "mediaType": "application/pdf",
+      "docType": "grid_electricity_bill",
+      "title": "Grid electricity bill, Nov 2023"
+    },
+    {
+      "path": "13_rec_certificate_status.pdf",
+      "sha256": "3143470560529dbd073e27a569dce91c3b8a45479b83e649a1cd5382d27398e7",
+      "mediaType": "application/pdf",
+      "docType": "rec_declaration",
+      "title": "REC status declaration"
+    },
+    {
+      "path": "15_sector_specific_proforma.xlsx",
+      "sha256": "dbcad81592b43acff821cda8f518cca4e2e394101d2d74b7b37053826fb8ce9c",
+      "mediaType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "docType": "sector_proforma",
+      "title": "Sector-specific pro forma, 2023-24"
+    },
+    {
+      "path": "16_form1_annual_energy_ghg.pdf",
+      "sha256": "bcafe840ce497088b4bdaf6b2d04cfabe4ab9747143638bff85c43e5e428fca0",
+      "mediaType": "application/pdf",
+      "docType": "form1_annual_energy_ghg",
+      "title": "Form 1, annual energy and GHG, 2023-24"
+    }
+  ],
+  "declared": []
+}

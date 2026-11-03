@@ -1,5 +1,5 @@
-import { LoadingState } from "@/components/states";
+import { PageSkeleton } from "@/components/ui/skeleton";
 
 export default function Loading() {
-  return <LoadingState label="Loading factor register…" />;
+  return <PageSkeleton rows={8} />;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { executeRun } from "../calc/run";
-import { SEED_FACTS } from "../../demo/seed";
+import { SEED_FACTS } from "../../fixtures/seed";
 import type { ProvenancedFact } from "../calc/run";
 import { fyMonths, reconciliationContextFromFacts } from "./fromFacts";
 import { runRules } from "./rules";
@@ -16,6 +16,26 @@ function seedFacts(): ProvenancedFact[] {
     bbox: f.bbox,
     source_text: f.sourceText,
   }));
+}
+
+/** One calorific value and one supplied process-CO2 figure, so the run gate can execute. The shared seed keeps both GCV and NCV. */
+function runnable(facts: ProvenancedFact[]): ProvenancedFact[] {
+  const cv = facts.filter((f) => f.field_path === "calorificValue");
+  const keep = cv.find((f) => f.unit === "kcal/kg") ?? cv[0];
+  return [
+    ...facts.filter((f) => f.field_path !== "calorificValue"),
+    ...(keep ? [keep] : []),
+    {
+      id: "fact-process-test",
+      field_path: "process.calcinationEmissions",
+      value_json: 1,
+      unit: "tCO2e",
+      document_id: "doc-lab",
+      page: 1,
+      bbox: { x: 0.1, y: 0.1, width: 0.2, height: 0.04 },
+      source_text: "Test process CO2 so the required stream is bound. Not a clinker factor.",
+    },
+  ];
 }
 
 describe("fyMonths", () => {
@@ -47,7 +67,7 @@ describe("reconciliationContextFromFacts", () => {
       complianceYear: "FY2025-26",
       geiTarget: 0.82,
       draftMode: true,
-      facts: seedFacts(),
+      facts: runnable(seedFacts()),
     });
     const ctx = reconciliationContextFromFacts({
       complianceYear: "FY2025-26",
@@ -75,7 +95,7 @@ describe("reconciliationContextFromFacts", () => {
       packVersion: "1.0.0",
       complianceYear: "FY2025-26",
       draftMode: true,
-      facts,
+      facts: runnable(facts),
     });
     const ctx = reconciliationContextFromFacts({
       complianceYear: "FY2025-26",
@@ -107,7 +127,7 @@ describe("reconciliationContextFromFacts", () => {
       packVersion: "1.0.0",
       complianceYear: "FY2025-26",
       draftMode: true,
-      facts,
+      facts: runnable(facts),
     });
     const ctx = reconciliationContextFromFacts({
       complianceYear: "FY2025-26",

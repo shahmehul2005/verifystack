@@ -15,11 +15,15 @@ import {
   formatINR,
   type EnterpriseCategory,
 } from "@verifystack/backend/domain/packs/adeetie";
+import { CircleAlert, OctagonX, TriangleAlert } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
-import { Input, Label } from "@/components/ui/input";
+import { FieldHint, Input, Label, Select } from "@/components/ui/input";
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Breadcrumbs } from "@/components/ui/breadcrumbs";
 import { ErrorState } from "@/components/states";
+import { cn } from "@/lib/cn";
 import { currentFyLabel } from "@/lib/format";
 
 const SCHEMES: PackScheme[] = ["CCTS", "ADEETIE"];
@@ -292,140 +296,237 @@ export function EngagementWizard() {
     router.push(`/engagements/${json.engagement.id}`);
   }
 
+  const detailsStep = isAdeetie ? 3 : 2;
+
   return (
-    <form onSubmit={onSubmit} className="max-w-3xl space-y-5">
+    <form onSubmit={onSubmit}>
+      <div className="mb-4">
+        <Breadcrumbs items={[{ label: "Engagements", href: "/engagements" }, { label: "New engagement" }]} />
+      </div>
       <PageHeader
-        kicker="New engagement"
-        title="Bind a methodology pack"
-        description="Scheme → sector/cluster → pack. The pack cannot be rebound later."
+        title="New engagement"
+        description="Choose the scheme and the sector pack, then record who the work is for. The pack is fixed once the engagement is created."
       />
-      {error ? <ErrorState body={error} /> : null}
 
-      <fieldset>
-        <Label>Scheme</Label>
-        <div className="flex gap-2">
-          {SCHEMES.map((s) => (
-            <Button
-              key={s}
-              variant={scheme === s ? "primary" : "secondary"}
-              onClick={() => {
-                setScheme(s);
-                const next = listPacks({ scheme: s })[0];
-                setPackId(next?.pack_id ?? "");
-                setClusterChoice("");
-                setDistanceKm("");
-              }}
+      <div
+        className={cn(
+          "grid gap-6",
+          isAdeetie ? "lg:grid-cols-[minmax(0,1fr)_22rem]" : "max-w-3xl"
+        )}
+      >
+        <div className="min-w-0 space-y-5">
+          {error ? <ErrorState title="Could not create the engagement" body={error} /> : null}
+
+          <WizardSection step={1} title="Scheme and methodology pack">
+            <fieldset>
+              <legend className="mb-1.5 block text-[13px] font-medium text-mist-800">Scheme</legend>
+              <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Scheme">
+                {SCHEMES.map((s) => {
+                  const active = scheme === s;
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() => {
+                        setScheme(s);
+                        const next = listPacks({ scheme: s })[0];
+                        setPackId(next?.pack_id ?? "");
+                        setClusterChoice("");
+                        setDistanceKm("");
+                      }}
+                      className={cn(
+                        "rounded-lg border px-4 py-3 text-left transition-colors",
+                        active
+                          ? "border-teal-600 bg-teal-50/60 ring-1 ring-teal-600"
+                          : "border-mist-200 bg-white hover:border-mist-300 hover:bg-mist-50"
+                      )}
+                    >
+                      <span className="flex items-center justify-between">
+                        <span className="text-sm font-semibold text-mist-950">{s}</span>
+                        <span
+                          aria-hidden
+                          className={cn(
+                            "size-4 rounded-full border",
+                            active ? "border-[5px] border-teal-700" : "border-mist-300"
+                          )}
+                        />
+                      </span>
+                      <span className="mt-1 block text-xs leading-relaxed text-mist-600">
+                        {SCHEME_BLURB[s]}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+
+            <div className="mt-5">
+              <Label htmlFor="pack">Sector pack</Label>
+              <Select
+                id="pack"
+                value={selected?.pack_id ?? ""}
+                onChange={(e) => {
+                  setPackId(e.target.value);
+                  setClusterChoice("");
+                }}
+              >
+                {packs.map((p) => (
+                  <option key={p.pack_id} value={p.pack_id}>
+                    {p.sector_or_cluster} — {p.pack_id}
+                    {p.status === "runnable" ? "" : " (not yet runnable)"}
+                  </option>
+                ))}
+              </Select>
+              {selected && !runnable ? (
+                <Alert tone="warn" className="mt-3" title="This pack is not yet runnable">
+                  You can record the engagement in setup, but intake, extraction and calculation
+                  stay disabled. {selected.notes}
+                </Alert>
+              ) : null}
+            </div>
+          </WizardSection>
+
+          {isAdeetie && selected ? (
+            <WizardSection
+              step={2}
+              title="ADEETIE eligibility"
+              description="Every parameter below is compiled from the BEE ADEETIE scheme description and is marked TO VERIFY against the operative scheme guidelines. Nothing recorded here is an eligibility decision."
             >
-              {s}
+              <AdeetieFields
+                pack={selected}
+                clusters={clusters}
+                clusterChoice={clusterChoice}
+                setClusterChoice={setClusterChoice}
+                distanceKm={distanceKm}
+                setDistanceKm={setDistanceKm}
+                category={category}
+                setCategory={setCategory}
+                udyam={udyam}
+                setUdyam={setUdyam}
+                loanAmount={loanAmount}
+                setLoanAmount={setLoanAmount}
+                projectCost={projectCost}
+                setProjectCost={setProjectCost}
+                sanctionedRate={sanctionedRate}
+                setSanctionedRate={setSanctionedRate}
+                loanINR={loanINR}
+                projectINR={projectINR}
+              />
+            </WizardSection>
+          ) : null}
+
+          <WizardSection step={detailsStep} title={isAdeetie ? "Enterprise and baseline" : "Client and compliance year"}>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <Label htmlFor="client">
+                  {isAdeetie ? "Enterprise (applicant)" : "Obligated entity (client)"}
+                </Label>
+                <Input
+                  id="client"
+                  value={clientName}
+                  onChange={(e) => setClientName(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <Label htmlFor="plant">Plant or installation</Label>
+                <Input
+                  id="plant"
+                  value={plantName}
+                  onChange={(e) => setPlantName(e.target.value)}
+                  placeholder="Optional"
+                />
+              </div>
+              <div>
+                <Label htmlFor="fy">{isAdeetie ? "Baseline year" : "Compliance year"}</Label>
+                <Input
+                  id="fy"
+                  value={complianceYear}
+                  onChange={(e) => setComplianceYear(e.target.value)}
+                  required
+                />
+                <FieldHint>Indian financial year, e.g. {currentFyLabel()}</FieldHint>
+              </div>
+              {!isAdeetie ? (
+                <div>
+                  <Label htmlFor="gei">Notified GEI target</Label>
+                  <Input
+                    id="gei"
+                    inputMode="decimal"
+                    value={geiTarget}
+                    onChange={(e) => setGeiTarget(e.target.value)}
+                  />
+                  <FieldHint>Optional. Leave blank if the target is not yet notified.</FieldHint>
+                </div>
+              ) : null}
+            </div>
+          </WizardSection>
+
+          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-mist-200 bg-white px-5 py-4 shadow-xs">
+            <Button type="submit" size="lg" disabled={pending || !clientName}>
+              {pending ? "Creating…" : "Create engagement"}
             </Button>
-          ))}
+            {!runnable ? <Badge tone="draft">Work cannot start on this pack yet</Badge> : null}
+            {blocking.length > 0 ? (
+              <Badge tone="block" dot>
+                {blocking.length} eligibility {blocking.length === 1 ? "gate" : "gates"} not met
+              </Badge>
+            ) : null}
+            {isAdeetie && blocking.length > 0 ? (
+              <p className="basis-full text-xs leading-relaxed text-mist-600">
+                You can still create the engagement: an out-of-range value has to be recordable to
+                be found. The rules engine re-checks these gates against the evidence, and an open
+                blocking finding stops sign-off.
+              </p>
+            ) : null}
+          </div>
         </div>
-      </fieldset>
 
-      <fieldset>
-        <Label htmlFor="pack">Pack (sector / cluster)</Label>
-        <select
-          id="pack"
-          className="h-9 w-full border border-stone-300 bg-white px-2 text-sm"
-          value={selected?.pack_id ?? ""}
-          onChange={(e) => {
-            setPackId(e.target.value);
-            setClusterChoice("");
-          }}
-        >
-          {packs.map((p) => (
-            <option key={p.pack_id} value={p.pack_id}>
-              {p.sector_or_cluster} — {p.pack_id} ({p.status})
-            </option>
-          ))}
-        </select>
-        {selected && !runnable ? (
-          <p className="mt-2 border border-amber-400 bg-amber-50 px-2.5 py-2 text-[12px] text-amber-950">
-            This pack is a scaffold, so work cannot be started against it. You may record the
-            engagement in setup; intake, extraction and calculation stay disabled.{" "}
-            {selected.notes}
-          </p>
-        ) : null}
-      </fieldset>
-
-      {isAdeetie && selected ? (
-        <AdeetieFields
-          pack={selected}
-          clusters={clusters}
-          clusterChoice={clusterChoice}
-          setClusterChoice={setClusterChoice}
-          distanceKm={distanceKm}
-          setDistanceKm={setDistanceKm}
-          category={category}
-          setCategory={setCategory}
-          udyam={udyam}
-          setUdyam={setUdyam}
-          loanAmount={loanAmount}
-          setLoanAmount={setLoanAmount}
-          projectCost={projectCost}
-          setProjectCost={setProjectCost}
-          sanctionedRate={sanctionedRate}
-          setSanctionedRate={setSanctionedRate}
-          loanINR={loanINR}
-          projectINR={projectINR}
-        />
-      ) : null}
-
-      <div>
-        <Label htmlFor="client">
-          {isAdeetie ? "Enterprise (applicant)" : "Obligated entity (client)"}
-        </Label>
-        <Input
-          id="client"
-          value={clientName}
-          onChange={(e) => setClientName(e.target.value)}
-          required
-        />
-      </div>
-      <div>
-        <Label htmlFor="plant">Plant / installation</Label>
-        <Input id="plant" value={plantName} onChange={(e) => setPlantName(e.target.value)} />
-      </div>
-      <div>
-        <Label htmlFor="fy">{isAdeetie ? "Baseline year" : "Compliance year"}</Label>
-        <Input
-          id="fy"
-          value={complianceYear}
-          onChange={(e) => setComplianceYear(e.target.value)}
-          required
-        />
-      </div>
-      {!isAdeetie ? (
-        <div>
-          <Label htmlFor="gei">Notified GEI target (optional)</Label>
-          <Input
-            id="gei"
-            inputMode="decimal"
-            value={geiTarget}
-            onChange={(e) => setGeiTarget(e.target.value)}
-          />
-        </div>
-      ) : null}
-
-      {checks.length > 0 ? <ChecksPanel checks={checks} /> : null}
-
-      <div className="flex flex-wrap items-center gap-2">
-        <Button type="submit" disabled={pending || !clientName}>
-          Create engagement
-        </Button>
-        {!runnable ? <Badge tone="draft">Start work disabled</Badge> : null}
-        {blocking.length > 0 ? (
-          <Badge tone="block">{blocking.length} eligibility gate(s) not met</Badge>
+        {isAdeetie ? (
+          <aside className="lg:sticky lg:top-20 lg:self-start">
+            {checks.length > 0 ? <ChecksPanel checks={checks} /> : null}
+          </aside>
         ) : null}
       </div>
-      {isAdeetie && blocking.length > 0 ? (
-        <p className="text-[12px] text-stone-600">
-          The engagement can still be created — an out-of-range value must be recordable in order
-          to be found. These gates are re-evaluated by the rules engine against the evidence, and
-          an open block finding refuses sign-off.
-        </p>
-      ) : null}
     </form>
+  );
+}
+
+const SCHEME_BLURB: Record<PackScheme, string> = {
+  CCTS: "Carbon Credit Trading Scheme. Greenhouse-gas intensity against a notified target.",
+  ADEETIE: "BEE scheme for MSMEs. Energy audit, DPR and measured savings in three phases.",
+  CBAM: "Embedded emissions for EU exports. Structure only; no engagement can be started.",
+  GREEN_HYDROGEN: "Green hydrogen carbon intensity. Structure only; no engagement can be started.",
+};
+
+function WizardSection({
+  step,
+  title,
+  description,
+  children,
+}: {
+  step: number;
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-lg border border-mist-200 bg-white shadow-xs">
+      <header className="flex gap-3 border-b border-mist-100 px-5 py-4">
+        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-teal-700 text-xs font-semibold text-white">
+          {step}
+        </span>
+        <div className="min-w-0">
+          <h2 className="text-[15px] font-semibold text-mist-950">{title}</h2>
+          {description ? (
+            <p className="mt-0.5 max-w-2xl text-[13px] leading-relaxed text-mist-600">{description}</p>
+          ) : null}
+        </div>
+      </header>
+      <div className="px-5 py-5">{children}</div>
+    </section>
   );
 }
 
@@ -470,23 +571,11 @@ function AdeetieFields({
 }) {
   const notNotified = clusterChoice === NOT_NOTIFIED;
   return (
-    <div className="space-y-5 border border-stone-300 bg-white p-4">
+    <div className="space-y-5">
       <div>
-        <p className="text-[11px] uppercase tracking-[0.18em] text-stone-500">
-          ADEETIE eligibility
-        </p>
-        <p className="mt-1 text-[12px] text-stone-600">
-          Every parameter below is compiled from the BEE ADEETIE scheme description and is marked
-          TO VERIFY against the operative scheme guidelines. Nothing recorded here is an
-          eligibility decision.
-        </p>
-      </div>
-
-      <fieldset>
         <Label htmlFor="cluster">Notified cluster ({pack.sector_or_cluster})</Label>
-        <select
+        <Select
           id="cluster"
-          className="h-9 w-full border border-stone-300 bg-white px-2 text-sm"
           value={clusterChoice}
           onChange={(e) => setClusterChoice(e.target.value)}
         >
@@ -497,18 +586,17 @@ function AdeetieFields({
             </option>
           ))}
           <option value={NOT_NOTIFIED}>Not in a notified cluster</option>
-        </select>
+        </Select>
         {pack.adeetie && !pack.adeetie.clustersVerified ? (
-          <p className="mt-2 border border-amber-400 bg-amber-50 px-2.5 py-2 text-[12px] text-amber-950">
-            This cluster list is UNVERIFIED. {pack.adeetie.clusters.length} row(s) are held for{" "}
+          <Alert tone="warn" className="mt-3" title="This cluster list is unverified">
+            {pack.adeetie.clusters.length}{" "}
+            {pack.adeetie.clusters.length === 1 ? "row is" : "rows are"} held for{" "}
             {pack.sector_or_cluster} and none has been read back against the official BEE list.
-          </p>
+          </Alert>
         ) : null}
         {notNotified ? (
-          <div className="mt-2 space-y-2">
-            <Label htmlFor="distance">
-              Claimed distance to the nearest notified cluster (km)
-            </Label>
+          <div className="mt-4">
+            <Label htmlFor="distance">Claimed distance to the nearest notified cluster (km)</Label>
             <Input
               id="distance"
               inputMode="decimal"
@@ -516,39 +604,53 @@ function AdeetieFields({
               onChange={(e) => setDistanceKm(e.target.value)}
               placeholder="e.g. 45"
             />
-            <p className="border border-amber-400 bg-amber-50 px-2.5 py-2 text-[12px] text-amber-950">
+            <FieldHint>
               A claimed distance is evidence to be checked, not a computation. This system holds no
-              notified cluster boundary geometry, so it cannot confirm the figure. Recording a
-              distance inside {CLUSTER_PROXIMITY_KM} km raises a reviewable exception — it is not
-              an auto-pass.
-            </p>
+              notified cluster boundary geometry, so it cannot confirm the figure. A distance inside{" "}
+              {CLUSTER_PROXIMITY_KM} km raises a reviewable exception; it does not pass
+              automatically.
+            </FieldHint>
           </div>
         ) : null}
-      </fieldset>
+      </div>
 
       <fieldset>
-        <Label>Enterprise category</Label>
-        <div className="flex flex-wrap gap-2">
-          {ENTERPRISE_CATEGORIES.map((c) => (
-            <Button
-              key={c}
-              size="sm"
-              variant={category === c ? "primary" : "secondary"}
-              onClick={() => setCategory(c)}
-            >
-              {c} · {SUBVENTION_PCT[c]}%
-            </Button>
-          ))}
+        <legend className="mb-1.5 block text-[13px] font-medium text-mist-800">
+          Enterprise category
+        </legend>
+        <div className="inline-flex flex-wrap rounded-md border border-mist-300 bg-white p-0.5 shadow-xs" role="radiogroup" aria-label="Enterprise category">
+          {ENTERPRISE_CATEGORIES.map((c) => {
+            const active = category === c;
+            return (
+              <button
+                key={c}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                onClick={() => setCategory(c)}
+                className={cn(
+                  "h-8 rounded-[5px] px-3 text-[13px] font-medium transition-colors",
+                  active ? "bg-teal-700 text-white" : "text-mist-700 hover:bg-mist-100"
+                )}
+              >
+                {c}
+                <span className={cn("ml-1.5 text-xs tabular", active ? "text-teal-100" : "text-mist-500")}>
+                  {SUBVENTION_PCT[c]}%
+                </span>
+              </button>
+            );
+          })}
         </div>
-        <p className="mt-1 text-[11px] text-stone-500">
-          Drives the headline interest subvention rate and the audit cost reimbursement cap.
-        </p>
+        <FieldHint>
+          Sets the headline interest subvention rate and the audit cost reimbursement cap.
+        </FieldHint>
       </fieldset>
 
       <div>
         <Label htmlFor="udyam">Udyam Registration Number</Label>
         <Input
           id="udyam"
+          className="font-mono"
           value={udyam}
           onChange={(e) => setUdyam(e.target.value)}
           placeholder="UDYAM-XX-00-0000000"
@@ -561,69 +663,85 @@ function AdeetieFields({
           <Input
             id="loan"
             inputMode="numeric"
+            className="tabular"
             value={loanAmount}
             onChange={(e) => setLoanAmount(e.target.value)}
             placeholder={String(LOAN_MIN_INR)}
           />
-          <p className="mt-1 text-[11px] text-stone-500">
-            {loanINR !== null ? formatINR(loanINR) : "—"} · eligible range{" "}
-            {formatINR(LOAN_MIN_INR)} to {formatINR(LOAN_MAX_INR)}
-          </p>
+          <FieldHint>
+            {loanINR !== null ? (
+              <span className="font-medium text-mist-700">{formatINR(loanINR)} · </span>
+            ) : null}
+            Eligible range {formatINR(LOAN_MIN_INR)} to {formatINR(LOAN_MAX_INR)}
+          </FieldHint>
         </div>
         <div>
           <Label htmlFor="cost">Project cost (₹)</Label>
           <Input
             id="cost"
             inputMode="numeric"
+            className="tabular"
             value={projectCost}
             onChange={(e) => setProjectCost(e.target.value)}
           />
-          <p className="mt-1 text-[11px] text-stone-500">
-            {projectINR !== null ? formatINR(projectINR) : "—"} · up to {MAX_DEBT_FUNDING_PCT}% may
-            be met by qualifying debt
-          </p>
+          <FieldHint>
+            {projectINR !== null ? (
+              <span className="font-medium text-mist-700">{formatINR(projectINR)} · </span>
+            ) : null}
+            Up to {MAX_DEBT_FUNDING_PCT}% may be met by qualifying debt
+          </FieldHint>
         </div>
       </div>
 
-      <div>
-        <Label htmlFor="rate">Sanctioned interest rate (% p.a., optional)</Label>
+      <div className="sm:max-w-[calc(50%-0.5rem)]">
+        <Label htmlFor="rate">Sanctioned interest rate (% a year)</Label>
         <Input
           id="rate"
           inputMode="decimal"
+          className="tabular"
           value={sanctionedRate}
           onChange={(e) => setSanctionedRate(e.target.value)}
         />
+        <FieldHint>Optional.</FieldHint>
       </div>
     </div>
   );
 }
 
-const SEVERITY_TONE: Record<Severity, "block" | "draft" | "neutral"> = {
-  block: "block",
-  warn: "draft",
-  info: "neutral",
+const SEVERITY: Record<
+  Severity,
+  { label: string; tone: "block" | "draft" | "neutral"; icon: typeof CircleAlert; iconClass: string }
+> = {
+  block: { label: "Blocks", tone: "block", icon: OctagonX, iconClass: "text-red-600" },
+  warn: { label: "Review", tone: "draft", icon: TriangleAlert, iconClass: "text-amber-600" },
+  info: { label: "Note", tone: "neutral", icon: CircleAlert, iconClass: "text-teal-700" },
 };
 
 function ChecksPanel({ checks }: { checks: Check[] }) {
   return (
-    <section>
-      <h2 className="mb-2 text-[11px] uppercase tracking-wide text-stone-500">
-        Eligibility gates as the rules engine states them
-      </h2>
-      <ul className="space-y-2">
-        {checks.map((c, i) => (
-          <li
-            key={`${c.ruleId}-${i}`}
-            className="border border-stone-200 bg-white px-3 py-2.5 text-[12px]"
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge tone={SEVERITY_TONE[c.severity]}>{c.severity}</Badge>
-              <span className="font-mono text-[11px] text-stone-500">{c.ruleId}</span>
-              <span className="font-semibold">{c.title}</span>
-            </div>
-            <p className="mt-1 leading-relaxed text-stone-700">{c.detail}</p>
-          </li>
-        ))}
+    <section className="rounded-lg border border-mist-200 bg-white shadow-xs">
+      <header className="border-b border-mist-100 px-4 py-3">
+        <h2 className="text-sm font-semibold text-mist-950">Eligibility checks</h2>
+        <p className="mt-0.5 text-xs text-mist-500">Updated as you type. Stated as the rules engine states them.</p>
+      </header>
+      <ul className="divide-y divide-mist-100">
+        {checks.map((c, i) => {
+          const s = SEVERITY[c.severity];
+          const Icon = s.icon;
+          return (
+            <li key={`${c.ruleId}-${i}`} className="flex gap-2.5 px-4 py-3 text-[13px]">
+              <Icon aria-hidden className={cn("mt-0.5 size-4 shrink-0", s.iconClass)} />
+              <div className="min-w-0">
+                <p className="font-medium leading-snug text-mist-900">{c.title}</p>
+                <p className="mt-1 text-xs leading-relaxed text-mist-600">{c.detail}</p>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <Badge tone={s.tone}>{s.label}</Badge>
+                  <span className="font-mono text-xs text-mist-500">{c.ruleId}</span>
+                </div>
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

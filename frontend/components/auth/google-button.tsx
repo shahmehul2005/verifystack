@@ -35,7 +35,7 @@ export function GoogleButton({
       type="button"
       disabled={pending}
       onClick={onClick}
-      className="inline-flex h-9 w-full items-center justify-center gap-2 border border-stone-300 bg-white text-sm font-medium text-stone-800 hover:bg-stone-50 disabled:pointer-events-none disabled:opacity-50"
+      className="inline-flex h-10 w-full items-center justify-center gap-2.5 rounded-md border border-mist-300 bg-white text-sm font-medium text-mist-800 shadow-xs transition-colors hover:border-mist-400 hover:bg-mist-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 disabled:pointer-events-none disabled:opacity-50"
     >
       <GoogleMark />
       {label}
@@ -45,12 +45,12 @@ export function GoogleButton({
 
 export function AuthDivider() {
   return (
-    <div className="relative my-5">
+    <div className="relative my-6">
       <div className="absolute inset-0 flex items-center" aria-hidden>
-        <div className="w-full border-t border-stone-200" />
+        <div className="w-full border-t border-mist-200" />
       </div>
-      <p className="relative flex justify-center text-[11px] uppercase tracking-wide text-stone-500">
-        <span className="bg-white px-2">or</span>
+      <p className="relative flex justify-center text-xs text-mist-500">
+        <span className="bg-white px-3">or with email</span>
       </p>
     </div>
   );

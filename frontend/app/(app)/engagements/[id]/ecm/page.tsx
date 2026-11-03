@@ -2,11 +2,13 @@ import { notFound } from "next/navigation";
 import { ConfigureSupabase, ForbiddenState } from "@/components/states";
 import { PageHeader } from "@/components/page-header";
 import { EcmSuggestions } from "@/components/ecm/suggestions";
-import { getSession } from "@verifystack/backend/lib/auth/getSession";
+import { getSession } from "@/lib/session";
 import { hasCapability } from "@verifystack/backend/lib/auth/capabilities";
 import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
-import { getEngagement } from "@verifystack/backend/lib/data/engagements";
+import { getEngagement } from "@/lib/session";
 import { suggestEcmsForEngagement } from "@verifystack/backend/lib/data/ecm";
+
+export const metadata = { title: "ECM suggestions" };
 
 export default async function EcmPage({ params }: { params: Promise<{ id: string }> }) {
   if (!isSupabaseConfigured()) return <ConfigureSupabase />;
@@ -18,15 +20,18 @@ export default async function EcmPage({ params }: { params: Promise<{ id: string
   }
   const engagement = await getEngagement(id, session.organizationId);
   if (!engagement) notFound();
-  const payload = await suggestEcmsForEngagement(id, session.organizationId, { style: true });
+  const payload = await suggestEcmsForEngagement(id, session.organizationId, {
+    style: true,
+    engagement,
+  });
   if (!payload) notFound();
 
   return (
     <>
       <PageHeader
         kicker={`${engagement.scheme} · ${engagement.sector_or_cluster}`}
-        title="ECM suggestions"
-        description="Library rows matching this facility's bound equipment and calculated intensity gap. Measures come from the curated library, not from free generation."
+        title="Energy conservation measures"
+        description="Measures from the curated library that match this facility's equipment and its calculated intensity gap."
       />
       <EcmSuggestions payload={payload} />
     </>
