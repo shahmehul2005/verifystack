@@ -18,6 +18,7 @@ import { Logo } from "@/components/brand/logo";
 import { ROLE_LABEL } from "@verifystack/backend/lib/auth/roles";
 import { APP_NAV, navForRole } from "@verifystack/backend/lib/auth/capabilities";
 import type { MembershipRole } from "@verifystack/backend/lib/supabase/types";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
 import { UserMenu } from "./user-menu";
 
 const NAV_ICONS = {
@@ -264,7 +265,10 @@ export function AppShell({
             <span className="font-semibold text-mist-900">{orgName ?? "Your firm"}</span>
             {firmOwnerName ? <span className="text-xs text-mist-400">• Owner: {firmOwnerName}</span> : null}
           </div>
-          {userEmail ? <UserMenu email={userEmail} role={role} /> : <span />}
+          <div className="flex items-center gap-1">
+            <ThemeToggle />
+            {userEmail ? <UserMenu email={userEmail} role={role} /> : null}
+          </div>
         </header>
         <main className="min-w-0 flex-1 px-4 py-6 md:px-8 md:py-8">
           <div className="mx-auto w-full max-w-7xl">{children}</div>

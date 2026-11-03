@@ -48,6 +48,9 @@ export function checkSumMatches(args: {
   relTolerance?: number;
   thresholdSource?: string;
 }): CheckResult {
+  if (![...args.parts, args.target].every(Number.isFinite)) {
+    return { id: args.id, label: args.label, status: "not_applicable", detail: "A figure this check compares is not a number, so it cannot be decided." };
+  }
   const sum = round(args.parts.reduce((a, b) => a + b, 0));
   const diff = round(sum - args.target);
   const band = Math.max(args.absTolerance ?? 0, (args.relTolerance ?? 0) * Math.abs(args.target));
@@ -75,7 +78,18 @@ export function checkDailyAgreement(args: {
   relTolerance: number;
   thresholdSource?: string;
 }): CheckResult {
-  const scored = args.rows.map((r) => {
+  // A day where either figure is not a number cannot be compared. It is never counted as agreeing.
+  const usable = args.rows.filter((r) => Number.isFinite(r.a) && Number.isFinite(r.b));
+  const unreadable = args.rows.length - usable.length;
+  if (usable.length === 0) {
+    return {
+      id: args.id,
+      label: args.label,
+      status: "not_applicable",
+      detail: args.rows.length === 0 ? "There are no days to compare." : `None of the ${args.rows.length} day(s) has two figures that are numbers, so none can be compared.`,
+    };
+  }
+  const scored = usable.map((r) => {
     const rel = r.b === 0 ? (r.a === 0 ? 0 : Number.POSITIVE_INFINITY) : (r.a - r.b) / r.b;
     return { ...r, rel };
   });
@@ -85,10 +99,11 @@ export function checkDailyAgreement(args: {
   return {
     id: args.id,
     label: args.label,
-    status: bad.length === 0 ? "pass" : "fail",
+    status: bad.length === 0 && unreadable === 0 ? "pass" : "fail",
     detail:
       `${scored.length} day(s) compared. ${bad.length} outside ±${pct(args.relTolerance)}. ` +
-      `Largest difference ${pct(worst.rel)} on ${worst.date} (${fmt(worst.a)} vs ${fmt(worst.b)}).`,
+      `Largest difference ${pct(worst.rel)} on ${worst.date} (${fmt(worst.a)} vs ${fmt(worst.b)}).` +
+      (unreadable > 0 ? ` ${unreadable} further day(s) had a figure that is not a number and could not be compared.` : ""),
     actual: worst.a,
     expected: worst.b,
     diff: round(worst.a - worst.b),
@@ -167,6 +182,14 @@ export function checkEvidenceCoverage(args: {
   relTolerance?: number;
   thresholdSource?: string;
 }): CheckResult {
+  if (![args.monthsEvidenced, args.periodMonths, args.annualCell, args.monthlyReading].every(Number.isFinite)) {
+    return {
+      id: args.id,
+      label: args.label,
+      status: "not_applicable",
+      detail: "A figure this check needs is not a number, so the evidence cannot be compared with the annual cell. That is not a pass.",
+    };
+  }
   const annualised = round(args.monthlyReading * args.periodMonths);
   const matchesMonthly = Math.abs(annualised - args.annualCell) <= Math.abs(args.annualCell) * 0.0005;
   const thin = args.thinMonths ?? [];

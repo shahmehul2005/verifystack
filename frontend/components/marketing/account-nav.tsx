@@ -8,6 +8,7 @@ import { cn } from "@/lib/cn";
 import { createBrowserSupabase } from "@verifystack/backend/lib/supabase/client";
 import { MobileNav } from "./mobile-nav";
 import { UserMenu } from "@/components/shell/user-menu";
+import { ThemeToggle } from "@/components/theme/theme-toggle";
 
 type Item = { href: string; label: string };
 
@@ -54,6 +55,7 @@ export function AccountNav({
 
   return (
     <div className="flex items-center gap-1.5">
+      <ThemeToggle />
       {email ? (
         <>
           <Link

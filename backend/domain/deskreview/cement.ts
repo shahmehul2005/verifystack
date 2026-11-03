@@ -263,11 +263,28 @@ function column(
   const report = dailyColumnReport(sheet, header, aliases);
   if (!report) return null;
   noteDailyColumn(report, header, note);
-  const rows = report.rows;
-  out[`${key}_sum`] = Math.round(sum(rows) * 1e6) / 1e6;
+  // A cell holding text ("-", "NA", "n/a") is not a figure. Left in, it would turn the total into NaN
+  // and a check that compares it could pass on nothing, so it is left out and the page says so.
+  const unreadable = report.rows.filter((r) => isFilled(r.value) && cellNumber(r.value) === null);
+  if (unreadable.length > 0 && note) {
+    const first = unreadable[0]!;
+    note(`${unreadable.length} cell(s) under "${header}" hold text and not a number (first: ${first.date}, "${String(first.value)}"), so they are left out of the total, the daily series and the months of evidence.`);
+  }
+  const rows = report.rows.filter((r) => !isFilled(r.value) || cellNumber(r.value) !== null);
+  out[`${key}_sum`] = Math.round(sum(rows.map((r) => ({ value: cellNumber(r.value) ?? 0 }))) * 1e6) / 1e6;
   // A dated row with nothing in it is not a day of zero output, so it stays out of the daily series.
-  if (keepDaily) for (const r of rows) if (isFilled(r.value)) out[`${key}@${r.date}`] = Number(r.value);
+  if (keepDaily) for (const r of rows) if (isFilled(r.value)) out[`${key}@${r.date}`] = cellNumber(r.value)!;
   return rows;
+}
+
+/** A cell as a number: a figure, or text such as "1,234.5". Null for anything else. */
+function cellNumber(v: unknown): number | null {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v !== "string") return null;
+  const text = v.replace(/,/g, "").trim();
+  if (text === "") return null;
+  const n = Number(text);
+  return Number.isFinite(n) ? n : null;
 }
 
 /** The thin months a reader recorded for a series, or none when the run predates the reading. */
@@ -742,6 +759,17 @@ const RULES: DeskRule[] = [
     };
   }),
   one("gcv_nabl_corroboration", "Fuels and power", "NABL coal GCV corroboration", ["lab.gcv_mean", "coal.nabl_gcv", "pf.gcv_coal"], (r) => {
+    // A certificate on a dried basis reads higher than the same coal as burned. Set beside the internal
+    // log's as-fired mean it would fail for the water alone, so the basis check compares them instead.
+    const certBasis = "coal.nabl_basis" in r ? parseBasis(r["coal.nabl_basis"]) : null;
+    if (certBasis === "ADB" || certBasis === "DB") {
+      return {
+        id: "gcv_nabl_corroboration",
+        label: "NABL coal GCV corroboration",
+        status: "not_applicable",
+        detail: `The NABL certificate states its GCV on the ${BASIS_LABEL[certBasis]}, so it cannot be set directly beside the internal log's as-fired mean. The moisture-basis check compares them after converting the certificate.`,
+      };
+    }
     const internal = num(r, "lab.gcv_mean");
     const external = num(r, "coal.nabl_gcv");
     const cell = num(r, "pf.gcv_coal");
@@ -1004,13 +1032,16 @@ const RULES: DeskRule[] = [
       const external = num(r, "coal.nabl_gcv");
       const basis = parseBasis(r["coal.nabl_basis"]);
       const externalMoisture = num(r, "coal.nabl_moisture_pct");
+      // The air-dried moisture the certificate prints. Only a dried-basis value needs it, so it is
+      // not one of the readings that must be present for this check to run.
+      const inherentMoisture = "coal.nabl_inherent_moisture_pct" in r ? num(r, "coal.nabl_inherent_moisture_pct") : null;
       const internal = num(r, "lab.gcv_mean");
       const internalMoisture = num(r, "lab.moisture_mean_pct");
 
       // Both figures on the as-received basis. The internal figure is the mean of the
       // daily log, whose moisture column is the as-fired basis the log states.
       const converted = convertCalorificValue(
-        { value: external, basis, totalMoisturePct: externalMoisture, inherentMoisturePct: null },
+        { value: external, basis, totalMoisturePct: externalMoisture, inherentMoisturePct: inherentMoisture },
         "ARB"
       );
       const externalArb = basis === "ARB" ? external : converted.ok ? converted.value : null;
@@ -1184,6 +1215,13 @@ export const CEMENT_DESK_REVIEW: DeskReviewDef = {
       "Type ARB, ADB, DB or NA. The certificate prints its basis beside the parameter; a value with no stated basis cannot be compared with the workbook."
     ),
     m("coal.nabl_moisture_pct", "NABL certificate: total moisture", "%", "coal_quality", "As printed on the certificate."),
+    m(
+      "coal.nabl_inherent_moisture_pct",
+      "NABL certificate: air-dried (inherent) moisture",
+      "%",
+      "coal_quality",
+      "Only needed when the certificate's GCV is on an air-dried or dry basis. Without it that value cannot be put on an as-received basis."
+    ),
     m(
       "clinker.cao_pct",
       "Clinker analysis: CaO",

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Instrument_Sans, JetBrains_Mono } from "next/font/google";
 import { AssistantWidget } from "@/components/assistant/assistant-widget";
 import { Providers } from "@/components/providers";
+import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import "./globals.css";
 
 /** Interface and body text. */
@@ -34,10 +35,15 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
+    // The theme attribute is set by the script below before the page paints, so it can differ from the server's markup.
     <html
       lang="en-IN"
       className={`${sans.variable} ${mono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="min-h-full font-sans text-mist-900">
         <Providers>
           {children}

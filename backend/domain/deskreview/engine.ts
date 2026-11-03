@@ -227,6 +227,12 @@ export function runDeskReview(def: DeskReviewDef, readings: Readings, origins: R
     if (missing.length > 0) {
       return { ...base, status: "pending" as const, detail: "Waiting for readings.", missing };
     }
+    // A reading that is present but not a number cannot be compared with anything. Without this a
+    // comparison against NaN can come out as agreement.
+    const notNumbers = rule.needs.filter((k) => !k.endsWith("@*") && typeof readings[k] === "number" && !Number.isFinite(readings[k]));
+    if (notNumbers.length > 0) {
+      return { ...base, status: "not_applicable" as const, detail: `Not decided: ${notNumbers.join(", ")} ${notNumbers.length === 1 ? "is" : "are"} not a number.` };
+    }
     try {
       const r = rule.evaluate(readings);
       return {

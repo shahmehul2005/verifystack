@@ -16,6 +16,29 @@ must say which version it bumps. Current versions:
 
 ## [Unreleased]
 
+### Desk review: a figure that is not a number can no longer pass a check
+
+- **A text cell in a numeric column** ("-", "NA") used to turn that column's total into NaN. The evidence-coverage and
+  daily-agreement checks then passed on it ("Largest difference NaN%"). The reader now leaves such cells out of the total,
+  the daily series and the months of evidence, accepts text like `1,234.5`, and says how many it left out. Those checks, the
+  sum check and the engine now report "not applicable" for a figure that is not a number, never a pass. A daily
+  agreement with nothing comparable no longer crashes.
+- **A NABL certificate on an air-dried or dry basis could never be compared**, because the inherent moisture was never
+  passed to the conversion. There is now a reading for it (`coal.nabl_inherent_moisture_pct`), used only when the
+  certificate's basis needs it.
+- **The plain NABL corroboration screen no longer fails a dried-basis certificate for the water alone**; the
+  moisture-basis check compares it after conversion. An as-received certificate, or one with no stated basis, is
+  compared as before.
+- Open for the owner: the conversion treats a dry-basis (DB) value like an air-dried one, using the inherent moisture,
+  as the existing tests expect. A strictly dry value has no moisture left. Not changed here.
+
+### Day and night theme
+
+- A sun / moon button in the app header and the public header switches theme. The choice is kept in this browser and
+  applied before the page paints, so there is no flash. Night inverts the page's lightness and turns the hue back, so
+  every colour pair keeps its contrast and status colours stay red, amber and green. Pictures, video and canvases (the PDF
+  pages being read) are shown as they are. Printing is always the day theme.
+
 ### Desk review: moisture basis, carbonate floor, slip checks and digit screens
 
 Decision record: [0025](docs/decisions/0025-desk-review-basis-chemistry-digit-screens.md).

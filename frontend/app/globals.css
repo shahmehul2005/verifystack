@@ -177,6 +177,24 @@ body {
   }
 }
 
+/* ---- Night theme -------------------------------------------------------
+ * The product is built from one set of tone tokens, and several hundred places use
+ * them with a status colour or a white on top. A night theme that re-picks every
+ * pair by hand would drift, so this inverts the page's lightness and turns the hue
+ * back: every pair keeps the contrast it was designed with, and status colours stay
+ * red, amber and green. Pictures, video and canvases (the PDF pages a verifier
+ * is reading) are inverted a second time, so evidence is always shown as it is.
+ * The form controls stay light-scheme on purpose: the inversion makes them dark.
+ * data-theme is set by lib/theme.ts before first paint.
+ */
+html[data-theme="dark"] {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+html[data-theme="dark"] :is(img, video, canvas, picture, iframe) {
+  filter: invert(1) hue-rotate(180deg);
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -189,6 +207,11 @@ body {
 }
 
 @media print {
+  /* A printed page is always the day theme. */
+  html[data-theme="dark"],
+  html[data-theme="dark"] :is(img, video, canvas, picture, iframe) {
+    filter: none;
+  }
   aside,
   header[data-app-header],
   nav[data-engagement-nav] {
