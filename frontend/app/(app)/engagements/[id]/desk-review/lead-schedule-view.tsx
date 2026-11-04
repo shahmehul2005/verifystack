@@ -41,7 +41,8 @@ export function LeadScheduleView({
   hasSavedRun: boolean;
   raising: string | null;
   onRaise: (ruleId: string) => void;
-  onOpenReadings: () => void;
+  /** Open the readings drawer, pointing at what one check is missing when its rule id is given. */
+  onOpenReadings: (ruleId?: string) => void;
   running: boolean;
   onRun: () => void;
   /** Where the sealed binder is downloaded from, once there is a saved run. */
@@ -61,7 +62,7 @@ export function LeadScheduleView({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="secondary" onClick={onOpenReadings}>
+            <Button size="sm" variant="secondary" onClick={() => onOpenReadings()}>
               <FileText />
               Figures from PDFs
             </Button>
@@ -161,7 +162,7 @@ function CategoryRows({
   hasSavedRun: boolean;
   raising: string | null;
   onRaise: (ruleId: string) => void;
-  onOpenReadings: () => void;
+  onOpenReadings: (ruleId?: string) => void;
 }) {
   return (
     <>
@@ -231,7 +232,7 @@ function CategoryRows({
                     {raising === row.ruleId ? "Raising…" : "Raise finding"}
                   </Button>
                 ) : row.status === "waiting" ? (
-                  <Button size="sm" variant="secondary" onClick={onOpenReadings}>
+                  <Button size="sm" variant="secondary" onClick={() => onOpenReadings(row.ruleId)}>
                     Enter readings
                   </Button>
                 ) : null

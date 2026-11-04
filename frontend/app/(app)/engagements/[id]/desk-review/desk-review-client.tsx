@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
 import {
   Play,
@@ -24,6 +25,7 @@ import { LeadScheduleView } from "./lead-schedule-view";
 import { SnipDialog, type SnipResult } from "./snip-dialog";
 import type { Region } from "@verifystack/backend/domain/deskreview/snip";
 import { MIN_CHANGE_REASON } from "@verifystack/backend/domain/deskreview/readingChange";
+import { fillTargets } from "@verifystack/backend/domain/deskreview/fillTargets";
 import { formatIst } from "@/lib/format";
 import type { ProformaReading } from "@verifystack/backend/domain/proforma/reader";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
@@ -353,8 +355,40 @@ export function DeskReviewStudio({
     }
   }
 
+  // Open the drawer for one waiting check: point at the readings it is missing, scroll to the first
+  // and put the cursor in it. The ring fades by itself, and the note stays until it is dismissed.
+  const [fill, setFill] = useState<{ label: string; count: number; elsewhere: string[] } | null>(null);
+  const [pulse, setPulse] = useState<string[]>([]);
+  const pulseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function openReadingsFor(ruleId?: string) {
+    setShowReadingsDrawer(true);
+    const outcome = ruleId ? results.find((r) => r.id === ruleId) : undefined;
+    if (!outcome) {
+      setFill(null);
+      return;
+    }
+    const targets = fillTargets(outcome.missing ?? [], manualSpecs.map((s) => s.key));
+    setFill({ label: outcome.label, count: targets.cards.length, elsewhere: targets.elsewhere });
+    setPulse(targets.cards);
+    if (pulseTimer.current) clearTimeout(pulseTimer.current);
+    pulseTimer.current = setTimeout(() => setPulse([]), 2200);
+    const first = targets.cards[0];
+    if (!first) return;
+    // The cards are only in the page once the drawer has rendered, so wait for two frames.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const card = document.getElementById(`reading-card-${first}`);
+        if (!card) return;
+        const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        card.scrollIntoView({ behavior: calm ? "auto" : "smooth", block: "center" });
+        card.querySelector<HTMLElement>("input, textarea")?.focus({ preventScroll: true });
+      })
+    );
+  }
+
   // Readings form state
-  const byKey = useMemo(() => new Map(savedReadings.map((s) => [s.key, s])), [savedReadings]);
+  const byKey =useMemo(() => new Map(savedReadings.map((s) => [s.key, s])), [savedReadings]);
   const [values, setValues] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {};
     for (const s of manualSpecs) {
@@ -851,6 +885,28 @@ export function DeskReviewStudio({
             }
           />
           <CardBody className="space-y-4">
+            {fill ? (
+              <div role="status" className="flex flex-wrap items-start justify-between gap-2 rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-[13px] text-teal-900">
+                <div className="space-y-0.5">
+                  <p>
+                    Filling for <strong className="font-semibold">{fill.label}</strong>
+                    {fill.count > 0 ? `: ${fill.count} reading${fill.count === 1 ? "" : "s"} to enter, outlined below.` : "."}
+                  </p>
+                  {fill.elsewhere.length > 0 ? (
+                    <p className="text-teal-800">
+                      {fill.count > 0 ? "It also needs" : "It needs"} figures read from uploaded files, not typed here:{" "}
+                      <span className="font-mono text-[12px]">{fill.elsewhere.join(", ")}</span>.{" "}
+                      <Link href={`/engagements/${engagementId}/documents`} className="font-medium underline underline-offset-2">
+                        Check the files on Documents
+                      </Link>
+                    </p>
+                  ) : null}
+                </div>
+                <button type="button" className="text-xs text-teal-800 underline underline-offset-2" onClick={() => setFill(null)}>
+                  Dismiss
+                </button>
+              </div>
+            ) : null}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
               {manualSpecs.map((spec) => {
                 const suggestion = suggestions.find((s) => s.key === spec.key);
@@ -863,7 +919,10 @@ export function DeskReviewStudio({
                 return (
                   <div
                     key={spec.key}
-                    className="flex flex-col justify-between rounded-md border border-mist-200 bg-white p-3 shadow-xs"
+                    id={`reading-card-${spec.key}`}
+                    className={`flex flex-col justify-between rounded-md border bg-white p-3 shadow-xs transition-shadow duration-700 motion-reduce:transition-none ${
+                      pulse.includes(spec.key) ? "border-teal-500 ring-2 ring-teal-500 ring-offset-2" : "border-mist-200"
+                    }`}
                   >
                     <div className="space-y-1">
                       <div className="flex items-start justify-between gap-1">
@@ -1129,7 +1188,7 @@ export function DeskReviewStudio({
           hasSavedRun={hasSavedRun}
           raising={raisingFindingId}
           onRaise={(ruleId) => void handleRaiseFinding(ruleId)}
-          onOpenReadings={() => setShowReadingsDrawer(true)}
+          onOpenReadings={(ruleId) => openReadingsFor(ruleId)}
           running={running || isRefreshing}
           onRun={() => void runDeskReview()}
           binderHref={hasSavedRun ? `/api/desk-review/binder?engagementId=${engagementId}` : null}
@@ -1498,7 +1557,7 @@ export function DeskReviewStudio({
                                   variant="secondary"
                                   size="sm"
                                   className="h-7 text-xs"
-                                  onClick={() => setShowReadingsDrawer(true)}
+                                  onClick={() => openReadingsFor(r.id)}
                                 >
                                   Open Drawer to Fill
                                 </Button>

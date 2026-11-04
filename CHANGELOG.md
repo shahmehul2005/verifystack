@@ -16,6 +16,15 @@ must say which version it bumps. Current versions:
 
 ## [Unreleased]
 
+### Desk review: "Open Drawer to Fill" points at what the check is missing
+
+- Opening the Corroboration drawer from a waiting check (the check's own button, or "Enter readings" on the lead
+  schedule) now outlines every reading that check is missing, scrolls to the first and puts the cursor in it. The
+  outline fades after about two seconds; reduced-motion users get a steady outline with no fade. A note at the top of the
+  drawer names the check and how many readings to enter, and lists any it needs that are read from uploaded files and
+  cannot be typed there, with a link to Documents. A daily series counts as one card. The plain "Corroboration
+  Readings" button opens the drawer as before. UI only, no migration.
+
 ### Desk review: a figure that is not a number can no longer pass a check
 
 - **A text cell in a numeric column** ("-", "NA") used to turn that column's total into NaN. The evidence-coverage and
