@@ -113,7 +113,15 @@ function PdfCanvas({
     draw().catch((err: unknown) => {
       if (cancelled) return;
       setStatus("error");
-      setMessage(err instanceof Error ? err.message : "Could not render PDF");
+      // The file route answers 404 when the document's file is not in storage.
+      const gone = (err as { status?: number } | null)?.status === 404 || (err as { name?: string } | null)?.name === "MissingPDFException";
+      setMessage(
+        gone
+          ? "The file for this document is missing from storage. Upload the same file again on Documents to restore it."
+          : err instanceof Error
+            ? err.message
+            : "Could not render PDF"
+      );
     });
 
     return () => {

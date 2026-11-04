@@ -16,6 +16,15 @@ must say which version it bumps. Current versions:
 
 ## [Unreleased]
 
+### Documents: a document whose file is missing from storage is a clear message, and can be repaired
+
+- A document row can outlive its file (an upload that failed after the row was written, or a file removed from the bucket
+  by hand). Opening it in a snip or the workbench gave a bare "Unexpected server response (500)". The file route now
+  answers 404 with `file_missing` and the viewer says the file is missing from storage and to upload the same file again.
+- Uploading the same file again into the same engagement used to find the existing row and do nothing, so a missing file
+  could never be restored. It now checks storage and puts the bytes back when they are gone (the object is named by its
+  own hash, so this is safe), and records `restoredFile` in the audit entry.
+
 ### Desk review: "Open Drawer to Fill" points at what the check is missing
 
 - Opening the Corroboration drawer from a waiting check (the check's own button, or "Enter readings" on the lead

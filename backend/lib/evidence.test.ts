@@ -3,6 +3,7 @@ import {
   XLSX_MIME,
   contentDisposition,
   isEvidenceMimeType,
+  isMissingObjectMessage,
   sanitizeFilename,
   sniffEvidenceType,
   sniffUploadType,
@@ -94,5 +95,19 @@ describe("evidence filenames", () => {
     expect(isEvidenceMimeType("application/pdf")).toBe(true);
     expect(isEvidenceMimeType("text/html")).toBe(false);
     expect(isEvidenceMimeType(null)).toBe(false);
+  });
+});
+
+describe("isMissingObjectMessage", () => {
+  it("recognises a file that is not in storage", () => {
+    expect(isMissingObjectMessage("Object not found")).toBe(true);
+    expect(isMissingObjectMessage("The resource was not found: 404")).toBe(true);
+  });
+
+  it("does not call other storage faults a missing file", () => {
+    expect(isMissingObjectMessage("Invalid JWT")).toBe(false);
+    expect(isMissingObjectMessage("Bucket quota exceeded")).toBe(false);
+    expect(isMissingObjectMessage(null)).toBe(false);
+    expect(isMissingObjectMessage(undefined)).toBe(false);
   });
 });

@@ -154,13 +154,30 @@ export async function ingestEvidenceFile(input: IngestInput): Promise<IngestResu
     .eq("sha256", sha256)
     .maybeSingle();
   if (existing) {
+    // The row can outlive its file (an upload that failed after the row was written). The file is
+    // named by its own hash, so putting these same bytes back is safe, and it is the only way a
+    // person can repair a document whose file is missing: a plain re-upload would otherwise find
+    // the row and do nothing.
+    let restoredFile = false;
+    try {
+      const { data: present } = await admin.storage.from("evidence").exists(existing.storage_path);
+      if (present === false) {
+        const { error: restoreErr } = await admin.storage.from("evidence").upload(existing.storage_path, buf, {
+          contentType: existing.mime_type,
+          upsert: true,
+        });
+        restoredFile = !restoreErr;
+      }
+    } catch {
+      // A failed check must not stop the upload from reporting the duplicate.
+    }
     await auditEvent({
       organizationId: input.organizationId,
       actorUserId: input.actorUserId,
       action: "document.deduped",
       entityType: "document",
       entityId: existing.id,
-      payload: { sha256, source: input.source },
+      payload: { sha256, source: input.source, ...(restoredFile ? { restoredFile: true } : {}) },
     });
     return { document: existing, deduped: true, kind: sniffed.kind, datasets: 0 };
   }

@@ -2,7 +2,7 @@ import { requireCapability, assertOrgId } from "@verifystack/backend/lib/auth/re
 import { jsonError } from "@/lib/api";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
-import { contentDisposition, isEvidenceMimeType } from "@verifystack/backend/lib/evidence";
+import { contentDisposition, isEvidenceMimeType, isMissingObjectMessage } from "@verifystack/backend/lib/evidence";
 
 /**
  * Same-origin stream of evidence bytes so PDF.js can load the page
@@ -32,7 +32,19 @@ export async function GET(
 
     const { data, error } = await supabase.storage.from("evidence").download(doc.storage_path);
     if (error || !data) {
-      throw new Error(error?.message ?? "Storage object missing");
+      // The row is there but its file is not in storage. That is a missing file the person can
+      // restore by uploading the same file again, not a server fault.
+      if (!error || isMissingObjectMessage(error.message)) {
+        return Response.json(
+          {
+            ok: false,
+            code: "file_missing",
+            error: "The stored file for this document is missing. Upload the same file again on Documents to restore it.",
+          },
+          { status: 404 }
+        );
+      }
+      throw new Error(error.message);
     }
 
     // Anything outside the evidence types is downloaded, never rendered.

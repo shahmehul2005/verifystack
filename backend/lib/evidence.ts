@@ -126,6 +126,15 @@ export function sanitizeFilename(raw: string | null | undefined): string {
 }
 
 /** RFC 6266 Content-Disposition with an ASCII fallback and a UTF-8 filename*. */
+/**
+ * Whether a storage error means the object is not in the bucket. A document row can
+ * outlive its file (an upload that failed after the row was written, a file removed
+ * from the bucket by hand), and that is a missing file, not a server fault.
+ */
+export function isMissingObjectMessage(message: string | null | undefined): boolean {
+  return /object not found|no such object|key not found|\b404\b/i.test(message ?? "");
+}
+
 export function contentDisposition(kind: "inline" | "attachment", filename: string): string {
   const safe = sanitizeFilename(filename);
   const ascii = safe.replace(/[^\x20-\x7e]/g, "_").replace(/[\\;]/g, "_");
