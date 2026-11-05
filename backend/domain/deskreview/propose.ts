@@ -18,6 +18,7 @@
 
 import type { DeskReviewDef } from "./engine";
 import { inferSlot } from "./engine";
+import { suggestionIdentity } from "./suggestionValue";
 import type { PdfPageText } from "../extraction/pdfText";
 
 export interface EvidenceDocumentCandidate {
@@ -351,10 +352,11 @@ export function proposeFromDocuments(def: DeskReviewDef, documents: EvidenceDocu
 
     // Two documents giving different figures for one reading is itself the finding;
     // surface it in the note rather than choosing quietly.
-    const disagreeing = hits.filter((h) => h.found.value !== first.found.value);
+    // A word reading (the moisture basis) has no `value`, so compare the figure each hit actually carries.
+    const disagreeing = hits.filter((h) => suggestionIdentity(h.found) !== suggestionIdentity(first.found));
     const note = disagreeing.length
       ? `${first.found.note ?? ""} ${disagreeing.length} other document(s) in this slot print a different figure: ${disagreeing
-          .map((h) => `${h.doc.name} ${h.found.value}`)
+          .map((h) => `${h.doc.name} ${h.found.text ?? h.found.value}`)
           .join("; ")}. Resolve before accepting.`.trim()
       : first.found.note;
 

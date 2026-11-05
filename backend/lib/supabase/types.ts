@@ -1384,6 +1384,16 @@ export interface Database {
         };
         Returns: string;
       };
+      withdraw_fact: {
+        Args: {
+          p_organization_id: string;
+          p_engagement_id: string;
+          p_fact_id: string;
+          p_reason: string;
+          p_withdrawn_by: string;
+        };
+        Returns: string;
+      };
       is_org_member: {
         Args: { org_id: string };
         Returns: boolean;

@@ -26,6 +26,7 @@ import { SnipDialog, type SnipResult } from "./snip-dialog";
 import type { Region } from "@verifystack/backend/domain/deskreview/snip";
 import { MIN_CHANGE_REASON } from "@verifystack/backend/domain/deskreview/readingChange";
 import { fillTargets } from "@verifystack/backend/domain/deskreview/fillTargets";
+import { suggestionInput, suggestionShown } from "@verifystack/backend/domain/deskreview/suggestionValue";
 import { formatIst } from "@/lib/format";
 import type { ProformaReading } from "@verifystack/backend/domain/proforma/reader";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
@@ -82,7 +83,9 @@ const canSnip = (d: SlotDoc | undefined) => Boolean(d?.mimeType && (d.mimeType =
 export interface ProposedReadingItem {
   key: string;
   label: string;
-  value: number;
+  /** A quantity. Absent for a word reading such as a moisture basis, which carries `text`. */
+  value?: number;
+  text?: string;
   rawText?: string;
   unit: string;
   documentId: string;
@@ -662,34 +665,42 @@ export function DeskReviewStudio({
   }
 
   function applySuggestion(item: ProposedReadingItem) {
-    setValues((prev) => ({ ...prev, [item.key]: item.rawText ?? String(item.value) }));
+    const entry = suggestionInput(item);
+    if (entry === null) {
+      toast.error(`${item.label}: the document gave nothing to enter. Type it from the page.`);
+      return;
+    }
+    setValues((prev) => ({ ...prev, [item.key]: entry }));
     setDocOf((prev) => ({ ...prev, [item.key]: item.documentId }));
     if (item.page) {
       setPageOf((prev) => ({ ...prev, [item.key]: String(item.page) }));
     }
-    toast.success(`Applied ${item.label}: ${item.value} ${item.unit}`);
+    toast.success(`Applied ${item.label}: ${suggestionShown(item, item.unit)}`);
   }
 
   function applyAllSuggestions() {
-    if (suggestions.length === 0) return;
+    // A proposal with nothing to enter is left out, never written as a placeholder.
+    const usable = suggestions.filter((item) => suggestionInput(item) !== null);
+    if (usable.length === 0) return;
     setValues((prev) => {
       const next = { ...prev };
-      for (const item of suggestions) next[item.key] = item.rawText ?? String(item.value);
+      for (const item of usable) next[item.key] = suggestionInput(item)!;
       return next;
     });
     setDocOf((prev) => {
       const next = { ...prev };
-      for (const item of suggestions) next[item.key] = item.documentId;
+      for (const item of usable) next[item.key] = item.documentId;
       return next;
     });
     setPageOf((prev) => {
       const next = { ...prev };
-      for (const item of suggestions) {
+      for (const item of usable) {
         if (item.page) next[item.key] = String(item.page);
       }
       return next;
     });
-    toast.success(`Applied all ${suggestions.length} suggestions`);
+    const skipped = suggestions.length - usable.length;
+    toast.success(`Applied all ${usable.length} suggestions${skipped > 0 ? `; ${skipped} had nothing to enter` : ""}`);
   }
 
   async function saveReadings(andRun = false) {
@@ -938,7 +949,7 @@ export function DeskReviewStudio({
                       {suggestion ? (
                         <div className="mt-2 flex items-center justify-between gap-2 rounded border border-amber-200 bg-amber-50/70 px-2 py-1 text-xs text-amber-900">
                           <div className="min-w-0">
-                            <span className="font-semibold">Detected:</span> {suggestion.value} {suggestion.unit}
+                            <span className="font-semibold">Detected:</span> {suggestionShown(suggestion, suggestion.unit)}
                             <span className="block truncate text-[10px] text-amber-800">
                               via {suggestion.documentName} (p. {suggestion.page ?? 1})
                             </span>

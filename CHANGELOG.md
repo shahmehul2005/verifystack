@@ -16,6 +16,27 @@ must say which version it bumps. Current versions:
 
 ## [Unreleased]
 
+### Facts ledger: withdrawing a fact works, in one step, and its history cannot be changed
+
+- **Withdraw failed every time** with "facts is append-only: DELETE is not allowed". The route copied the fact to
+  `fact_withdrawals` and then deleted it from `facts`, which the append-only guard refuses; it also had to undo its own
+  copy by hand when the delete failed. A withdrawal now goes through one database function, `withdraw_fact`
+  (migration `0024`, apply after `0022`): in a single transaction it checks the engagement and the fact belong to the
+  organization (under a lock, so sign-off cannot start halfway), copies the fact in full to `fact_withdrawals`, removes
+  it from `facts`, marks its extracted value rejected and writes the audit entry. Any failure changes nothing.
+- The function runs for the service role only. It lifts the append-only guard for its one DELETE and turns it off again
+  straight after, inside the transaction. `fact_withdrawals` is now append-only too, so the history cannot be edited or
+  removed. Refused once sign-off has started, as before.
+- No calculation, pack or factor changes. Runs already made keep the figures they used; run again after withdrawing.
+
+### Desk review: applying a suggested word reading no longer writes "undefined"
+
+- A suggestion that is a word (the moisture basis read from a laboratory certificate) has no number, and Apply and
+  Apply All read the number alone, so the box received the text "undefined". They now put in the word, and a suggestion
+  with nothing usable is skipped with a message instead of being written. The banner shows the word, not "undefined".
+- Two certificates printing different bases were never flagged, because the check compared the missing number. Word
+  readings are now compared as words, ignoring case and spacing.
+
 ### Documents: a document whose file is missing from storage is a clear message, and can be repaired
 
 - A document row can outlive its file (an upload that failed after the row was written, or a file removed from the bucket
