@@ -16,6 +16,43 @@ must say which version it bumps. Current versions:
 
 ## [Unreleased]
 
+### Registry: a deterministic normaliser for units, calorific basis and reporting period
+
+- New `backend/domain/registry/normalize.ts`. Code only; no model is asked. It puts a reading on its registry entry's
+  standard unit, reads the basis words printed beside a calorific value, and places a printed reporting period on the
+  calendar. It stores nothing and changes no calculation, pack or factor.
+- **Units** reuse the existing dimension-checked conversion. It refuses, with a reason, a missing unit, an unknown unit,
+  a unit of another dimension, a convertible unit the entry does not accept, and **kVAh** (apparent energy, which is not
+  kWh). It reads lakh and crore. The original value and unit are kept beside the result.
+- **Calorific basis** separates the moisture basis (as received, air dried, dry) from gross or net. A net value is
+  refused for a gross entry, a line that states two bases is refused, and a value with no stated basis is returned in
+  kcal/kg with the basis open: it is never assumed to be as received. The moisture arithmetic is the existing converter's.
+- **Reporting period** understands start and end fields, a single date, a text range, a month, a financial year and a
+  quarter of the Indian financial year with its year. Slashed dates are read day-first and say so when the day could be a
+  month; a month-first date is refused, not flipped. A quarter with no financial year, an impossible date, a period that
+  ends before it starts and anything unreadable are marked **unknown** with a reason. An unknown period is a state, not a
+  default.
+- What it noticed: extraction's calorific-basis softening turns "ARB", "ADB" and "gross" all into "GCV", so a stored
+  lab-certificate basis no longer says whether the coal was wet or dried. The printed words are still in the field's
+  source text, which is what this reads. Not changed here.
+
+### Registry: the cement quantities that two places define, written once, and a test that catches drift
+
+- New `backend/domain/registry/` holds a cement registry for three quantities that appear both in the calculation and
+  in desk review: clinker production, coal GCV and grid electricity import. Each entry lists every name the quantity
+  goes by (pack binding, pro forma cell, desk-review reading, extraction field) with the span, unit and basis each name
+  carries, and the near names that are different quantities. Definitions only: it stores no values, adds no table and
+  changes no calculation, pack or factor. Everything is marked provisional and no numeric range is set.
+- A conformance test checks the registry against the real pack, desk-review definition and extraction schemas: every
+  cited name exists, units agree with the source, a pack pro forma input and its desk-review cell read the same row,
+  what an extracted field becomes is recomputed against the pack's binding match, and a new name for one of these
+  quantities fails the test until it is registered or excluded with a reason.
+- What it found: the pack has no clinker input (its `production` is equivalent product), so a clinker log and an
+  equivalent-product log land on the same extraction name; a fuel invoice read with a fuel kind of coal is stored as
+  `coal.calorificValue`, which the cement kiln-coal binding does not read; and the pack's default units (MJ/kg, MWh)
+  differ from the pro forma's (kcal/kg, kWh). None is changed here. Open definitional questions are in the
+  regulatory register.
+
 ### Facts ledger: withdrawing a fact works, in one step, and its history cannot be changed
 
 - **Withdraw failed every time** with "facts is append-only: DELETE is not allowed". The route copied the fact to
