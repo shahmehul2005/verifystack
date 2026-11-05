@@ -95,6 +95,8 @@ const RESPONSE_BY_CHECK: Record<string, string> = {
   production_days: "Explain each zero-output day that is not marked as down, and each down day that shows output, with the kiln log for those days.",
   coal_stock_balance: STOCK_RESPONSE,
   coal_weighfeeder: STOCK_RESPONSE,
+  evidence_nabl_gcv:
+    "Check the NABL certificate page: either the typed reading or the Workbench fact is wrong. Correct the typed reading, or withdraw the fact with a reason and approve the right value.",
   gcv_samples: "Provide the lab sampling records for the period, or explain the shortfall against the sampling frequency.",
   gcv_ncv_used: "Show that the net calorific value is used where the procedure requires it, or correct the workbook.",
   gcv_nabl_corroboration:

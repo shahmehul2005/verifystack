@@ -378,6 +378,14 @@ export interface Database {
           correction_json: Json | null;
           reviewed_by: string | null;
           reviewed_at: string | null;
+          /** Registry key this value is a reading of. Null when not mapped (migration 0025). */
+          canonical_key: string | null;
+          period_start: string | null;
+          period_end: string | null;
+          /** known, unknown, or null when no period was assessed. */
+          period_status: "known" | "unknown" | null;
+          period_note: string | null;
+          registry_version: string | null;
           created_at: string;
         }>;
         Insert: Insert<{
@@ -403,6 +411,12 @@ export interface Database {
           correction_json?: Json | null;
           reviewed_by?: string | null;
           reviewed_at?: string | null;
+          canonical_key?: string | null;
+          period_start?: string | null;
+          period_end?: string | null;
+          period_status?: "known" | "unknown" | null;
+          period_note?: string | null;
+          registry_version?: string | null;
           created_at?: string;
         }>;
         Update: Update<{
@@ -896,6 +910,14 @@ export interface Database {
           accept_mode: "individual" | "bulk";
           bulk_batch_id: string | null;
           accepted_by: string | null;
+          /** Registry key this value is a reading of. Null when not mapped (migration 0025). */
+          canonical_key: string | null;
+          period_start: string | null;
+          period_end: string | null;
+          /** known, unknown, or null when no period was assessed. */
+          period_status: "known" | "unknown" | null;
+          period_note: string | null;
+          registry_version: string | null;
           accepted_at: string;
         }>;
         Insert: Insert<{
@@ -915,6 +937,12 @@ export interface Database {
           accept_mode?: "individual" | "bulk";
           bulk_batch_id?: string | null;
           accepted_by?: string | null;
+          canonical_key?: string | null;
+          period_start?: string | null;
+          period_end?: string | null;
+          period_status?: "known" | "unknown" | null;
+          period_note?: string | null;
+          registry_version?: string | null;
           accepted_at?: string;
         }>;
         Update: Update<{
@@ -944,6 +972,14 @@ export interface Database {
           accepted_at: string | null;
           reason: string;
           withdrawn_by: string | null;
+          /** Registry key this value is a reading of. Null when not mapped (migration 0025). */
+          canonical_key: string | null;
+          period_start: string | null;
+          period_end: string | null;
+          /** known, unknown, or null when no period was assessed. */
+          period_status: "known" | "unknown" | null;
+          period_note: string | null;
+          registry_version: string | null;
           withdrawn_at: string;
         }>;
         Insert: Insert<{
@@ -966,6 +1002,12 @@ export interface Database {
           accepted_at?: string | null;
           reason: string;
           withdrawn_by?: string | null;
+          canonical_key?: string | null;
+          period_start?: string | null;
+          period_end?: string | null;
+          period_status?: "known" | "unknown" | null;
+          period_note?: string | null;
+          registry_version?: string | null;
           withdrawn_at?: string;
         }>;
         Update: Update<Record<string, never>>;

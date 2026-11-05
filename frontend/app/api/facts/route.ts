@@ -7,6 +7,7 @@ import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { getEngagement, ensureEngagementStatus } from "@verifystack/backend/lib/data/engagements";
 import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
 import { assertAccepterIndependent } from "@verifystack/backend/domain/fieldwork/observation";
+import { carriedRegistryColumns } from "@verifystack/backend/domain/registry/annotate";
 import type { Json } from "@verifystack/backend/lib/supabase/types";
 
 const Body = z.object({
@@ -85,6 +86,8 @@ export async function POST(req: Request) {
         provenance: field.provenance,
         accepted_by: session.user.id,
         accept_mode: "individual",
+        // The registry key and period the extraction found, carried as they are. Never worked out here.
+        ...carriedRegistryColumns(field),
       });
       if (insErr) throw new Error(insErr.message);
     }

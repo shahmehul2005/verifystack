@@ -102,6 +102,7 @@ const coalGcv: RegistryEntry = {
       period: "document_period",
       basis: { kind: "stated_by", name: "lab_certificate.calorificBasis" },
       packBinds: "always",
+      appliesToPaths: ["calorificValue"],
     },
     {
       surface: "extraction_field",
@@ -110,6 +111,7 @@ const coalGcv: RegistryEntry = {
       period: "document_period",
       basis: { kind: "stated_by", name: "fuel_invoice.calorificBasis" },
       packBinds: "only_without_fuel_kind",
+      appliesToPaths: ["calorificValue", "coal.calorificValue"],
       note: "For any fuel. With a fuelKind of coal the fact is stored as coal.calorificValue, which the cement kiln-coal binding does not read.",
     },
   ],
@@ -165,6 +167,7 @@ const gridElectricityImport: RegistryEntry = {
       period: "document_period",
       basis: { kind: "none" },
       packBinds: "always",
+      appliesToPaths: ["electricity.activeEnergy", "activeEnergy"],
       note: "Unit as printed. A bill may print kVAh, which is not active energy and is not in the pack's allowed units.",
     },
   ],

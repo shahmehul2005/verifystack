@@ -8,6 +8,7 @@ import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { getEngagement, ensureEngagementStatus } from "@verifystack/backend/lib/data/engagements";
 import { loadEngagementTriage } from "@verifystack/backend/lib/data/triage";
 import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
+import { carriedRegistryColumns } from "@verifystack/backend/domain/registry/annotate";
 
 const Body = z.object({
   engagementId: z.string().uuid(),
@@ -99,6 +100,7 @@ export async function POST(req: Request) {
         accepted_by: session.user.id,
         accept_mode: "bulk" as const,
         bulk_batch_id: batchId,
+        ...carriedRegistryColumns(f),
       }));
     if (rows.length > 0) {
       const { error: factErr } = await db.from("facts").insert(rows);

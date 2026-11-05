@@ -21,6 +21,8 @@ import {
 } from "@verifystack/backend/domain/deskreview";
 import { deskEvidenceRefs, deskFindings } from "@verifystack/backend/domain/deskreview/toFindings";
 import { parseRegion } from "@verifystack/backend/domain/deskreview/snip";
+import { loadEvidenceComparison, readingsForComparison } from "@verifystack/backend/lib/data/evidenceComparison";
+import { nablGcvReadings } from "@verifystack/backend/domain/registry/compare";
 import type { Json } from "@verifystack/backend/lib/supabase/types";
 
 export const runtime = "nodejs";
@@ -111,6 +113,19 @@ export async function POST(req: Request) {
         ...(spec ? { label: spec.label } : {}),
       };
     }
+    // Approved Workbench facts set beside what was typed, by registry key. Read only and advisory: it
+    // reaches the one check that uses it as `xcmp.*` readings of this run, and is never written into the
+    // verifier's readings or into the facts. A failed read leaves that check "not run", never fails this.
+    const comparison = await loadEvidenceComparison({
+      organizationId,
+      engagementId,
+      packId: engagement.pack_id,
+      readings: readingsForComparison(
+        readings,
+        (manual ?? []).map((m) => ({ key: m.key, value: Number(m.value), document_id: m.document_id }))
+      ),
+    });
+    if (comparison) Object.assign(all, nablGcvReadings(comparison));
     const results = runDeskReview(def, all, allOrigins);
 
     const { data: saved, error } = await supabase

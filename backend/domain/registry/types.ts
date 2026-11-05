@@ -65,6 +65,12 @@ export interface RegistryMember {
    * by the extraction path rewrite and the binding match, not by hand. The test recomputes it.
    */
   packBinds?: "always" | "only_without_fuel_kind";
+  /**
+   * For an extraction field: the stored fact paths this member's key applies to, after the extraction
+   * path rewrite. A fuel invoice's calorific value is coal's only when stored unqualified or as coal;
+   * under petcoke it is a different quantity. Absent means the leaf is the quantity wherever it lands.
+   */
+  appliesToPaths?: readonly string[];
   note?: string;
 }
 

@@ -1165,6 +1165,47 @@ const RULES: DeskRule[] = [
         "Terminal-digit uniformity for a typed quantity, and Benford's first digit where the values span one to three orders of magnitude. A p-value below 0.01 is reported as a strong deviation. Product screens, not a scheme requirement.",
     };
   }),
+
+  // ---- Evidence comparison (registry) ------------------------------------------------
+  // Two independent readings of one printed figure: the verifier's typed NABL figure, and the figure
+  // Workbench extraction read from the same certificate that a person approved. The route passes the
+  // fact as `xcmp.*` readings of this run; they are never written into the verifier's readings or into
+  // the facts. It has no `needs`: without an approved fact the check is not applicable, not pending,
+  // because nobody is expected to enter a Workbench fact for desk review's sake.
+  {
+    id: "evidence_nabl_gcv",
+    section: "Evidence comparison",
+    label: "NABL GCV: typed reading against the Workbench fact from the same certificate",
+    needs: [],
+    evaluate: (r): CheckResult => {
+      const id = "evidence_nabl_gcv";
+      const label = "NABL GCV: typed reading against the Workbench fact from the same certificate";
+      const na = (detail: string): CheckResult => ({ id, label, status: "not_applicable", detail });
+      const state = r["xcmp.coal_gcv.state"];
+      if (state === undefined) return na("Not checked: the comparison with Workbench facts was not run for this review.");
+      if (state !== "compared") return na(`Not compared: ${String(r["xcmp.coal_gcv.why"] ?? state)}`);
+      const fact = num(r, "xcmp.coal_gcv.fact");
+      const reading = num(r, "xcmp.coal_gcv.reading");
+      if (!Number.isFinite(fact) || !Number.isFinite(reading)) return na("Not decided: a figure in this comparison is not a number.");
+      const doc = String(r["xcmp.coal_gcv.document"] || "the certificate");
+      const diff = round6(fact - reading);
+      const band = T * Math.abs(reading);
+      const pass = Math.abs(diff) <= band + 1e-9;
+      return {
+        id,
+        label,
+        status: pass ? "pass" : "fail",
+        detail:
+          `Typed from ${doc}: ${plain(reading)} kcal/kg. Workbench extraction read ${plain(fact)} kcal/kg from the same document, and a person approved it. ` +
+          `Difference ${plain(diff)} kcal/kg against an allowed ${plain(round6(band))}. ` +
+          (pass ? "The two readings of this page agree." : "One of the two readings of the same page is wrong. Check the page, then correct the typed reading or withdraw the fact and approve the right value."),
+        actual: fact,
+        expected: reading,
+        diff,
+        thresholdSource: `${T_SRC}. Two independent readings of one printed figure; neither is the entity's declaration.`,
+      };
+    },
+  },
 ];
 
 const m = (key: string, label: string, unit: string, slot: string, hint?: string) => ({ key, label, unit, slot, ...(hint ? { hint } : {}) });

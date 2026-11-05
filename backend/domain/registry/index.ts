@@ -1,7 +1,14 @@
 import type { Registry, RegistryEntry, RegistryMember, Surface } from "./types";
 
 export type { Registry, RegistryEntry, RegistryMember, RegistryExclusion, Surface, Period, Basis, Dimension } from "./types";
-export { CEMENT_REGISTRY } from "./cement";
+import { CEMENT_REGISTRY } from "./cement";
+
+export { CEMENT_REGISTRY };
+
+/** The registry that applies to a methodology pack, or null. Only the cement pack has one. */
+export function registryForPack(packId: string): Registry | null {
+  return packId === CEMENT_REGISTRY.packId ? CEMENT_REGISTRY : null;
+}
 
 /** The entry a name belongs to, or null. A name is a member of at most one entry. */
 export function entryFor(registry: Registry, surface: Surface, name: string): RegistryEntry | null {

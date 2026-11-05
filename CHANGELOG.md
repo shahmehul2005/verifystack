@@ -16,6 +16,43 @@ must say which version it bumps. Current versions:
 
 ## [Unreleased]
 
+### Desk review: the same quantity from every source, side by side, and one check from it
+
+- A new read-only card on the desk-review page, "Evidence side by side", shows each registry quantity (clinker
+  production, coal GCV, grid electricity) from every source that states it: the pro forma, the workbook readers, the
+  verifier's typed readings and the facts a person approved from an extraction, each put on one unit with the span it
+  covers and the document it came from. Nothing on it writes, and no figure is ever copied from one source into another.
+- Two figures are compared only when they cover the same thing: a typed reading and a fact read from the **same
+  document**. A bill for one month against an annual cell, a lab's sample mean against one certificate, and a figure from
+  another or an unlinked document are shown together and marked "not compared", with the reason. A false disagreement is
+  worse than a gap.
+- One new check, `evidence_nabl_gcv`: the NABL figure the verifier typed against the figure Workbench extraction read
+  from the same certificate and a person approved. They are two independent readings of one printed figure, so a
+  transposed digit shows up. It uses desk review's existing 0.5% band, warns (never holds sign-off), and its finding tells
+  the verifier to correct the typed reading or withdraw the fact and approve the right value. With no approved fact it is
+  "not applicable", not "waiting for readings". The fact reaches the check as `xcmp.*` readings of that run, kept in the
+  run's saved snapshot; it is never written into the verifier's readings or into the facts.
+- A failed read of the facts leaves the card empty and the check "not run". It never stops a review.
+
+### Registry: extracted values and facts carry a canonical key and a reporting period
+
+- Migration `0025` (apply after `0022`, and `0024` if you want withdrawal) adds six nullable columns to
+  `extracted_fields`, `facts` and `fact_withdrawals`: `canonical_key`, `period_start`, `period_end`, `period_status`
+  (`known`, `unknown` or null), `period_note` and `registry_version`. Additive only: no row is updated or backfilled, the
+  facts ledger stays append-only, and every fact accepted before this reads as "not mapped", never as a guessed key or
+  period. A check keeps a period consistent (known has both dates in order, unknown has none) and a key always carries a
+  registry version. `withdraw_fact` is replaced so a withdrawal keeps the new columns.
+- When a cement document is extracted, code (not the model) sets the key and period: the key from the registry's
+  extraction mapping and the stored path (a fuel invoice's calorific value is keyed as coal GCV only when stored
+  unqualified or under coal, never under petcoke), the period from the document's own fields (a bill's billing period, an
+  invoice's delivery period, a certificate's sample day), looked for across all pages. A period that cannot be placed is
+  stored as `unknown` with the reason. A production log is deliberately not keyed: its one leaf could be clinker or
+  equivalent product. Other packs are unchanged.
+- Accepting a value (one at a time or in bulk) copies its key and period onto the fact as they are. A fact written by a
+  snip, the pro forma import or a site observation is not keyed yet. If migration `0025` is not applied, extraction and
+  accepting work exactly as before.
+- No calculation reads these columns, and a test fails if one starts to.
+
 ### Registry: a deterministic normaliser for units, calorific basis and reporting period
 
 - New `backend/domain/registry/normalize.ts`. Code only; no model is asked. It puts a reading on its registry entry's

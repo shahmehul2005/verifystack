@@ -22,6 +22,8 @@ import { provenanceGate } from "./provenance";
 import { GeminiExtractionProvider } from "./gemini";
 import { isGeminiConfigured } from "@verifystack/backend/lib/supabase/configured";
 import { qualifyExtractedFieldPaths } from "./fieldPaths";
+import { registryForPack } from "../registry";
+import { annotateDocument, isMissingRegistryColumn, registryColumns } from "../registry/annotate";
 import { chooseRoute } from "./digital";
 import {
   PageSplitError,
@@ -34,6 +36,7 @@ import type { Json } from "@verifystack/backend/lib/supabase/types";
 import type { AiActionLog, DocumentPage, ExtractionResult } from "./provider";
 
 const EXTRACT_CONCURRENCY = 3;
+
 
 export interface RunDocumentExtractionInput {
   organizationId: string;
@@ -290,6 +293,24 @@ export async function runDocumentExtraction(
     let dropped = 0;
     let saved = 0;
     let extractFailures = 0;
+
+    // The registry key and the reporting period of each field, worked out in code from the whole
+    // document (a bill's period may sit on another page than its quantity). Only the cement pack has a
+    // registry; any other pack stores exactly what it did before.
+    const registry = registryForPack(input.packId);
+    const annotations = annotateDocument(
+      registry,
+      docType,
+      pageResults.flatMap(({ extracted }) =>
+        extracted.ok && extracted.data
+          ? qualifyExtractedFieldPaths(flattenProvenanced(extracted.data)).map((f) => ({ fieldPath: f.fieldPath, value: f.value }))
+          : []
+      )
+    );
+    // A database that has not had migration 0025 applied has no registry columns. Fall back to the old
+    // insert once, rather than fail an extraction over an annotation.
+    let registryColumnsAvailable = true;
+
     for (const { split, extracted } of pageResults) {
       if (!extracted.ok || !extracted.data) {
         extractFailures += 1;
@@ -323,7 +344,7 @@ export async function runDocumentExtraction(
         const highMat = CONFIDENCE_POLICY.alwaysReview.has(leaf);
         const action =
           highMat || decision?.action === "human_review" ? "human_review" : "auto_commit";
-        const { error: insErr } = await admin.from("extracted_fields").insert({
+        const row = {
           organization_id: input.organizationId,
           extraction_job_id: job.id,
           document_id: input.documentId,
@@ -335,9 +356,15 @@ export async function runDocumentExtraction(
           page: split.pageNumber,
           bbox: gate.bbox,
           source_text: gate.sourceText,
-          triage_action: action,
-          state: "suggested",
-        });
+          triage_action: action as "human_review" | "auto_commit",
+          state: "suggested" as const,
+        };
+        const annotation = registryColumnsAvailable ? annotations.get(field.fieldPath) : undefined;
+        let { error: insErr } = await admin.from("extracted_fields").insert(annotation ? { ...row, ...registryColumns(annotation) } : row);
+        if (insErr && annotation && isMissingRegistryColumn(insErr)) {
+          registryColumnsAvailable = false;
+          ({ error: insErr } = await admin.from("extracted_fields").insert(row));
+        }
         if (insErr) throw new Error(insErr.message);
         saved += 1;
       }

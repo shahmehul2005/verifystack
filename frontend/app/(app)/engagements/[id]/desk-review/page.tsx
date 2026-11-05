@@ -30,7 +30,10 @@ import { parseXlsx } from "@verifystack/backend/domain/intake/xlsx";
 import { readProforma, type ProformaReading } from "@verifystack/backend/domain/proforma/reader";
 import { loadPack } from "@verifystack/backend/domain/packs";
 import { XLSX_MIME } from "@verifystack/backend/lib/evidence";
+import { loadEvidenceComparison, readingsForComparison } from "@verifystack/backend/lib/data/evidenceComparison";
+import { nablGcvReadings } from "@verifystack/backend/domain/registry/compare";
 import { DeskReviewStudio, type TriageFinding, type TriageResolution } from "./desk-review-client";
+import { EvidenceComparison } from "./evidence-comparison";
 
 export const metadata = { title: "Desk review" };
 
@@ -147,12 +150,24 @@ export default async function DeskReviewPage({ params }: { params: Promise<{ id:
     }
   }
 
+  // The same quantities from every source that states them, side by side. Read only; advisory.
+  const comparison = await loadEvidenceComparison({
+    organizationId: session.organizationId,
+    engagementId: id,
+    packId: engagement.pack_id,
+    readings: readingsForComparison(
+      workbookReadings,
+      (readings ?? []).map((r) => ({ key: r.key, value: Number(r.value), document_id: r.document_id }))
+    ),
+  });
+
   // If no desk review run has been recorded in the database yet, run live evaluation so the auditor sees all checks!
   if (results.length === 0) {
     const allReadings: Readings = { ...workbookReadings };
     for (const r of readings ?? []) {
       allReadings[r.key] = Number(r.value);
     }
+    if (comparison) Object.assign(allReadings, nablGcvReadings(comparison));
     results = runDeskReview(def, allReadings);
   }
 
@@ -241,6 +256,8 @@ export default async function DeskReviewPage({ params }: { params: Promise<{ id:
       </Card>
         </>
       ) : null}
+
+      <EvidenceComparison comparison={comparison} />
 
       <DeskReviewStudio
         engagementId={id}
