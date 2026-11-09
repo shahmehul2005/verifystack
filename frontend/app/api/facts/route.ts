@@ -7,6 +7,7 @@ import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { getEngagement, ensureEngagementStatus } from "@verifystack/backend/lib/data/engagements";
 import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
 import { assertAccepterIndependent } from "@verifystack/backend/domain/fieldwork/observation";
+import { acceptCanonicalEvidenceValue } from "@verifystack/backend/domain/evidence/operations";
 import { carriedRegistryColumns } from "@verifystack/backend/domain/registry/annotate";
 import type { Json } from "@verifystack/backend/lib/supabase/types";
 
@@ -90,6 +91,30 @@ export async function POST(req: Request) {
         ...carriedRegistryColumns(field),
       });
       if (insErr) throw new Error(insErr.message);
+
+      // Also accept the CEV linked to this extracted field (if one exists).
+      // Wrapped in try/catch ? do NOT fail the fact acceptance if CEV accept fails.
+      try {
+        const { data: linkedCev } = await supabase
+          .from("canonical_evidence_values")
+          .select("id")
+          .eq("extracted_field_id", field.id)
+          .eq("engagement_id", field.engagement_id)
+          .eq("organization_id", organizationId)
+          .in("state", ["suggested", "pending_review"])
+          .maybeSingle();
+        if (linkedCev?.id) {
+          await acceptCanonicalEvidenceValue({
+            id: linkedCev.id,
+            engagement_id: field.engagement_id,
+            organization_id: organizationId,
+            reviewed_by: session.user.id,
+          });
+        }
+      } catch (cevErr) {
+        // CEV accept failure must not abort fact acceptance
+        console.error("CEV accept failed for extracted_field", field.id, cevErr);
+      }
     }
 
     await auditEvent({

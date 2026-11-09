@@ -9,6 +9,8 @@ import { deskReviewFor } from "@verifystack/backend/domain/deskreview";
 import { parseRegion, type Region } from "@verifystack/backend/domain/deskreview/snip";
 import { classifyChange, reasonProblem, type ChangeKind, type ReadingState } from "@verifystack/backend/domain/deskreview/readingChange";
 import type { Json } from "@verifystack/backend/lib/supabase/types";
+import { registryForPack, entryFor } from "@verifystack/backend/domain/registry";
+import { createCevFromProposal } from "@verifystack/backend/domain/evidence/operations";
 
 export const runtime = "nodejs";
 
@@ -224,6 +226,63 @@ export async function PUT(req: Request) {
       if (error) {
         if (!isMissingTable(error)) throw new Error(error.message);
         historyRecorded = false;
+      }
+    }
+
+    // Create CEV proposals for each entered/edited reading that has a registry mapping.
+    // These start in state 'suggested' and must be auditor-accepted before they feed desk-review checks.
+    // We do NOT block readings save on CEV failure.
+    if (upserts.length > 0) {
+      const registry = registryForPack(engagement.pack_id);
+      if (registry) {
+        for (const { r } of upserts) {
+          if (r.value === null || !r.documentId || !r.page) continue;
+          // Strip the daily date suffix to find the base key name
+          const baseKey = r.key.includes("@") ? r.key.split("@")[0]! : r.key;
+          const entry = entryFor(registry, "desk_manual", baseKey);
+          if (!entry) continue;
+          try {
+            // Reject any existing suggested CEV for this (engagement, canonicalKey) so we don't pile up stale suggestions.
+            const { data: stale } = await supabase
+              .from("canonical_evidence_values")
+              .select("id")
+              .eq("engagement_id", body.engagementId)
+              .eq("organization_id", organizationId)
+              .eq("canonical_key", entry.key)
+              .eq("state", "suggested")
+              .eq("extraction_method", "regex_propose");
+            if (stale && stale.length > 0) {
+              await supabase
+                .from("canonical_evidence_values")
+                .update({
+                  state: "rejected",
+                  reviewed_by: session.user.id,
+                  reviewed_at: now,
+                  correction_note: "Superseded by an updated desk reading",
+                })
+                .in("id", stale.map((s) => s.id))
+                .eq("engagement_id", body.engagementId)
+                .eq("organization_id", organizationId);
+            }
+            await createCevFromProposal({
+              organization_id: organizationId,
+              engagement_id: body.engagementId,
+              canonical_key: entry.key,
+              registry_version: registry.version,
+              document_id: r.documentId,
+              period_kind: "document_period",
+              value_numeric: typeof r.value === "number" ? r.value : undefined,
+              value_unit: r.unit,
+              value_as_stated: r.value !== null ? String(r.value) : undefined,
+              provenance_page: r.page,
+              provenance_bbox: r.bbox ?? undefined,
+              provenance_source_text: r.sourceText ?? undefined,
+            });
+          } catch (cevErr) {
+            // CEV proposal failure must not abort reading save.
+            console.error("CEV proposal failed for reading", r.key, cevErr);
+          }
+        }
       }
     }
 

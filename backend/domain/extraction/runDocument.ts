@@ -34,6 +34,26 @@ import {
 } from "./pages";
 import type { Json } from "@verifystack/backend/lib/supabase/types";
 import type { AiActionLog, DocumentPage, ExtractionResult } from "./provider";
+import { createCevFromExtraction } from "../evidence";
+import type { CevPeriodKind } from "../evidence/types";
+
+/** Derive the CEV period kind from the annotation's period span. */
+function cevPeriodKind(
+  periodStart: string | null,
+  periodEnd: string | null,
+  periodStatus: "known" | "unknown" | null
+): CevPeriodKind {
+  if (!periodStart || !periodEnd || periodStatus !== "known") return "document_period";
+  const start = new Date(periodStart);
+  const end = new Date(periodEnd);
+  const days = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
+  if (days <= 1) return "single_reading";
+  if (days <= 2) return "daily";
+  if (days <= 35) return "monthly";
+  if (days <= 100) return "quarterly";
+  return "annual";
+}
+
 
 const EXTRACT_CONCURRENCY = 3;
 
@@ -360,13 +380,70 @@ export async function runDocumentExtraction(
           state: "suggested" as const,
         };
         const annotation = registryColumnsAvailable ? annotations.get(field.fieldPath) : undefined;
-        let { error: insErr } = await admin.from("extracted_fields").insert(annotation ? { ...row, ...registryColumns(annotation) } : row);
+        let insertedFieldId: string | undefined;
+        let { data: insertedRow, error: insErr } = await admin.from("extracted_fields").insert(annotation ? { ...row, ...registryColumns(annotation) } : row).select("id").single();
+        if (!insErr && insertedRow) insertedFieldId = insertedRow.id;
         if (insErr && annotation && isMissingRegistryColumn(insErr)) {
           registryColumnsAvailable = false;
-          ({ error: insErr } = await admin.from("extracted_fields").insert(row));
+          ({ data: insertedRow, error: insErr } = await admin.from("extracted_fields").insert(row).select("id").single());
+          if (!insErr && insertedRow) insertedFieldId = insertedRow.id;
         }
         if (insErr) throw new Error(insErr.message);
         saved += 1;
+
+        // Wire CEV: if this field mapped to a registry entry, create a suggested CEV.
+        // We do NOT block extraction on CEV failure — wrap in try/catch.
+        if (annotation?.canonicalKey && insertedFieldId) {
+          try {
+            const pk = cevPeriodKind(annotation.periodStart, annotation.periodEnd, annotation.periodStatus);
+            const rawNum =
+              typeof field.value === "number"
+                ? field.value
+                : typeof field.value === "string"
+                  ? Number(field.value)
+                  : null;
+            const valueNumeric = rawNum !== null && isFinite(rawNum) ? rawNum : undefined;
+            await createCevFromExtraction({
+              organization_id: input.organizationId,
+              engagement_id: input.engagementId,
+              canonical_key: annotation.canonicalKey,
+              registry_version: annotation.registryVersion ?? "unknown",
+              document_id: input.documentId,
+              extracted_field_id: insertedFieldId,
+              period_kind: pk,
+              period_start: annotation.periodStart ?? undefined,
+              period_end: annotation.periodEnd ?? undefined,
+              value_numeric: valueNumeric,
+              value_unit: field.unit ?? undefined,
+              value_as_stated:
+                typeof field.value === "string"
+                  ? field.value
+                  : field.value !== null && field.value !== undefined
+                    ? String(field.value)
+                    : undefined,
+              confidence: field.confidence,
+              provenance_page: split.pageNumber,
+              provenance_bbox: gate.bbox ?? undefined,
+              provenance_source_text: gate.sourceText ?? "",
+              document_file_hash: doc.sha256,
+              extraction_params: JSON.stringify({ packId: input.packId, docType }),
+              prompt_version: "gemini-1.0",
+            });
+          } catch (cevErr) {
+            // CEV failure must not abort extraction — log and continue.
+            await admin.rpc("append_audit_event", {
+              p_organization_id: input.organizationId,
+              p_action: "cev.create_failed",
+              p_entity_type: "extracted_field",
+              p_entity_id: input.documentId,
+              p_payload: {
+                fieldPath: field.fieldPath,
+                canonicalKey: annotation.canonicalKey,
+                error: String(cevErr),
+              },
+            });
+          }
+        }
       }
     }
 
