@@ -44,6 +44,8 @@ export interface IngestInput {
   allow: readonly UploadKind[];
   /** Audit action prefix and actor label for entity uploads, which have no session. */
   actorLabel?: string;
+  slot?: string | null;
+  docType?: string | null;
 }
 
 export interface IngestResult {
@@ -154,6 +156,15 @@ export async function ingestEvidenceFile(input: IngestInput): Promise<IngestResu
     .eq("sha256", sha256)
     .maybeSingle();
   if (existing) {
+    if (input.slot || input.docType) {
+      const updates: { slot?: string; doc_type?: string } = {};
+      if (input.slot && existing.slot !== input.slot) updates.slot = input.slot;
+      if (input.docType && existing.doc_type !== input.docType) updates.doc_type = input.docType;
+      if (Object.keys(updates).length > 0) {
+        await admin.from("documents").update(updates).eq("id", existing.id);
+        Object.assign(existing, updates);
+      }
+    }
     // The row can outlive its file (an upload that failed after the row was written). The file is
     // named by its own hash, so putting these same bytes back is safe, and it is the only way a
     // person can repair a document whose file is missing: a plain re-upload would otherwise find
@@ -207,6 +218,8 @@ export async function ingestEvidenceFile(input: IngestInput): Promise<IngestResu
       source: input.source,
       finding_id: input.findingId ?? null,
       scan_assessment: scan as unknown as Json | null,
+      slot: input.slot ?? null,
+      doc_type: input.docType ?? null,
       ...(input.engagement.scheme === "ADEETIE" && input.engagement.adeetie_phase
         ? { adeetie_phase: input.engagement.adeetie_phase }
         : {}),

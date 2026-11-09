@@ -16,6 +16,29 @@ import {
 import type { Json } from "@verifystack/backend/lib/supabase/types";
 
 export const runtime = "nodejs";
+export const maxDuration = 120;
+
+/** Bounded parallel worker pool to avoid Cloudflare/gateway timeouts on large archives. */
+async function mapConcurrent<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIdx = 0;
+  async function worker() {
+    while (nextIdx < items.length) {
+      const idx = nextIdx++;
+      results[idx] = await fn(items[idx]!, idx);
+    }
+  }
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    () => worker()
+  );
+  await Promise.all(workers);
+  return results;
+}
 
 /**
  * Import an evidence package (DFD 2.6). A manifest is optional: a plain folder of
@@ -70,12 +93,32 @@ export async function POST(req: Request) {
       throw e;
     }
 
-    const imported: { name: string; documentId: string; deduped: boolean; kind: string; integrity: string }[] = [];
-    const skipped: { name: string; reason: string }[] = pack.skipped.map((s) => ({ name: s.path, reason: s.reason }));
     // A manifest-backed pack keeps its source label; a plain folder is ordinary upload.
     const source = pack.manifest ? "evidence_pack" : "upload";
-    for (const file of pack.files) {
+    const CONCURRENCY = 6;
+
+    type IngestOutcome =
+      | {
+          ok: true;
+          item: {
+            name: string;
+            documentId: string;
+            deduped: boolean;
+            kind: string;
+            integrity: string;
+          };
+        }
+      | {
+          ok: false;
+          skipped: {
+            name: string;
+            reason: string;
+          };
+        };
+
+    const outcomes = await mapConcurrent(pack.files, CONCURRENCY, async (file): Promise<IngestOutcome> => {
       try {
+        const effectiveSlot = inferSlot({ name: file.name, docType: file.docType });
         const r = await ingestEvidenceFile({
           organizationId,
           engagement,
@@ -84,30 +127,38 @@ export async function POST(req: Request) {
           bytes: file.bytes,
           source,
           allow: ["page", "spreadsheet", "csv"],
+          slot: effectiveSlot ?? null,
+          docType: file.docType ?? null,
         });
-        imported.push({
-          name: file.path,
-          documentId: r.document.id,
-          deduped: r.deduped,
-          kind: r.kind,
-          integrity: file.integrity.status,
-        });
-        const effectiveSlot = inferSlot({ name: file.name, docType: file.docType });
-        if (effectiveSlot || file.docType) {
-          const adm = createServiceClient() ?? (await createServerSupabase());
-          if (adm) {
-            await adm
-              .from("documents")
-              .update({
-                ...(file.docType ? { doc_type: file.docType } : {}),
-                ...(effectiveSlot ? { slot: effectiveSlot } : {}),
-              })
-              .eq("id", r.document.id);
-          }
-        }
+        return {
+          ok: true,
+          item: {
+            name: file.path,
+            documentId: r.document.id,
+            deduped: r.deduped,
+            kind: r.kind,
+            integrity: file.integrity.status,
+          },
+        };
       } catch (e) {
-        if (e instanceof IngestError) skipped.push({ name: file.path, reason: e.message });
-        else throw e;
+        if (e instanceof IngestError) {
+          return {
+            ok: false,
+            skipped: { name: file.path, reason: e.message },
+          };
+        }
+        throw e;
+      }
+    });
+
+    const imported: { name: string; documentId: string; deduped: boolean; kind: string; integrity: string }[] = [];
+    const skipped: { name: string; reason: string }[] = pack.skipped.map((s) => ({ name: s.path, reason: s.reason }));
+
+    for (const outcome of outcomes) {
+      if (outcome.ok) {
+        imported.push(outcome.item);
+      } else {
+        skipped.push(outcome.skipped);
       }
     }
 

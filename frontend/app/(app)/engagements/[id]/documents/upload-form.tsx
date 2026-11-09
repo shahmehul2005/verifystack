@@ -107,9 +107,15 @@ export function UploadForm({ engagementId, disabled }: { engagementId: string; d
     setPending(false);
     if (packRef.current) packRef.current.value = "";
     if (!res.ok || !json.ok) {
-      setError(json.error ?? `Import failed (${res.status})`);
+      const message =
+        json.error ??
+        (res.status === 524
+          ? "Import timed out on the gateway (524). Some files may have already been saved — refresh to check."
+          : `Import failed (${res.status})`);
+      setError(message);
       setProblems(json.problems ?? []);
-      toast.error(json.error ?? "Import failed");
+      toast.error(message);
+      if (res.status === 524) softReload();
       return;
     }
     const skipped = json.skipped ?? [];

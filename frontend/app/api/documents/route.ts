@@ -5,6 +5,7 @@ import { MAX_EVIDENCE_BYTES, sanitizeFilename } from "@verifystack/backend/lib/e
 import { getEngagement, ensureEngagementStatus } from "@verifystack/backend/lib/data/engagements";
 import { IngestError, ingestEvidenceFile } from "@verifystack/backend/lib/data/ingestDocument";
 import { canStartWork, loadPack } from "@verifystack/backend/domain/packs";
+import { inferSlot } from "@verifystack/backend/domain/deskreview";
 export const runtime = "nodejs";
 
 const TOO_LARGE = "Evidence files are limited to 50 MB.";
@@ -52,6 +53,7 @@ export async function POST(req: Request) {
       );
     }
 
+    const effectiveSlot = inferSlot({ name: filename });
     const result = await ingestEvidenceFile({
       organizationId,
       engagement,
@@ -60,6 +62,7 @@ export async function POST(req: Request) {
       bytes,
       source: "upload",
       allow: ["page", "spreadsheet", "csv"],
+      slot: effectiveSlot ?? null,
     });
 
     await ensureEngagementStatus({
