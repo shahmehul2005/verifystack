@@ -44,7 +44,15 @@ const PERIOD_SOURCES: Record<string, (get: (leaf: string) => unknown) => PeriodI
   // A delivery period, not the invoice date: an invoice is raised on a day that is not the period used.
   fuel_invoice: (get) => ({ start: asDate(get("deliveryPeriodStart")), end: asDate(get("deliveryPeriodEnd")) }),
   // A certificate speaks for one sample, on the day it was taken.
-  lab_certificate: (get) => ({ start: asDate(get("sampleDate")), end: asDate(get("sampleDate")) }),
+  // A certificate speaks for one sample, or covers a monthly composite period.
+  lab_certificate: (get) => {
+    const sample = asDate(get("sampleDate"));
+    if (sample) return { start: sample, end: sample };
+    const start = asDate(get("periodStart")) ?? asDate(get("deliveryPeriodStart"));
+    const end = asDate(get("periodEnd")) ?? asDate(get("deliveryPeriodEnd"));
+    if (start && end) return { start, end };
+    return { text: typeof get("reportingPeriod") === "string" ? (get("reportingPeriod") as string) : null };
+  },
   production_log: (get) => ({ text: typeof get("reportingPeriod") === "string" ? (get("reportingPeriod") as string) : null }),
 };
 
