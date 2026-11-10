@@ -16,6 +16,7 @@ import { useBoxReader } from "@/components/workbench/use-box-reader";
 import { describeRegion, type Region } from "@verifystack/backend/domain/deskreview/snip";
 import type { InputState } from "@verifystack/backend/domain/calc/run";
 import { toast } from "sonner";
+import { CevPanel, type CevRow } from "@/components/review/cev-panel";
 
 export interface ReviewField {
   id: string;
@@ -63,6 +64,9 @@ export function ReviewWorkbench({
   facsimileDocId,
   documents = [],
   targets = [],
+  cevGroups = {},
+  cevDocNames = {},
+  cevLabels = {},
 }: {
   engagementId: string;
   fields: ReviewField[];
@@ -71,6 +75,12 @@ export function ReviewWorkbench({
   documents?: SnipDocument[];
   /** The fields a snipped value can be added to. */
   targets?: SnipTarget[];
+  /** Canonical evidence values grouped by canonical_key. */
+  cevGroups?: Record<string, CevRow[]>;
+  /** document_id to original_filename for CEV provenance display. */
+  cevDocNames?: Record<string, string>;
+  /** canonical_key to human label from the registry. */
+  cevLabels?: Record<string, string>;
 }) {
   const { softReload, isRefreshing } = useSoftReload();
   const [focused, setFocused] = useState<ReviewField | null>(fields[0] ?? null);
@@ -203,6 +213,7 @@ export function ReviewWorkbench({
   }, [fields, focusIndex]);
 
   return (
+    <>
     <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
       <div className="rounded-lg border border-mist-200 bg-mist-100/70 p-3 lg:sticky lg:top-20">
         {canSnip ? (
@@ -552,6 +563,22 @@ export function ReviewWorkbench({
         </div>
       </div>
     </div>
+    {Object.keys(cevGroups).length > 0 ? (
+      <section className="mt-8">
+        <h2 className="mb-1 text-sm font-semibold text-mist-900">Canonical Evidence</h2>
+        <p className="mb-3 text-[13px] text-mist-600">
+          Multi-source values for each registry quantity. Accept, correct or reject proposals;
+          roll up settled monthly values into an annual total; then promote to the facts ledger.
+        </p>
+        <CevPanel
+          engagementId={engagementId}
+          groups={cevGroups}
+          docNames={cevDocNames}
+          labels={cevLabels}
+        />
+      </section>
+    ) : null}
+    </>
   );
 }
 

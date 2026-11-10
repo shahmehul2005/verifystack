@@ -129,7 +129,6 @@ export const ENGAGEMENT_LINKS: { slug: string; label: string; capability: Capabi
   { slug: "workbench", label: "Workbench", capability: "review.decide" },
   { slug: "facts", label: "Facts ledger", capability: "review.decide" },
   { slug: "desk-review", label: "Desk review", capability: "review.decide" },
-  { slug: "corroboration", label: "Corroboration", capability: "review.decide" },
   { slug: "fieldwork", label: "Fieldwork", capability: "fieldwork.record" },
   { slug: "runs", label: "Calculation", capability: "runs.view" },
   { slug: "findings", label: "Findings", capability: "findings.decide" },

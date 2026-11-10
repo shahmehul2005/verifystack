@@ -95,7 +95,6 @@ describe("DFD role capabilities", () => {
       "workbench",
       "facts",
       "desk-review",
-      "corroboration",
       "fieldwork",
       "runs",
       "findings",
