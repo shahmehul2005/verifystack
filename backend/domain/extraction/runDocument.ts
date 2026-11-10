@@ -392,7 +392,7 @@ export async function runDocumentExtraction(
         saved += 1;
 
         // Wire CEV: if this field mapped to a registry entry, create a suggested CEV.
-        // We do NOT block extraction on CEV failure — wrap in try/catch.
+        // We do NOT block extraction on CEV failure -- wrap in try/catch.
         if (annotation?.canonicalKey && insertedFieldId) {
           try {
             const pk = cevPeriodKind(annotation.periodStart, annotation.periodEnd, annotation.periodStatus);
@@ -430,7 +430,7 @@ export async function runDocumentExtraction(
               prompt_version: "gemini-1.0",
             });
           } catch (cevErr) {
-            // CEV failure must not abort extraction — log and continue.
+            // CEV failure must not abort extraction -- log and continue.
             await admin.rpc("append_audit_event", {
               p_organization_id: input.organizationId,
               p_action: "cev.create_failed",
