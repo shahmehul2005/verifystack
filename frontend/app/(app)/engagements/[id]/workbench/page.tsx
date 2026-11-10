@@ -18,7 +18,8 @@ import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { loadPack, packFieldTargets } from "@verifystack/backend/domain/packs";
 import { isSnipProvenance } from "@verifystack/backend/domain/deskreview/snip";
-import { inputStatuses, toProvenancedFact } from "@verifystack/backend/domain/calc/run";
+import { inputStatuses } from "@verifystack/backend/domain/calc/run";
+import { loadCommittedFactsForEngagement } from "@verifystack/backend/lib/data/committedEvidence";
 import { registryForPack } from "@verifystack/backend/domain/registry";
 import { ReviewWorkbench, type ReviewField } from "./review-workbench";
 import type { CevRow } from "@/components/review/cev-panel";
@@ -54,14 +55,14 @@ export default async function AppWorkbenchPage({
   const engagement = await getEngagement(id, session.organizationId);
   if (!engagement) notFound();
   const supabase = createServiceClient() ?? (await createServerSupabase());
-  const [triage, { data: docs }, { data: factRows }, { data: cevRows }] = await Promise.all([
+  const [triage, { data: docs }, committedFacts, { data: cevRows }] = await Promise.all([
     loadEngagementTriage(session.organizationId, id),
     supabase!
       .from("documents")
       .select("id, storage_path, mime_type, original_filename")
       .eq("engagement_id", id)
       .eq("organization_id", session.organizationId),
-    supabase!.from("facts").select("*").eq("engagement_id", id).eq("organization_id", session.organizationId),
+    loadCommittedFactsForEngagement(supabase!, id, session.organizationId),
     supabase!
       .from("canonical_evidence_values")
       .select("*")
@@ -110,7 +111,7 @@ export default async function AppWorkbenchPage({
   const { plan, comparisonSummary: cs, share } = triage;
   // Each input the methodology reads, with where it stands in the ledger, from the same check a run uses.
   const pack = loadPack(engagement.pack_id);
-  const states = inputStatuses(pack, (factRows ?? []).map(toProvenancedFact), {
+  const states = inputStatuses(pack, committedFacts, {
     draftMode: engagement.draft_mode,
     complianceYear: engagement.compliance_year,
   });

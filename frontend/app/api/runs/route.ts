@@ -7,10 +7,11 @@ import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { getEngagement, ensureEngagementStatus } from "@verifystack/backend/lib/data/engagements";
 import { factorSetForOrganization } from "@verifystack/backend/lib/data/factors";
+import { loadCommittedFactsForEngagement } from "@verifystack/backend/lib/data/committedEvidence";
 import { resolveMethod } from "@verifystack/backend/domain/calc/dispatch";
 import { evaluateChecklist } from "@verifystack/backend/domain/crosscheck/checklist";
 import { selectRunFacts } from "@verifystack/backend/domain/crosscheck/runFacts";
-import { executeRun, assessRunReadiness, toProvenancedFact, type ProvenancedFact } from "@verifystack/backend/domain/calc/run";
+import { executeRun, assessRunReadiness, type ProvenancedFact } from "@verifystack/backend/domain/calc/run";
 import { executeSecRun } from "@verifystack/backend/domain/calc/secRun";
 import { assessSavings, type SecResult } from "@verifystack/backend/domain/calc/sec";
 import { runRules } from "@verifystack/backend/domain/rules/rules";
@@ -95,13 +96,11 @@ export async function POST(req: Request) {
       }
     }
 
-    const { data: factRows } = await supabase
-      .from("facts")
-      .select("*")
-      .eq("engagement_id", engagement.id)
-      .eq("organization_id", organizationId);
-
-    const facts: ProvenancedFact[] = (factRows ?? []).map(toProvenancedFact);
+    const facts: ProvenancedFact[] = await loadCommittedFactsForEngagement(
+      supabase,
+      engagement.id,
+      organizationId
+    );
 
     const { data: previousRuns } = await supabase
       .from("calculation_runs")

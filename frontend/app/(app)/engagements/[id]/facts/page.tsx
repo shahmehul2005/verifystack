@@ -19,6 +19,7 @@ import {
   type ProvenanceColumns,
 } from "@verifystack/backend/domain/provenance";
 import { registryForPack } from "@verifystack/backend/domain/registry";
+import { loadCommittedFactsForEngagement } from "@verifystack/backend/lib/data/committedEvidence";
 import type { CevRow } from "@/components/review/cev-panel";
 
 /** "Page 3", "Spreadsheet cell", etc. Falls back to the stored type for a malformed row. */
@@ -123,13 +124,8 @@ export default async function FactsPage({ params }: { params: Promise<{ id: stri
   const engagement = await getEngagement(id, session.organizationId);
   if (!engagement) notFound();
   const supabase = createServiceClient() ?? (await createServerSupabase());
-  const [{ data: facts }, { data: withdrawn }, { data: cevRows }] = await Promise.all([
-    supabase!
-      .from("facts")
-      .select("*")
-      .eq("engagement_id", id)
-      .eq("organization_id", session.organizationId)
-      .order("accepted_at", { ascending: false }),
+  const [facts, { data: withdrawn }, { data: cevRows }] = await Promise.all([
+    loadCommittedFactsForEngagement(supabase!, id, session.organizationId),
     // Without migration 0022 this table is absent: facts still show, and withdrawing waits.
     supabase!
       .from("fact_withdrawals")
@@ -200,7 +196,7 @@ export default async function FactsPage({ params }: { params: Promise<{ id: stri
           </thead>
           <tbody>
             {facts.map((f) => {
-              const canonicalKey = (f as Record<string, unknown>).canonical_key as string | null;
+              const canonicalKey = f.canonical_key;
               const cevs = canonicalKey ? (cevByKey[canonicalKey] ?? []) : [];
               return (
                 <tr key={f.id}>
@@ -226,7 +222,7 @@ export default async function FactsPage({ params }: { params: Promise<{ id: stri
                   <Td className="whitespace-nowrap text-right text-xs text-mist-600">
                     {describeFactSource(f)}
                   </Td>
-                  <Td className="whitespace-nowrap text-xs text-mist-600">{formatIst(f.accepted_at)}</Td>
+                  <Td className="whitespace-nowrap text-xs text-mist-600">{f.accepted_at ? formatIst(f.accepted_at) : "—"}</Td>
                   {canWithdraw ? (
                     <Td className="text-right">
                       <WithdrawFactButton engagementId={id} factId={f.id} label={f.field_path} />

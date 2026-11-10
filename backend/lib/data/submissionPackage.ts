@@ -11,6 +11,7 @@ import type {
 } from "@verifystack/backend/domain/submission/package";
 import type { IssueSeverity, IssueState } from "@verifystack/backend/domain/issues/lifecycle";
 import type { AdeetiePhase, Tables } from "@verifystack/backend/lib/supabase/types";
+import { loadCommittedFactsForEngagement } from "./committedEvidence";
 
 /** Beyond this the package indexes evidence instead of bundling it, and says so. */
 export const MAX_BUNDLED_BYTES = 120 * 1024 * 1024;
@@ -35,13 +36,9 @@ export async function loadSubmissionInput(
   const supabase = createServiceClient() ?? (await createServerSupabase());
   if (!supabase) throw new Error("Supabase is not configured");
 
-  const [{ data: facts }, { data: runs }, { data: findings }, { data: signoffs }, { data: docs }, review] =
+  const [facts, { data: runs }, { data: findings }, { data: signoffs }, { data: docs }, review] =
     await Promise.all([
-      supabase
-        .from("facts")
-        .select("*")
-        .eq("engagement_id", engagement.id)
-        .eq("organization_id", organizationId),
+      loadCommittedFactsForEngagement(supabase, engagement.id, organizationId),
       supabase
         .from("calculation_runs")
         .select("*")
@@ -119,20 +116,20 @@ export async function loadSubmissionInput(
         status: engagement.status,
         adeetie_phase: engagement.adeetie_phase,
       },
-      facts: (facts ?? []).map((f) => ({
+      facts: facts.map((f) => ({
         id: f.id,
         field_path: f.field_path,
         value_json: f.value_json,
-        unit: f.unit,
-        provenance_type: f.provenance_type,
-        provenance: f.provenance,
-        document_id: f.document_id,
-        page: f.page,
-        bbox: f.bbox,
-        source_text: f.source_text,
-        accepted_by: f.accepted_by,
-        accepted_at: f.accepted_at,
-        accept_mode: f.accept_mode,
+        unit: f.unit ?? null,
+        provenance_type: f.provenance_type ?? null,
+        provenance: f.provenance ?? null,
+        document_id: f.document_id ?? null,
+        page: f.page ?? null,
+        bbox: f.bbox ?? null,
+        source_text: f.source_text ?? null,
+        accepted_by: f.accepted_by ?? null,
+        accepted_at: f.accepted_at || new Date().toISOString(),
+        accept_mode: f.accept_mode ?? null,
       })),
       run: run
         ? {

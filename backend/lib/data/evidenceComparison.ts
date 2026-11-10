@@ -4,6 +4,7 @@ import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { DEFAULT_TOLERANCE } from "@verifystack/backend/domain/compare/declared";
 import { registryForPack } from "@verifystack/backend/domain/registry";
 import { compareEvidence, type Comparison, type ReadingInput } from "@verifystack/backend/domain/registry/compare";
+import { loadCommittedFactsForEngagement } from "./committedEvidence";
 
 /**
  * Line up an engagement's desk-review readings with the facts a person approved, by registry key.
@@ -24,24 +25,23 @@ export async function loadEvidenceComparison(args: {
   try {
     const db = createServiceClient() ?? (await createServerSupabase());
     if (!db) return null;
-    const [{ data: facts, error: factsError }, { data: docs, error: docsError }] = await Promise.all([
-      // Every column: a database without migration 0025 has no registry columns, and then nothing is keyed.
-      db.from("facts").select("*").eq("engagement_id", args.engagementId).eq("organization_id", args.organizationId),
+    const [facts, { data: docs, error: docsError }] = await Promise.all([
+      loadCommittedFactsForEngagement(db, args.engagementId, args.organizationId),
       db.from("documents").select("id, original_filename").eq("engagement_id", args.engagementId).eq("organization_id", args.organizationId),
     ]);
-    if (factsError || docsError) return null;
+    if (docsError) return null;
     const names = new Map((docs ?? []).map((d) => [d.id, d.original_filename]));
     return compareEvidence({
       registry,
       readings: args.readings,
-      facts: (facts ?? []).map((f) => ({
+      facts: facts.map((f) => ({
         id: f.id,
-        documentId: f.document_id,
+        documentId: f.document_id ?? null,
         fieldPath: f.field_path,
         value: f.value_json,
-        unit: f.unit,
+        unit: f.unit ?? null,
         canonicalKey: f.canonical_key ?? null,
-        periodStatus: f.period_status ?? null,
+        periodStatus: f.period_status === "known" || f.period_status === "unknown" ? f.period_status : null,
         periodStart: f.period_start ?? null,
         periodEnd: f.period_end ?? null,
         periodNote: f.period_note ?? null,

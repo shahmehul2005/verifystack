@@ -22,7 +22,8 @@ import { getEngagement } from "@/lib/session";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { loadPack, canStartWork } from "@verifystack/backend/domain/packs";
-import { assessRunReadiness, toProvenancedFact, type ProvenancedFact, type RunReadiness } from "@verifystack/backend/domain/calc/run";
+import { assessRunReadiness, type RunReadiness } from "@verifystack/backend/domain/calc/run";
+import { loadCommittedFactsForEngagement } from "@verifystack/backend/lib/data/committedEvidence";
 import {
   allowedSecPhases,
   filterFactsForSecPhase,
@@ -51,28 +52,20 @@ export default async function RunsPage({ params }: { params: Promise<{ id: strin
   const isSec = pack.calculation_method === "SEC";
 
   const supabase = createServiceClient() ?? (await createServerSupabase());
-  const [{ data: runs }, { data: factRows }, { data: docs }] = await Promise.all([
+  const [{ data: runs }, facts, { data: docs }] = await Promise.all([
     supabase!
       .from("calculation_runs")
       .select("*")
       .eq("engagement_id", id)
       .eq("organization_id", session.organizationId)
       .order("created_at", { ascending: false }),
-    supabase!
-      .from("facts")
-      .select(
-        "id, field_path, value_json, unit, document_id, page, bbox, source_text, provenance_type, provenance"
-      )
-      .eq("engagement_id", id)
-      .eq("organization_id", session.organizationId),
+    loadCommittedFactsForEngagement(supabase!, id, session.organizationId),
     supabase!
       .from("documents")
       .select("id, adeetie_phase")
       .eq("engagement_id", id)
       .eq("organization_id", session.organizationId),
   ]);
-
-  const facts: ProvenancedFact[] = (factRows ?? []).map(toProvenancedFact);
   const rawPhase = engagement.adeetie_phase;
   const adeetiePhase =
     engagement.scheme === "ADEETIE" && rawPhase && isAdeetiePhase(rawPhase)

@@ -9,6 +9,7 @@ import {
   type TechnicalReviewState,
 } from "@verifystack/backend/domain/review/technical";
 import type { Tables } from "@verifystack/backend/lib/supabase/types";
+import { loadCommittedFactsForEngagement } from "./committedEvidence";
 
 export interface TechnicalReviewContext {
   required: boolean;
@@ -32,12 +33,8 @@ export async function loadTechnicalReview(
   const supabase = createServiceClient() ?? (await createServerSupabase());
   if (!supabase) throw new Error("Supabase is not configured");
 
-  const [{ data: facts }, { data: runs }, { data: reviews }] = await Promise.all([
-    supabase
-      .from("facts")
-      .select("id, value_json, unit, accepted_by")
-      .eq("engagement_id", engagement.id)
-      .eq("organization_id", organizationId),
+  const [facts, { data: runs }, { data: reviews }] = await Promise.all([
+    loadCommittedFactsForEngagement(supabase, engagement.id, organizationId),
     supabase
       .from("calculation_runs")
       .select("id, input_hash, created_by, created_at")
