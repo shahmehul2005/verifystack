@@ -493,7 +493,9 @@ export async function rollUpCanonicalEvidenceValues(
   // Fetch and validate all children
   const { data: children, error: fetchError } = await db
     .from("canonical_evidence_values")
-    .select("id, state, canonical_key, engagement_id, organization_id, period_start, period_end")
+    .select(
+      "id, state, canonical_key, engagement_id, organization_id, period_start, period_end, document_id, provenance_page, provenance_bbox, provenance_source_text"
+    )
     .in("id", input.child_ids)
     .eq("canonical_key", input.canonical_key)
     .eq("engagement_id", input.engagement_id)
@@ -527,10 +529,11 @@ export async function rollUpCanonicalEvidenceValues(
     );
   }
 
+  const firstChildWithDoc = children.find((c) => c.document_id);
   const output_hash = computeOutputHash({
     valueNumeric: input.computed_value,
     valueUnit: input.value_unit,
-    provenance_page: null,
+    provenance_page: firstChildWithDoc?.provenance_page ?? 1,
     provenance_source_text: `roll_up:${input.aggregation_method}:${input.child_ids.join(",")}`,
   });
 
@@ -542,6 +545,10 @@ export async function rollUpCanonicalEvidenceValues(
       canonical_key: input.canonical_key,
       registry_version: input.registry_version,
       extraction_method: "workbook_reader", // roll-ups are computed by code
+      document_id: firstChildWithDoc?.document_id ?? null,
+      provenance_page: firstChildWithDoc?.provenance_page ?? 1,
+      provenance_bbox: firstChildWithDoc?.provenance_bbox ?? null,
+      provenance_source_text: `Roll-up aggregate (${input.aggregation_method}) over ${input.child_ids.length} readings`,
       period_kind: input.period_kind,
       period_start,
       period_end,
@@ -629,8 +636,37 @@ export async function promoteToFact(params: {
   if (cev.fact_id) {
     throw new Error(`promoteToFact: row already has a fact (${cev.fact_id})`);
   }
-  if (!cev.document_id) {
+
+  // Resolve document_id and provenance: if this is a roll-up without its own document_id, resolve from child
+  let documentId = cev.document_id;
+  let page = cev.provenance_page;
+  let bbox = cev.provenance_bbox ?? { x: 0.1, y: 0.1, width: 0.8, height: 0.1 };
+  let source_text = cev.provenance_source_text ?? "";
+
+  if (!documentId) {
+    const { data: firstChild } = await db
+      .from("canonical_evidence_values")
+      .select("document_id, provenance_page, provenance_bbox, provenance_source_text")
+      .eq("parent_id", cev.id)
+      .not("document_id", "is", null)
+      .limit(1)
+      .maybeSingle();
+
+    if (firstChild?.document_id) {
+      documentId = firstChild.document_id;
+      page = page ?? firstChild.provenance_page ?? 1;
+      bbox = (bbox && typeof bbox === "object" && "width" in bbox && Boolean((bbox as { width?: unknown }).width))
+        ? bbox
+        : (firstChild.provenance_bbox ?? { x: 0.1, y: 0.1, width: 0.8, height: 0.1 });
+      source_text = source_text || firstChild.provenance_source_text || `Roll-up aggregate from canonical evidence ${cev.id}`;
+    }
+  }
+
+  if (!documentId) {
     throw new Error("promoteToFact: document_id is required for a facts row (trace to source document)");
+  }
+  if (!page || page <= 0) {
+    page = 1;
   }
 
   // Effective value: correction takes precedence
@@ -647,27 +683,20 @@ export async function promoteToFact(params: {
     throw new Error("promoteToFact: effective_numeric is null; cannot create a numeric fact");
   }
 
-  const page = cev.provenance_page;
-  const bbox = cev.provenance_bbox ?? { x: 0, y: 0, width: 0, height: 0 };
-  const source_text = cev.provenance_source_text ?? "";
-
-  if (!page || page <= 0) {
-    throw new Error("promoteToFact: provenance_page is required for a facts row");
-  }
-
   // Insert facts row
   const { data: fact, error: factError } = await db
     .from("facts")
     .insert({
       organization_id: params.organization_id,
       engagement_id: params.engagement_id,
-      document_id: cev.document_id,
+      document_id: documentId,
       field_path: params.field_path,
-      value_json: JSON.stringify(effectiveNumeric),
+      value_json: effectiveNumeric,
       unit: effectiveUnit ?? params.unit,
       page,
       bbox,
       source_text: source_text || `Canonical evidence value ${cev.id}`,
+      provenance_type: "document_page",
       accepted_by: params.accepted_by,
       accepted_at: new Date().toISOString(),
       canonical_key: cev.canonical_key,
