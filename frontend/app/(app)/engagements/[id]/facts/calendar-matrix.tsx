@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   CalendarGridData,
   MonthCell,
@@ -9,7 +9,16 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Check, AlertTriangle, Calculator, FileText, X } from "lucide-react";
+import {
+  Check,
+  AlertTriangle,
+  Calculator,
+  FileText,
+  X,
+  FileSpreadsheet,
+  Download,
+  Upload,
+} from "lucide-react";
 import { useSoftReload } from "@/lib/soft-reload";
 
 interface CalendarMatrixProps {
@@ -29,6 +38,14 @@ export function CalendarMatrix({ initialGrid, engagementId }: CalendarMatrixProp
     month: MonthCell;
   } | null>(null);
   const [isCommitting, setIsCommitting] = useState(false);
+
+  // Excel Import State
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importMode, setImportMode] = useState<"proforma" | "template" | "auto-map">("proforma");
+  const [importSourceType, setImportSourceType] = useState<"corroboration" | "sourcing">("corroboration");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function handleCommitRollups() {
     setIsCommitting(true);
@@ -51,6 +68,50 @@ export function CalendarMatrix({ initialGrid, engagementId }: CalendarMatrixProp
       toast.error("Network error while committing rollups");
     } finally {
       setIsCommitting(false);
+    }
+  }
+
+  function handleDownloadTemplate() {
+    window.open(`/api/calendar/excel/template?year=${initialGrid.complianceYear}`, "_blank");
+  }
+
+  async function handleImportSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedFile) {
+      toast.error("Please select a file to import");
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", selectedFile);
+      formData.append("engagementId", engagementId);
+      formData.append("mode", importMode);
+      formData.append("complianceYear", initialGrid.complianceYear);
+      formData.append("sourceType", importSourceType);
+
+      const res = await fetch("/api/calendar/excel", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.ok) {
+        toast.error(data.error || "Excel extraction failed");
+        return;
+      }
+
+      toast.success(
+        `Successfully extracted ${data.extractedCount} readings (${data.savedCount} saved to calendar)!`
+      );
+      setIsImportModalOpen(false);
+      setSelectedFile(null);
+      softReload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error uploading Excel");
+    } finally {
+      setIsImporting(false);
     }
   }
 
@@ -100,7 +161,7 @@ export function CalendarMatrix({ initialGrid, engagementId }: CalendarMatrixProp
             <div className="mt-1 flex items-baseline gap-2">
               <span
                 className={`text-2xl font-semibold ${
-                  initialGrid.summary.varianceAlertsCount > 0 ? "text-amber-600" : "text-emerald-600"
+                  initialGrid.summary.varianceAlertsCount > 0 ? "text-rose-600" : "text-emerald-600"
                 }`}
               >
                 {initialGrid.summary.varianceAlertsCount}
@@ -113,7 +174,7 @@ export function CalendarMatrix({ initialGrid, engagementId }: CalendarMatrixProp
         </Card>
       </div>
 
-      {/* Control Bar: Categories Filter, Source Layer Toggles, and Commit Button */}
+      {/* Control Bar: Categories Filter, Source Layer Toggles, and Action Buttons */}
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-mist-200 bg-mist-50/70 p-3">
         {/* Category Filter Pills */}
         <div className="flex flex-wrap items-center gap-1.5">
@@ -140,7 +201,7 @@ export function CalendarMatrix({ initialGrid, engagementId }: CalendarMatrixProp
           ))}
         </div>
 
-        {/* Source Layer Toggles & Action */}
+        {/* Source Layer Toggles & Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-medium text-mist-500">Sources:</span>
           <button
@@ -176,15 +237,41 @@ export function CalendarMatrix({ initialGrid, engagementId }: CalendarMatrixProp
             <span className="font-bold">[P]</span> Pro Forma
           </button>
 
+          <div className="h-4 w-px bg-mist-300 mx-1" />
+
+          {/* Download Template */}
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={handleDownloadTemplate}
+            className="gap-1 text-xs bg-white"
+            title="Download clean 12-month spreadsheet template"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Template
+          </Button>
+
+          {/* Import Excel Button */}
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setIsImportModalOpen(true)}
+            className="gap-1 text-xs bg-white text-teal-800 border-teal-300 hover:bg-teal-50"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5 text-teal-600" />
+            Import Excel
+          </Button>
+
+          {/* Commit Rollups */}
           <Button
             size="sm"
             variant="primary"
             onClick={handleCommitRollups}
             disabled={isCommitting}
-            className="ml-2 gap-1.5 text-xs shadow-sm"
+            className="gap-1.5 text-xs shadow-sm"
           >
             <Calculator className="h-3.5 w-3.5" />
-            {isCommitting ? "Committing..." : "Commit Roll-ups to Run"}
+            {isCommitting ? "Committing..." : "Commit Roll-ups"}
           </Button>
         </div>
       </div>
@@ -371,6 +458,162 @@ export function CalendarMatrix({ initialGrid, engagementId }: CalendarMatrixProp
           </tbody>
         </table>
       </div>
+
+      {/* Excel / Proforma Import Modal */}
+      {isImportModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-xl border border-mist-200 bg-white p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-mist-100 pb-3">
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet className="h-5 w-5 text-teal-600" />
+                <h3 className="text-base font-semibold text-mist-900">
+                  Import Spreadsheet Data
+                </h3>
+              </div>
+              <button
+                onClick={() => setIsImportModalOpen(false)}
+                className="rounded p-1 text-mist-400 hover:bg-mist-100 hover:text-mist-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleImportSubmit} className="space-y-4">
+              {/* Option Selector */}
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-mist-700">Choose Extraction Mode:</label>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <label
+                    className={`cursor-pointer rounded-lg border p-3 text-xs transition-all ${
+                      importMode === "proforma"
+                        ? "border-teal-600 bg-teal-50/60 text-teal-950 font-medium ring-1 ring-teal-600"
+                        : "border-mist-200 bg-mist-50 hover:bg-mist-100 text-mist-700"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="importMode"
+                      value="proforma"
+                      checked={importMode === "proforma"}
+                      onChange={() => setImportMode("proforma")}
+                      className="sr-only"
+                    />
+                    <div className="font-bold text-amber-700">Option 1A: BEE PAT-2</div>
+                    <div className="text-[11px] text-mist-500 mt-1">Official Form-Sb &amp; Form 1 (.xls)</div>
+                  </label>
+
+                  <label
+                    className={`cursor-pointer rounded-lg border p-3 text-xs transition-all ${
+                      importMode === "template"
+                        ? "border-teal-600 bg-teal-50/60 text-teal-950 font-medium ring-1 ring-teal-600"
+                        : "border-mist-200 bg-mist-50 hover:bg-mist-100 text-mist-700"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="importMode"
+                      value="template"
+                      checked={importMode === "template"}
+                      onChange={() => setImportMode("template")}
+                      className="sr-only"
+                    />
+                    <div className="font-bold text-teal-700">Option 1B: Standard</div>
+                    <div className="text-[11px] text-mist-500 mt-1">12-Mo Calendar Template</div>
+                  </label>
+
+                  <label
+                    className={`cursor-pointer rounded-lg border p-3 text-xs transition-all ${
+                      importMode === "auto-map"
+                        ? "border-teal-600 bg-teal-50/60 text-teal-950 font-medium ring-1 ring-teal-600"
+                        : "border-mist-200 bg-mist-50 hover:bg-mist-100 text-mist-700"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="importMode"
+                      value="auto-map"
+                      checked={importMode === "auto-map"}
+                      onChange={() => setImportMode("auto-map")}
+                      className="sr-only"
+                    />
+                    <div className="font-bold text-purple-700">Option 2: Auto-Map</div>
+                    <div className="text-[11px] text-mist-500 mt-1">Custom Plant SCADA / MIS</div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Source Layer Selection (for Template or Auto-Map) */}
+              {importMode !== "proforma" && (
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-mist-700">Assign Evidence Source Layer:</label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-1.5 text-xs text-mist-800 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="importSourceType"
+                        value="corroboration"
+                        checked={importSourceType === "corroboration"}
+                        onChange={() => setImportSourceType("corroboration")}
+                      />
+                      <span>[C] Internal Corroboration (ERP/SCADA logs)</span>
+                    </label>
+                    <label className="flex items-center gap-1.5 text-xs text-mist-800 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="importSourceType"
+                        value="sourcing"
+                        checked={importSourceType === "sourcing"}
+                        onChange={() => setImportSourceType("sourcing")}
+                      />
+                      <span>[S] Sourcing (External bills)</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* File Upload Zone */}
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className="cursor-pointer rounded-lg border-2 border-dashed border-mist-300 p-6 text-center hover:border-teal-500 hover:bg-teal-50/30 transition-colors"
+              >
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept=".xls,.xlsx,.csv"
+                  onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                  className="hidden"
+                />
+                <Upload className="mx-auto h-8 w-8 text-mist-400" />
+                <p className="mt-2 text-xs font-semibold text-mist-800">
+                  {selectedFile ? selectedFile.name : "Click to select or drag spreadsheet here"}
+                </p>
+                <p className="text-[11px] text-mist-500 mt-0.5">Supports .xls, .xlsx, .csv</p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-mist-100">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setIsImportModalOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  disabled={!selectedFile || isImporting}
+                  className="gap-1.5"
+                >
+                  <FileSpreadsheet className="h-4 w-4" />
+                  {isImporting ? "Processing..." : "Extract & Ingest"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Cell Evidence Drawer */}
       {selectedCell && (

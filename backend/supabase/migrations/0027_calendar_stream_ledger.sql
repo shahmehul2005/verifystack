@@ -26,3 +26,4 @@ create index if not exists cev_calendar_stream_idx
 -- 2. Audit comment documenting canonical_key composite format: <stream_key>#<source_type>
 comment on column public.canonical_evidence_values.canonical_key is
   'Cement stream key, optionally formatted as <stream_key>#<source_type> (e.g. coal_quantity#sourcing, clinker_production#corroboration, equivalent_product#proforma) to support multi-layer calendar cross-checks.';
+
