@@ -111,6 +111,8 @@ function num(v: unknown): number | null {
 }
 
 function factsMatching(facts: ProvenancedFact[], path: string): ProvenancedFact[] {
+  const exact = facts.filter((f) => f.field_path === path);
+  if (exact.length > 0) return exact;
   return facts.filter((f) => matchFactPath(f.field_path, path));
 }
 

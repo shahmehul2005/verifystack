@@ -2,8 +2,14 @@
 
 import { useSoftReload } from "@/lib/soft-reload";
 
-import { useEffect, useState } from "react";
-import { Check, PenLine, Scissors, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Check, PenLine, Scissors, Sparkles, X } from "lucide-react";
+import {
+  CEMENT_STREAMS,
+  getFiscalMonths,
+  matchDateToMonthKey,
+  type SourceType,
+} from "@verifystack/backend/domain/calendar/index";
 import { DocumentFacsimile } from "@/components/workbench/document-facsimile";
 import type { DemoFact } from "@verifystack/backend/fixtures/types";
 import { Badge } from "@/components/ui/badge";
@@ -56,7 +62,7 @@ export interface SnipTarget {
 
 /** The inputs a run still needs, in the order they should be offered. */
 const isMissing = (t: SnipTarget) => t.state === "required" || t.state === "group";
-const isTaken = (t: SnipTarget) => t.state === "filled" || t.state === "conflict";
+// const isTaken = (t: SnipTarget) => t.state === "filled" || t.state === "conflict";
 
 export function ReviewWorkbench({
   engagementId,
@@ -103,12 +109,60 @@ export function ReviewWorkbench({
   const [live, setLive] = useState<Region | null>(null);
   const [tooSmall, setTooSmall] = useState(false);
   const [snipPath, setSnipPath] = useState("");
+  const fiscalMonths = useMemo(() => getFiscalMonths("FY2023-24"), []);
+  const [snipMonth, setSnipMonth] = useState<string>("2023-04");
+  const [snipSourceType, setSnipSourceType] = useState<SourceType>("sourcing");
+  const [snipStreamKey, setSnipStreamKey] = useState<string>("coal_quantity");
   const [snipValue, setSnipValue] = useState("");
   const [snipUnit, setSnipUnit] = useState("");
   const [snipText, setSnipText] = useState("");
   const [snipSaving, setSnipSaving] = useState(false);
   const snipDoc = documents.find((d) => d.id === snipDocId);
-  // Reads the text printed inside a drawn box, so the figure is confirmed and not retyped. Scans are left to type.
+  function chooseDocumentForSnip(docId: string) {
+    setSnipDocId(docId);
+    setSnipPage(1);
+    setNumPages(null);
+    setRegion(null);
+    setTooSmall(false);
+    setSnipping(true);
+
+    const doc = documents.find((d) => d.id === docId);
+    if (!doc) return;
+    const name = doc.name.toLowerCase();
+    const m = matchDateToMonthKey(name);
+    if (m) setSnipMonth(m);
+
+    if (name.includes("proforma") || name.includes("form-1") || name.includes("form1")) {
+      setSnipSourceType("proforma");
+      setSnipStreamKey("equivalent_product");
+      setSnipUnit("t");
+    } else if (name.includes("erp") || name.includes("scada") || name.includes("daily") || name.includes("register")) {
+      setSnipSourceType("corroboration");
+    } else {
+      setSnipSourceType("sourcing");
+    }
+
+    if (name.includes("clinker") || name.includes("production")) {
+      setSnipStreamKey("clinker_production");
+      setSnipUnit("t");
+    } else if (name.includes("electricity") || name.includes("power")) {
+      setSnipStreamKey("grid_electricity");
+      setSnipUnit("kWh");
+    } else if (name.includes("lab") || name.includes("gcv")) {
+      setSnipStreamKey("coal_gcv");
+      setSnipUnit("kcal/kg");
+    } else if (name.includes("coal") || name.includes("grn") || name.includes("delivery")) {
+      setSnipStreamKey("coal_quantity");
+      setSnipUnit("t");
+    } else if (name.includes("petcoke")) {
+      setSnipStreamKey("petcoke_quantity");
+      setSnipUnit("t");
+    } else if (name.includes("diesel") || name.includes("hsd")) {
+      setSnipStreamKey("hsd_quantity");
+      setSnipUnit("kL");
+    }
+  }
+
   const reader = useBoxReader({
     src: `/api/documents/${snipDocId}/file`,
     mimeType: snipDoc?.mimeType,
@@ -118,11 +172,9 @@ export function ReviewWorkbench({
   });
 
   function startSnip() {
-    setSnipDocId(focus?.document_id ?? documents[0]?.id ?? "");
+    const targetDocId = focus?.document_id ?? documents[0]?.id ?? "";
+    chooseDocumentForSnip(targetDocId);
     setSnipPage(focus?.page ?? 1);
-    setRegion(null);
-    setTooSmall(false);
-    setSnipping(true);
   }
 
   function stopSnip() {
@@ -138,7 +190,9 @@ export function ReviewWorkbench({
   }
 
   async function saveSnip() {
-    if (!region || !snipDoc || !snipPath) return;
+    if (!region || !snipDoc) return;
+    const streamDef = CEMENT_STREAMS.find((s) => s.key === snipStreamKey);
+    const fieldPath = snipPath || streamDef?.calcBindingPath || "quantity";
     setSnipSaving(true);
     const res = await fetch("/api/workbench/snip", {
       method: "POST",
@@ -148,9 +202,12 @@ export function ReviewWorkbench({
         documentId: snipDoc.id,
         page: snipPage,
         bbox: region,
-        fieldPath: snipPath,
+        fieldPath,
+        streamKey: snipStreamKey,
+        monthKey: snipMonth,
+        sourceType: snipSourceType,
         value: snipValue,
-        unit: snipUnit.trim() || null,
+        unit: snipUnit.trim() || streamDef?.standardUnit || null,
         sourceText: snipText.trim(),
       }),
     });
@@ -160,14 +217,14 @@ export function ReviewWorkbench({
       toast.error(json.error ?? "Could not add the value");
       return;
     }
-    toast.success("Added to the facts ledger.");
+    toast.success(`Saved to Calendar (${snipMonth} [${snipSourceType[0].toUpperCase()}])`);
     stopSnip();
     softReload();
   }
 
   const snipShown = live ?? region;
   const snipValueBad = snipValue.trim() === "" || !Number.isFinite(Number(snipValue.replace(/,/g, "")));
-  const canSaveSnip = Boolean(region && snipPath && snipText.trim() && !snipValueBad && !snipSaving);
+  const canSaveSnip = Boolean(region && snipText.trim() && !snipValueBad && !snipSaving);
 
   async function decide(state: "accepted" | "rejected" | "corrected") {
     if (!focus) return;
@@ -327,51 +384,87 @@ export function ReviewWorkbench({
               {snipShown ? <p className="text-mist-700">Box: {describeRegion(snipShown)}.</p> : <p className="text-mist-600">Drag on the page to draw the box.</p>}
               {tooSmall ? <p className="text-amber-800">That box is too small. Drag a larger one around the value.</p> : null}
               {region ? (
-              <div className="grid gap-2.5 sm:grid-cols-2">
-                <label className="flex flex-col gap-1 sm:col-span-2">
-                  Field
+              <div className="grid gap-3 sm:grid-cols-2 bg-mist-50/70 p-3 rounded-lg border border-mist-200">
+                {/* 1. Stream Selection */}
+                <div className="sm:col-span-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-semibold text-mist-900">1. Data Type / Stream</span>
+                    <span className="inline-flex items-center gap-1 text-[11px] text-teal-700 bg-teal-50 px-1.5 py-0.5 rounded font-medium border border-teal-200">
+                      <Sparkles className="h-3 w-3" /> AI Recommended
+                    </span>
+                  </div>
                   <select
-                    value={snipPath}
+                    value={snipStreamKey}
                     onChange={(e) => {
-                      setSnipPath(e.target.value);
-                      setSnipUnit(targets.find((t) => t.path === e.target.value)?.defaultUnit ?? "");
+                      const k = e.target.value;
+                      setSnipStreamKey(k);
+                      const s = CEMENT_STREAMS.find((st) => st.key === k);
+                      if (s) {
+                        setSnipUnit(s.standardUnit);
+                        setSnipPath(s.calcBindingPath);
+                      }
                     }}
-                    className="h-9 rounded border border-mist-300 bg-white px-2 text-[13px]"
+                    className="h-9 w-full rounded border border-mist-300 bg-white px-2 text-[13px] font-medium"
                   >
-                    <option value="">Choose the field this value belongs to</option>
-                    {targets.some(isMissing) ? (
-                      <optgroup label="Not found yet">
-                        {targets.filter(isMissing).map((t) => (
-                          <option key={t.path} value={t.path}>
-                            {t.label}
-                            {t.state === "group" ? " (one of these methods is needed)" : ""}
+                    {["production", "solid_fuel", "liquid_fuel", "electricity", "process"].map((cat) => (
+                      <optgroup key={cat} label={cat.toUpperCase().replace("_", " ")}>
+                        {CEMENT_STREAMS.filter((s) => s.category === cat).map((s) => (
+                          <option key={s.key} value={s.key}>
+                            {s.label} ({s.standardUnit}) {s.proformaRef ? `— ${s.proformaRef}` : ""}
                           </option>
                         ))}
                       </optgroup>
-                    ) : null}
-                    {targets.some((t) => !isMissing(t) && !isTaken(t)) ? (
-                      <optgroup label="Optional (counted as zero if not added)">
-                        {targets
-                          .filter((t) => !isMissing(t) && !isTaken(t))
-                          .map((t) => (
-                            <option key={t.path} value={t.path}>
-                              {t.label}
-                            </option>
-                          ))}
-                      </optgroup>
-                    ) : null}
-                    {targets.some(isTaken) ? (
-                      <optgroup label="Already in the ledger">
-                        {targets.filter(isTaken).map((t) => (
-                          <option key={t.path} value={t.path} disabled>
-                            {t.label}
-                            {t.state === "conflict" ? " (more than one value: fix it in the facts ledger)" : " (withdraw it in the facts ledger to replace it)"}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ) : null}
+                    ))}
                   </select>
-                </label>
+                </div>
+
+                {/* 2. Duration / Month */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-semibold text-mist-900">2. Duration / Month</span>
+                    <span className="text-[10px] text-mist-500 font-mono">12-Mo FY</span>
+                  </div>
+                  <select
+                    value={snipMonth}
+                    onChange={(e) => setSnipMonth(e.target.value)}
+                    className="h-9 w-full rounded border border-mist-300 bg-white px-2 text-[13px]"
+                  >
+                    {fiscalMonths.map((m) => (
+                      <option key={m.key} value={m.key}>
+                        {m.label} ({m.key})
+                      </option>
+                    ))}
+                    <option value="annual">Full Compliance Year (Annual)</option>
+                  </select>
+                </div>
+
+                {/* 3. Compulsory Source Layer */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-semibold text-mist-900">3. Source Layer (Mandatory)</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1">
+                    {[
+                      { type: "sourcing" as const, label: "[S] Sourcing", desc: "Bill / Slip", color: "text-blue-900 bg-blue-100 border-blue-400" },
+                      { type: "corroboration" as const, label: "[C] Corrob.", desc: "ERP / SCADA", color: "text-purple-900 bg-purple-100 border-purple-400" },
+                      { type: "proforma" as const, label: "[P] Pro Forma", desc: "Declared Ret.", color: "text-amber-900 bg-amber-100 border-amber-400" },
+                    ].map((btn) => (
+                      <button
+                        key={btn.type}
+                        type="button"
+                        onClick={() => setSnipSourceType(btn.type)}
+                        className={`rounded border px-1.5 py-1 text-center transition-colors ${
+                          snipSourceType === btn.type
+                            ? `${btn.color} font-bold shadow-xs ring-1 ring-mist-400`
+                            : "bg-white text-mist-600 border-mist-200 hover:bg-mist-50"
+                        }`}
+                      >
+                        <div className="text-[11px] leading-tight font-semibold">{btn.label}</div>
+                        <div className="text-[9px] text-mist-500 leading-tight">{btn.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <label className="flex flex-col gap-1">
                   Figure
                   <Input inputMode="decimal" value={snipValue} onChange={(e) => setSnipValue(e.target.value)} className="h-9 text-[13px]" />
@@ -409,9 +502,9 @@ export function ReviewWorkbench({
               <div className="flex flex-wrap items-center gap-3 pt-1">
                 <Button disabled={!canSaveSnip} onClick={() => void saveSnip()}>
                   <Scissors />
-                  {snipSaving ? "Adding…" : "Add to facts ledger"}
+                  {snipSaving ? "Adding…" : "Save to Stream Calendar & Facts"}
                 </Button>
-                <p className="text-mist-600">Name the field and type the figure. It goes to the facts ledger with this page and box, marked as entered by you.</p>
+                <p className="text-mist-600">Select the Stream, Duration, and Source Layer. It locks directly into the 12-Month Calendar with page & box provenance.</p>
               </div>
               ) : null}
             </div>
