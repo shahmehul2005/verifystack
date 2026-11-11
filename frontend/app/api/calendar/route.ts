@@ -38,6 +38,7 @@ const PostSchema = z.object({
   engagementId: z.string().uuid(),
   streamKey: z.string().min(1),
   monthKey: z.string().min(4), // "2023-04" or "annual"
+  readingDate: z.string().optional().nullable(), // e.g. "2023-05-12"
   sourceType: z.enum(["sourcing", "corroboration", "proforma"]),
   valueNumeric: z.number(),
   unit: z.string().optional().nullable(),

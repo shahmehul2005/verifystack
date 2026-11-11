@@ -120,3 +120,4 @@ def normalize_reading_value(
 
     # If already in target unit or unknown, return as-is
     return raw_value, target_unit
+

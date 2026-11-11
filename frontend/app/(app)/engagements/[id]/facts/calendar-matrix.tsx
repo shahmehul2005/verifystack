@@ -33,10 +33,17 @@ export function CalendarMatrix({ initialGrid, engagementId }: CalendarMatrixProp
   const [showCorroboration, setShowCorroboration] = useState(true);
   const [showProforma, setShowProforma] = useState(true);
   const [selectedCell, setSelectedCell] = useState<{
+    streamKey: string;
     streamLabel: string;
     unit: string;
     month: MonthCell;
   } | null>(null);
+  const [drawerView, setDrawerView] = useState<"summary" | "daily">("summary");
+  const [isAddingDaily, setIsAddingDaily] = useState(false);
+  const [dailyDate, setDailyDate] = useState("");
+  const [dailyValue, setDailyValue] = useState("");
+  const [dailySourceType, setDailySourceType] = useState<"sourcing" | "corroboration">("sourcing");
+  const [isSavingDaily, setIsSavingDaily] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
 
   // Excel Import State
@@ -46,6 +53,49 @@ export function CalendarMatrix({ initialGrid, engagementId }: CalendarMatrixProp
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleSaveDailyReading(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedCell || !dailyDate || !dailyValue) {
+      toast.error("Please provide both date and numerical value");
+      return;
+    }
+    const numVal = parseFloat(dailyValue.replace(/,/g, "").trim());
+    if (isNaN(numVal)) {
+      toast.error("Value must be a valid number");
+      return;
+    }
+
+    setIsSavingDaily(true);
+    try {
+      const res = await fetch("/api/calendar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          engagementId,
+          streamKey: selectedCell.streamKey,
+          monthKey: selectedCell.month.monthKey,
+          readingDate: dailyDate,
+          sourceType: dailySourceType,
+          valueNumeric: numVal,
+          unit: selectedCell.unit,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        toast.error(data.error || "Failed to save daily reading");
+        return;
+      }
+      toast.success(`Saved daily reading of ${numVal} ${selectedCell.unit} for ${dailyDate}`);
+      setIsAddingDaily(false);
+      setDailyValue("");
+      softReload();
+    } catch {
+      toast.error("Network error while saving daily reading");
+    } finally {
+      setIsSavingDaily(false);
+    }
+  }
 
   async function handleCommitRollups() {
     setIsCommitting(true);
@@ -345,10 +395,13 @@ export function CalendarMatrix({ initialGrid, engagementId }: CalendarMatrixProp
                                 onClick={() => {
                                   if (hasAny) {
                                     setSelectedCell({
+                                      streamKey: row.stream.key,
                                       streamLabel: row.stream.label,
                                       unit: row.stream.standardUnit,
                                       month,
                                     });
+                                    setDrawerView(month.dailyCount && month.dailyCount > 1 ? "daily" : "summary");
+                                    setDailyDate(month.startDate);
                                   }
                                 }}
                                 className={`p-1.5 text-center border-l border-mist-100 min-w-[72px] transition-colors ${
@@ -385,6 +438,16 @@ export function CalendarMatrix({ initialGrid, engagementId }: CalendarMatrixProp
                                       >
                                         {formatCompact(month.proforma.standardValue)}
                                       </div>
+                                    )}
+
+                                    {/* Daily Readings Count Badge */}
+                                    {month.dailyCount !== undefined && month.dailyCount > 1 && (
+                                      <span
+                                        className="inline-block px-1 rounded text-[8px] font-mono bg-teal-50 text-teal-800 border border-teal-200"
+                                        title={`${month.dailyCount} daily readings contribute to this month's total`}
+                                      >
+                                        {month.dailyCount} days
+                                      </span>
                                     )}
 
                                     {/* Variance Tag if applicable */}
@@ -635,65 +698,223 @@ export function CalendarMatrix({ initialGrid, engagementId }: CalendarMatrixProp
             </button>
           </div>
 
+          {/* Drawer Sub-Navigation: Summary vs Daily Breakdown */}
+          <div className="flex border-b border-mist-200 bg-mist-50/70 px-4">
+            <button
+              onClick={() => setDrawerView("summary")}
+              className={`px-3 py-2 text-xs font-semibold border-b-2 transition-colors ${
+                drawerView === "summary"
+                  ? "border-mist-900 text-mist-900"
+                  : "border-transparent text-mist-500 hover:text-mist-700"
+              }`}
+            >
+              Layer Summary
+            </button>
+            <button
+              onClick={() => setDrawerView("daily")}
+              className={`px-3 py-2 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
+                drawerView === "daily"
+                  ? "border-teal-700 text-teal-900 font-bold"
+                  : "border-transparent text-mist-500 hover:text-mist-700"
+              }`}
+            >
+              <span>Daily Breakdown</span>
+              <span className="rounded-full bg-mist-200 px-1.5 py-0.2 text-[10px] text-mist-700">
+                {selectedCell.month.allReadings?.length || 0}
+              </span>
+            </button>
+          </div>
+
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {/* Variance Header Card if multiple sources exist */}
-            {selectedCell.month.variancePercent !== null && (
-              <div
-                className={`rounded-lg border p-3 ${
-                  selectedCell.month.hasVarianceAlert
-                    ? "bg-rose-50 border-rose-200 text-rose-900"
-                    : "bg-emerald-50 border-emerald-200 text-emerald-900"
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  {selectedCell.month.hasVarianceAlert ? (
-                    <AlertTriangle className="h-4 w-4 text-rose-600" />
-                  ) : (
-                    <Check className="h-4 w-4 text-emerald-600" />
-                  )}
-                  <span className="font-semibold text-xs">
-                    Cross-Source Variance: {selectedCell.month.variancePercent}%
+            {drawerView === "summary" ? (
+              <>
+                {/* Variance Header Card if multiple sources exist */}
+                {selectedCell.month.variancePercent !== null && (
+                  <div
+                    className={`rounded-lg border p-3 ${
+                      selectedCell.month.hasVarianceAlert
+                        ? "bg-rose-50 border-rose-200 text-rose-900"
+                        : "bg-emerald-50 border-emerald-200 text-emerald-900"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      {selectedCell.month.hasVarianceAlert ? (
+                        <AlertTriangle className="h-4 w-4 text-rose-600" />
+                      ) : (
+                        <Check className="h-4 w-4 text-emerald-600" />
+                      )}
+                      <span className="font-semibold text-xs">
+                        Cross-Source Variance: {selectedCell.month.variancePercent}%
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[11px] leading-relaxed">
+                      {selectedCell.month.hasVarianceAlert
+                        ? "Discrepancy exceeds 5% between uploaded evidence sources. Auditor review required."
+                        : "Sources agree within acceptable industrial verification tolerance (≤5%)."}
+                    </p>
+                  </div>
+                )}
+
+                {/* Sourcing Evidence */}
+                {selectedCell.month.sourcing && (
+                  <ReadingEvidenceCard
+                    title="Primary Sourcing"
+                    badgeText="Sourcing"
+                    badgeColor="bg-blue-100 text-blue-800"
+                    reading={selectedCell.month.sourcing}
+                    unit={selectedCell.unit}
+                  />
+                )}
+
+                {/* Corroboration Evidence */}
+                {selectedCell.month.corroboration && (
+                  <ReadingEvidenceCard
+                    title="Internal Operational Record"
+                    badgeText="Corroboration"
+                    badgeColor="bg-purple-100 text-purple-800"
+                    reading={selectedCell.month.corroboration}
+                    unit={selectedCell.unit}
+                  />
+                )}
+
+                {/* Pro Forma Evidence */}
+                {selectedCell.month.proforma && (
+                  <ReadingEvidenceCard
+                    title="Declared Pro Forma"
+                    badgeText="Pro Forma"
+                    badgeColor="bg-amber-100 text-amber-800"
+                    reading={selectedCell.month.proforma}
+                    unit={selectedCell.unit}
+                  />
+                )}
+              </>
+            ) : (
+              /* Daily Breakdown View */
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-mist-900">
+                    Day-by-Day Timeline ({selectedCell.month.allReadings?.length || 0} readings)
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingDaily(!isAddingDaily)}
+                    className="text-xs font-semibold text-teal-700 hover:text-teal-900"
+                  >
+                    {isAddingDaily ? "Cancel" : "+ Add Daily Reading"}
+                  </button>
                 </div>
-                <p className="mt-1 text-[11px] leading-relaxed">
-                  {selectedCell.month.hasVarianceAlert
-                    ? "Discrepancy exceeds 5% between uploaded evidence sources. Auditor review required."
-                    : "Sources agree within acceptable industrial verification tolerance (≤5%)."}
-                </p>
+
+                {/* Inline Add Daily Reading Form */}
+                {isAddingDaily && (
+                  <form onSubmit={handleSaveDailyReading} className="rounded-lg border border-teal-200 bg-teal-50/50 p-3 space-y-3">
+                    <p className="text-xs font-semibold text-teal-900">Record Single-Day Reading</p>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <label className="block text-[11px] font-medium text-mist-700 mb-0.5">Date (YYYY-MM-DD):</label>
+                        <input
+                          type="date"
+                          required
+                          value={dailyDate}
+                          onChange={(e) => setDailyDate(e.target.value)}
+                          className="w-full rounded border border-mist-300 bg-white p-1 text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-medium text-mist-700 mb-0.5">Value ({selectedCell.unit}):</label>
+                        <input
+                          type="number"
+                          step="any"
+                          required
+                          placeholder="e.g. 150.5"
+                          value={dailyValue}
+                          onChange={(e) => setDailyValue(e.target.value)}
+                          className="w-full rounded border border-mist-300 bg-white p-1 text-xs"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between pt-1">
+                      <div className="flex items-center gap-3 text-xs">
+                        <label className="flex items-center gap-1 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="drawerDailySource"
+                            value="sourcing"
+                            checked={dailySourceType === "sourcing"}
+                            onChange={() => setDailySourceType("sourcing")}
+                          />
+                          <span>[S] Sourcing</span>
+                        </label>
+                        <label className="flex items-center gap-1 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="drawerDailySource"
+                            value="corroboration"
+                            checked={dailySourceType === "corroboration"}
+                            onChange={() => setDailySourceType("corroboration")}
+                          />
+                          <span>[C] Corrob.</span>
+                        </label>
+                      </div>
+                      <Button type="submit" size="sm" variant="primary" disabled={isSavingDaily} className="text-xs">
+                        {isSavingDaily ? "Saving..." : "Save Reading"}
+                      </Button>
+                    </div>
+                  </form>
+                )}
+
+                {/* List of Granular Readings */}
+                {selectedCell.month.allReadings && selectedCell.month.allReadings.length > 0 ? (
+                  <div className="space-y-2">
+                    {selectedCell.month.allReadings.map((r, idx) => (
+                      <div
+                        key={r.id || idx}
+                        className="rounded-lg border border-mist-200 bg-white p-3 shadow-xs hover:border-mist-300 transition-colors space-y-1.5"
+                      >
+                        <div className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-mist-900 font-mono">
+                              {r.readingDate || r.startDate || selectedCell.month.monthKey}
+                            </span>
+                            <span
+                              className={`px-1.5 py-0.2 rounded text-[10px] font-semibold ${
+                                r.sourceType === "sourcing"
+                                  ? "bg-blue-100 text-blue-800"
+                                  : r.sourceType === "corroboration"
+                                  ? "bg-purple-100 text-purple-800"
+                                  : "bg-amber-100 text-amber-800"
+                              }`}
+                            >
+                              [{r.sourceType[0].toUpperCase()}] {r.sourceType}
+                            </span>
+                          </div>
+                          <span className="font-mono font-bold text-mist-900">
+                            {r.standardValue.toLocaleString("en-IN", { maximumFractionDigits: 2 })} {selectedCell.unit}
+                          </span>
+                        </div>
+
+                        {r.documentName && (
+                          <div className="flex items-center justify-between text-[11px] text-mist-500">
+                            <span className="truncate max-w-[280px]" title={r.documentName}>
+                              📄 {r.documentName}
+                            </span>
+                            {r.provenancePage && <span>p. {r.provenancePage}</span>}
+                          </div>
+                        )}
+
+                        {r.provenanceSourceText && (
+                          <div className="rounded bg-mist-50 p-1.5 text-[10px] font-mono text-mist-700 truncate border border-mist-100">
+                            {r.provenanceSourceText}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-mist-500 italic py-4 text-center">
+                    No individual daily readings recorded for this month yet. Use &apos;+ Add Daily Reading&apos; or Workbench to snip daily records.
+                  </p>
+                )}
               </div>
-            )}
-
-            {/* Sourcing Evidence */}
-            {selectedCell.month.sourcing && (
-              <ReadingEvidenceCard
-                title="Primary Sourcing"
-                badgeText="Sourcing"
-                badgeColor="bg-blue-100 text-blue-800"
-                reading={selectedCell.month.sourcing}
-                unit={selectedCell.unit}
-              />
-            )}
-
-            {/* Corroboration Evidence */}
-            {selectedCell.month.corroboration && (
-              <ReadingEvidenceCard
-                title="Internal Operational Record"
-                badgeText="Corroboration"
-                badgeColor="bg-purple-100 text-purple-800"
-                reading={selectedCell.month.corroboration}
-                unit={selectedCell.unit}
-              />
-            )}
-
-            {/* Pro Forma Evidence */}
-            {selectedCell.month.proforma && (
-              <ReadingEvidenceCard
-                title="Declared Pro Forma"
-                badgeText="Pro Forma"
-                badgeColor="bg-amber-100 text-amber-800"
-                reading={selectedCell.month.proforma}
-                unit={selectedCell.unit}
-              />
             )}
           </div>
         </div>

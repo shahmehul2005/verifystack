@@ -22,6 +22,7 @@ const Body = z.object({
   fieldPath: z.string().min(1).max(200),
   streamKey: z.string().optional(),
   monthKey: z.string().optional(),
+  readingDate: z.string().optional().nullable(),
   sourceType: z.enum(["sourcing", "corroboration", "proforma"]).optional(),
   /** The figure as typed. Every field the packs bind is a quantity, so it must be a number. */
   value: z.union([z.number(), z.string()]),
@@ -92,6 +93,7 @@ export async function POST(req: Request) {
       organizationId,
       streamKey: resolvedStreamKey,
       monthKey: resolvedMonthKey,
+      readingDate: body.readingDate,
       sourceType: resolvedSourceType,
       valueNumeric: value,
       unit: body.unit,

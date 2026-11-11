@@ -162,6 +162,12 @@ export async function loadCalendarGridForEngagement(
       row.standard_value ??
       normalizeStreamValue(rawVal, rawUnit, streamDef.standardUnit);
 
+    const isDaily =
+      row.period_kind === "daily" ||
+      row.period_kind === "single_reading" ||
+      (row.period_start !== null && row.period_start === row.period_end);
+    const readingDate = isDaily ? row.period_start : null;
+
     readings.push({
       id: row.id,
       engagementId,
@@ -169,6 +175,8 @@ export async function loadCalendarGridForEngagement(
       monthKey,
       startDate: row.period_start ?? `${monthKey}-01`,
       endDate: row.period_end ?? `${monthKey}-28`,
+      periodKind: (row.period_kind as any) ?? (isDaily ? "daily" : "monthly"),
+      readingDate,
       sourceType,
       valueNumeric: rawVal,
       unit: rawUnit,
@@ -217,9 +225,69 @@ export async function loadCalendarGridForEngagement(
 
     const monthsCells: MonthCell[] = months.map((m) => {
       const monthReadings = streamReadings.filter((r) => r.monthKey === m.key);
-      const sourcing = monthReadings.find((r) => r.sourceType === "sourcing");
-      const corroboration = monthReadings.find((r) => r.sourceType === "corroboration");
-      const proforma = monthReadings.find((r) => r.sourceType === "proforma");
+      const dailyReadings = monthReadings.filter(
+        (r) => r.periodKind === "daily" || r.periodKind === "single_reading" || (r.startDate && r.startDate === r.endDate)
+      );
+
+      // Helper to resolve layer reading: if multiple daily readings exist and no single monthly bill, aggregate them!
+      function resolveLayerReading(layer: SourceType): CalendarReading | undefined {
+        const layerReadings = monthReadings.filter((r) => r.sourceType === layer);
+        if (layerReadings.length === 0) return undefined;
+
+        // Check if there is an explicit monthly bill/summary
+        const monthlySummary = layerReadings.find((r) => r.periodKind === "monthly" || r.periodKind === "quarterly");
+        if (monthlySummary && layerReadings.length === 1) return monthlySummary;
+
+        // If multiple readings exist (or only daily readings exist), aggregate them!
+        const dailyOrGranular = layerReadings.filter((r) => r !== monthlySummary);
+        if (dailyOrGranular.length > 1 || (dailyOrGranular.length === 1 && !monthlySummary)) {
+          if (stream.aggregation === "sum") {
+            const totalVal = dailyOrGranular.reduce((acc, cur) => acc + cur.standardValue, 0);
+            return {
+              id: `rollup-${layer}-${m.key}`,
+              engagementId,
+              streamKey: stream.key,
+              monthKey: m.key,
+              startDate: m.startDate,
+              endDate: m.endDate,
+              periodKind: "monthly",
+              sourceType: layer,
+              valueNumeric: totalVal,
+              unit: stream.standardUnit,
+              standardValue: totalVal,
+              standardUnit: stream.standardUnit,
+              documentName: `${dailyOrGranular.length} daily reading(s)`,
+              provenanceSourceText: `Sum of ${dailyOrGranular.length} daily readings: ${totalVal.toLocaleString()} ${stream.standardUnit}`,
+              state: "accepted",
+            };
+          } else if (stream.aggregation === "weighted_mean") {
+            const avgVal = dailyOrGranular.reduce((acc, cur) => acc + cur.standardValue, 0) / dailyOrGranular.length;
+            return {
+              id: `rollup-${layer}-${m.key}`,
+              engagementId,
+              streamKey: stream.key,
+              monthKey: m.key,
+              startDate: m.startDate,
+              endDate: m.endDate,
+              periodKind: "monthly",
+              sourceType: layer,
+              valueNumeric: Math.round(avgVal * 10) / 10,
+              unit: stream.standardUnit,
+              standardValue: Math.round(avgVal * 10) / 10,
+              standardUnit: stream.standardUnit,
+              documentName: `${dailyOrGranular.length} daily reading(s) (Avg)`,
+              provenanceSourceText: `Average of ${dailyOrGranular.length} daily readings: ${avgVal.toFixed(1)} ${stream.standardUnit}`,
+              state: "accepted",
+            };
+          }
+        }
+
+        return monthlySummary || layerReadings[0];
+      }
+
+      const sourcing = resolveLayerReading("sourcing");
+      const corroboration = resolveLayerReading("corroboration");
+      const proforma = resolveLayerReading("proforma");
 
       const { variancePercent, hasVarianceAlert } = computeCellVariance({
         sourcing,
@@ -239,6 +307,9 @@ export async function loadCalendarGridForEngagement(
         sourcing,
         corroboration,
         proforma,
+        allReadings: monthReadings,
+        dailyReadings,
+        dailyCount: dailyReadings.length,
         variancePercent,
         hasVarianceAlert,
         isComplete,
@@ -299,6 +370,7 @@ export async function saveCalendarReading(
     organizationId: string;
     streamKey: string;
     monthKey: string; // "2023-04" or "annual"
+    readingDate?: string | null; // e.g. "2023-05-12" for single day readings
     sourceType: SourceType;
     valueNumeric: number;
     unit?: string | null;
@@ -317,11 +389,15 @@ export async function saveCalendarReading(
   const unit = params.unit || streamDef.standardUnit;
   const standardVal = normalizeStreamValue(params.valueNumeric, unit, streamDef.standardUnit);
 
-  const periodKind: "monthly" | "annual" = params.monthKey === "annual" ? "annual" : "monthly";
+  let periodKind: "daily" | "monthly" | "annual" = params.monthKey === "annual" ? "annual" : "monthly";
   let startDate = `${params.monthKey}-01`;
   let endDate = `${params.monthKey}-28`;
 
-  if (params.monthKey === "annual") {
+  if (params.readingDate) {
+    periodKind = "daily";
+    startDate = params.readingDate;
+    endDate = params.readingDate;
+  } else if (params.monthKey === "annual") {
     startDate = "2023-04-01";
     endDate = "2024-03-31";
   }
@@ -334,7 +410,9 @@ export async function saveCalendarReading(
     .update(`${params.streamKey}|${params.monthKey}|${params.sourceType}|${standardVal}|${streamDef.standardUnit}`)
     .digest("hex");
 
-  const canonicalKey = `${streamDef.key}#${params.sourceType}`;
+  const canonicalKey = params.readingDate
+    ? `${streamDef.key}#${params.sourceType}#${params.readingDate}`
+    : `${streamDef.key}#${params.sourceType}`;
   const registryVersion = `source_type:${params.sourceType}`;
 
   const { data, error } = await supabase

@@ -72,3 +72,4 @@ def extract_pdf_pages_with_layout(pdf_bytes: bytes) -> List[Dict[str, Any]]:
             })
 
     return results
+

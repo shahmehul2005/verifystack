@@ -53,6 +53,8 @@ export interface CalendarReading {
   monthKey: string; // "2023-04" or "annual"
   startDate: string;
   endDate: string;
+  periodKind?: "single_reading" | "daily" | "monthly" | "quarterly" | "annual";
+  readingDate?: string | null; // e.g. "2023-05-12"
   sourceType: SourceType;
   valueNumeric: number;
   unit: string;
@@ -77,6 +79,11 @@ export interface MonthCell {
   sourcing?: CalendarReading;
   corroboration?: CalendarReading;
   proforma?: CalendarReading;
+  /** All granular readings (daily, monthly, single-reading) belonging to this month */
+  allReadings?: CalendarReading[];
+  /** Specific daily or single-day readings */
+  dailyReadings?: CalendarReading[];
+  dailyCount?: number;
   /** Percentage variance between available sources, e.g. |sourcing - corroboration| / sourcing * 100 */
   variancePercent?: number | null;
   /** High variance (> 5%) flagged for audit attention */

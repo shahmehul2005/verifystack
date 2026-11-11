@@ -159,4 +159,38 @@ describe("Calendar Domain - Rollup & Variance Calculation", () => {
     const rollup = computeAnnualRollup(gcvStream, cells, undefined, weights);
     expect(rollup.value).toBe(4300);
   });
+
+  it("supports daily readings and aggregation in MonthCell", () => {
+    const daily1: CalendarReading = {
+      ...dummyReading(500, "sourcing"),
+      id: "d1",
+      periodKind: "daily",
+      readingDate: "2023-04-10",
+      startDate: "2023-04-10",
+      endDate: "2023-04-10",
+    };
+    const daily2: CalendarReading = {
+      ...dummyReading(750, "sourcing"),
+      id: "d2",
+      periodKind: "daily",
+      readingDate: "2023-04-20",
+      startDate: "2023-04-20",
+      endDate: "2023-04-20",
+    };
+
+    const cell: MonthCell = {
+      monthKey: "2023-04",
+      label: "Apr 2023",
+      startDate: "2023-04-01",
+      endDate: "2023-04-30",
+      dailyReadings: [daily1, daily2],
+      dailyCount: 2,
+      isComplete: true,
+    };
+
+    expect(cell.dailyCount).toBe(2);
+    expect(cell.dailyReadings).toHaveLength(2);
+    expect(cell.dailyReadings?.[0].readingDate).toBe("2023-04-10");
+    expect(cell.dailyReadings?.[1].readingDate).toBe("2023-04-20");
+  });
 });
