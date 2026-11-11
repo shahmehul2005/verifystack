@@ -63,7 +63,14 @@ export interface CalendarReading {
   documentId?: string | null;
   documentName?: string | null;
   provenancePage?: number | null;
-  provenanceBbox?: { x: number; y: number; width: number; height: number } | null;
+  provenanceBbox?: {
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+    sheet?: string;
+    cellRef?: string;
+  } | null;
   provenanceSourceText?: string | null;
   inputHash?: string | null;
   state: "suggested" | "accepted" | "corrected";

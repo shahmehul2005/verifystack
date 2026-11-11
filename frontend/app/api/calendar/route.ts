@@ -34,7 +34,7 @@ export async function GET(req: Request) {
   }
 }
 
-const PostSchema = z.object({
+const PostItemSchema = z.object({
   engagementId: z.string().uuid(),
   streamKey: z.string().min(1),
   monthKey: z.string().min(4), // "2023-04" or "annual"
@@ -46,15 +46,25 @@ const PostSchema = z.object({
   provenancePage: z.number().int().optional().nullable(),
   provenanceBbox: z
     .object({
-      x: z.number(),
-      y: z.number(),
-      width: z.number(),
-      height: z.number(),
+      x: z.number().optional(),
+      y: z.number().optional(),
+      width: z.number().optional(),
+      height: z.number().optional(),
+      sheet: z.string().optional(),
+      cellRef: z.string().optional(),
     })
+    .passthrough()
     .optional()
     .nullable(),
   provenanceSourceText: z.string().optional().nullable(),
 });
+
+const PostSchema = z.union([
+  PostItemSchema,
+  z.object({
+    items: z.array(PostItemSchema).min(1).max(200),
+  }),
+]);
 
 export async function POST(req: Request) {
   try {
@@ -75,17 +85,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Database not configured" }, { status: 503 });
     }
 
-    const res = await saveCalendarReading(supabase, {
-      ...parsed.data,
-      organizationId,
-      reviewedBy: session.user.id,
-    });
+    const items = "items" in parsed.data ? parsed.data.items : [parsed.data];
+    const createdIds: string[] = [];
 
-    if (!res.ok) {
-      return NextResponse.json({ ok: false, error: res.error }, { status: 400 });
+    for (const item of items) {
+      const res = await saveCalendarReading(supabase, {
+        ...item,
+        organizationId,
+        reviewedBy: session.user.id,
+      });
+
+      if (!res.ok) {
+        return NextResponse.json({ ok: false, error: res.error, createdCount: createdIds.length }, { status: 400 });
+      }
+      if (res.id) {
+        createdIds.push(res.id);
+      }
     }
 
-    return NextResponse.json({ ok: true, id: res.id });
+    return NextResponse.json({ ok: true, id: createdIds[0] ?? null, count: createdIds.length, ids: createdIds });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });

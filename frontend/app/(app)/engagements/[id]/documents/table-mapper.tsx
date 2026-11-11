@@ -1,12 +1,18 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Database, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Alert } from "@/components/ui/alert";
+import { useSoftReload } from "@/lib/soft-reload";
+import {
+  CEMENT_STREAMS,
+  getFiscalMonths,
+  getStreamDefinition,
+  type SourceType,
+} from "@verifystack/backend/domain/calendar/index";
 
 export interface DatasetView {
   id: string;
@@ -51,129 +57,173 @@ function colLetters(n: number): string {
   return s;
 }
 
-const AGGREGATIONS = ["sum", "mean", "min", "max", "last", "count"] as const;
-
 interface CellRow {
   sheet: string;
   cellRef: string;
-  fieldPath: string;
-  unit: string;
-}
-interface RangeRow {
-  tag: string;
-  start: string;
-  end: string;
-  aggregation: (typeof AGGREGATIONS)[number];
-  fieldPath: string;
+  cellValue: string;
+  streamKey: string;
+  monthKey: string;
+  readingDate?: string;
+  sourceType: SourceType;
   unit: string;
 }
 
-/**
- * Map spreadsheet cells or time-series windows to proposed values. Nothing here
- * produces a number: the server re-reads the stored file and the proposals still
- * go through the review queue.
- */
 export function TableMapper({
   documentId,
+  engagementId,
   datasets,
-  targets,
+  targets: _targets = [],
 }: {
   documentId: string;
+  engagementId?: string;
   datasets: DatasetView[];
-  targets: TargetOption[];
+  targets?: TargetOption[];
 }) {
+  const { softReload } = useSoftReload();
   const sheets = datasets.filter((d) => d.kind === "spreadsheet");
   const series = datasets.find((d) => d.kind === "time_series");
   const tags = ((series?.summary as { tags?: TagSummary[] } | undefined)?.tags ?? []) as TagSummary[];
   const warnings = ((series?.summary as { warnings?: string[] } | undefined)?.warnings ?? []) as string[];
-  const offset = (series?.summary as { assumedOffsetMinutes?: number } | undefined)?.assumedOffsetMinutes;
+  const _offset = (series?.summary as { assumedOffsetMinutes?: number } | undefined)?.assumedOffsetMinutes;
+
+  const fiscalMonths = useMemo(() => getFiscalMonths("FY2023-24"), []);
 
   const [cells, setCells] = useState<CellRow[]>([
-    { sheet: sheets[0]?.name ?? "", cellRef: "", fieldPath: "", unit: "" },
+    {
+      sheet: sheets[0]?.name ?? "",
+      cellRef: "",
+      cellValue: "",
+      streamKey: "coal_quantity",
+      monthKey: "2023-04",
+      sourceType: "corroboration",
+      unit: "t",
+    },
   ]);
-  const [ranges, setRanges] = useState<RangeRow[]>([
-    { tag: tags[0]?.tag ?? "", start: "", end: "", aggregation: "sum", fieldPath: "", unit: "" },
-  ]);
-  const router = useRouter();
+
   const [pending, setPending] = useState(false);
-  const [problems, setProblems] = useState<string[]>([]);
 
-  function pickTarget(path: string, apply: (unit: string) => void) {
-    const t = targets.find((x) => x.path === path);
-    if (t) apply(t.defaultUnit);
-  }
-
-  /** Click-to-map: a clicked cell fills the first empty row, or adds one. */
-  function pickCell(sheet: string, cellRef: string) {
+  /** Click-to-map: clicking a cell populates/updates a row */
+  function pickCell(sheet: string, cellRef: string, val: string | number | boolean | null) {
+    const stringVal = val === null || val === undefined ? "" : String(val);
     setCells((cur) => {
-      const already = cur.some((x) => x.sheet === sheet && x.cellRef === cellRef);
-      if (already) return cur.filter((x) => !(x.sheet === sheet && x.cellRef === cellRef));
+      const alreadyIndex = cur.findIndex((x) => x.sheet === sheet && x.cellRef === cellRef);
+      if (alreadyIndex >= 0) {
+        // Toggle off if already in list and more than 1 row
+        if (cur.length > 1) {
+          return cur.filter((_, idx) => idx !== alreadyIndex);
+        }
+        return [{ ...cur[0], cellRef: "", cellValue: "" }];
+      }
       const empty = cur.findIndex((x) => !x.cellRef);
-      if (empty >= 0) return cur.map((x, j) => (j === empty ? { ...x, sheet, cellRef } : x));
-      return [...cur, { sheet, cellRef, fieldPath: "", unit: "" }];
+      if (empty >= 0) {
+        return cur.map((x, j) =>
+          j === empty ? { ...x, sheet, cellRef, cellValue: stringVal } : x
+        );
+      }
+      return [
+        ...cur,
+        {
+          sheet,
+          cellRef,
+          cellValue: stringVal,
+          streamKey: "coal_quantity",
+          monthKey: "2023-04",
+          sourceType: "corroboration",
+          unit: "t",
+        },
+      ];
     });
   }
+
   const chosen = new Set(cells.map((c) => `${c.sheet}!${c.cellRef}`));
 
-  async function submit(body: unknown) {
-    setPending(true);
-    setProblems([]);
-    const res = await fetch(`/api/documents/${documentId}/propose`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const json = (await res.json().catch(() => ({}))) as {
-      ok?: boolean;
-      error?: string;
-      created?: number;
-      rejected?: { index: number; reason: string }[];
-    };
-    setPending(false);
-    if (!res.ok || !json.ok) {
-      toast.error(json.error ?? `Failed (${res.status})`);
-      setProblems([json.error ?? "The request failed."]);
+  async function handleSaveCalendarReadings() {
+    if (!engagementId) {
+      toast.error("Engagement ID missing for saving calendar readings");
       return;
     }
-    setProblems((json.rejected ?? []).map((r) => `Row ${r.index + 1}: ${r.reason}`));
-    if ((json.created ?? 0) > 0) {
-      toast.success(`${json.created} proposed value(s) added to the review queue`);
+
+    const validCells = cells.filter((c) => c.cellRef.trim() && c.cellValue.trim());
+    if (validCells.length === 0) {
+      toast.error("Please select or enter cell coordinates and values.");
+      return;
     }
-    if ((json.created ?? 0) > 0 && (json.rejected ?? []).length === 0) {
-      router.push("/review-queue");
+
+    setPending(true);
+    try {
+      const items = validCells.map((c) => {
+        const streamDef = getStreamDefinition(c.streamKey);
+        const numericVal = Number(c.cellValue.replace(/,/g, "").trim());
+        return {
+          engagementId,
+          documentId,
+          streamKey: c.streamKey,
+          monthKey: c.monthKey,
+          readingDate: c.readingDate || null,
+          sourceType: c.sourceType,
+          valueNumeric: isNaN(numericVal) ? 0 : numericVal,
+          unit: c.unit || streamDef?.standardUnit || "t",
+          provenancePage: 1,
+          provenanceBbox: {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+            sheet: c.sheet,
+            cellRef: c.cellRef,
+          },
+          provenanceSourceText: `Cell ${c.cellRef} in sheet '${c.sheet}': ${c.cellValue}`,
+        };
+      });
+
+      const res = await fetch("/api/calendar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        toast.error(json.error ?? "Failed to save calendar readings");
+        return;
+      }
+
+      toast.success(
+        `Saved ${json.count ?? items.length} reading(s) directly to Stream Calendar & Facts!`
+      );
+      softReload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error saving cells");
+    } finally {
+      setPending(false);
     }
   }
 
-  const paths = (
-    <datalist id={`targets-${documentId}`}>
-      {targets.map((t) => (
-        <option key={t.path} value={t.path}>
-          {t.label}
-        </option>
-      ))}
-    </datalist>
-  );
-
   return (
-    <div className="space-y-6 border-t border-mist-100 bg-mist-50/50 px-4 py-4">
-      {paths}
+    <div className="space-y-6 border-t border-mist-200 bg-mist-50/70 p-4 rounded-b-lg">
       {sheets.map((d) => {
         const p = d.summary as Preview;
         return (
-          <div key={d.id}>
-            <p className="mb-1.5 text-[13px] font-medium text-mist-900">
-              Sheet <span className="font-mono">{d.name}</span>
-              <span className="ml-2 text-xs font-normal text-mist-500">
-                {p.rowCount} rows x {p.colCount} columns{p.truncated ? " (preview only)" : ""}
+          <div key={d.id} className="space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-[13px] font-semibold text-mist-900">
+                Sheet: <span className="font-mono text-teal-800">{d.name}</span>
+                <span className="ml-2 text-xs font-normal text-mist-500">
+                  ({p.rowCount} rows × {p.colCount} cols{p.truncated ? ", preview" : ""})
+                </span>
+              </p>
+              <span className="text-[11px] text-mist-500">
+                Click any cell to map it into the Stream Calendar
               </span>
-            </p>
-            <div className="max-h-64 overflow-auto rounded-md border border-mist-200 bg-white">
+            </div>
+
+            <div className="max-h-64 overflow-auto rounded-md border border-mist-200 bg-white shadow-xs">
               <table className="min-w-full text-xs">
-                <thead className="sticky top-0 bg-mist-100 text-mist-600">
+                <thead className="sticky top-0 bg-mist-100 text-mist-700 z-10">
                   <tr>
-                    <th className="px-2 py-1 text-left font-medium" />
+                    <th className="px-2 py-1 text-left font-medium w-10" />
                     {(p.rows[0] ?? []).map((_, c) => (
-                      <th key={c} className="px-2 py-1 text-left font-mono font-medium">
+                      <th key={c} className="px-2 py-1 text-left font-mono font-medium min-w-[70px]">
                         {colLetters(c + 1)}
                       </th>
                     ))}
@@ -182,7 +232,9 @@ export function TableMapper({
                 <tbody>
                   {p.rows.map((row, r) => (
                     <tr key={r} className="border-t border-mist-100">
-                      <td className="bg-mist-50 px-2 py-1 font-mono text-mist-500">{r + 1}</td>
+                      <td className="bg-mist-50 px-2 py-1 font-mono text-mist-500 select-none text-[11px]">
+                        {r + 1}
+                      </td>
                       {row.map((v, c) => {
                         const ref = `${colLetters(c + 1)}${r + 1}`;
                         const on = chosen.has(`${d.name}!${ref}`);
@@ -192,17 +244,12 @@ export function TableMapper({
                             role="button"
                             tabIndex={0}
                             aria-pressed={on}
-                            aria-label={`Cell ${ref} on ${d.name}`}
                             title={`${ref}: ${v === null ? "(empty)" : String(v)}`}
-                            onClick={() => pickCell(d.name, ref)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault();
-                                pickCell(d.name, ref);
-                              }
-                            }}
-                            className={`max-w-48 cursor-pointer truncate px-2 py-1 text-mist-800 hover:bg-teal-50 ${
-                              on ? "bg-teal-100 font-medium text-teal-900 ring-1 ring-inset ring-teal-500" : ""
+                            onClick={() => pickCell(d.name, ref, v)}
+                            className={`max-w-48 cursor-pointer truncate px-2 py-1 transition-colors select-none ${
+                              on
+                                ? "bg-teal-100 font-semibold text-teal-950 ring-1 ring-inset ring-teal-600"
+                                : "text-mist-800 hover:bg-mist-100"
                             }`}
                           >
                             {v === null ? "" : String(v)}
@@ -218,121 +265,240 @@ export function TableMapper({
         );
       })}
 
-      {sheets.length > 0 ? (
-        <div>
-          <p className="mb-1 text-[13px] font-medium text-mist-900">Propose values from cells</p>
-          <p className="mb-3 max-w-2xl text-xs leading-relaxed text-mist-600">
-            Click cells in a sheet above to add them here (click again to remove). Choose the field each cell feeds.
-            <span className="font-medium text-mist-800"> Propose for review</span> sends every row to the review queue
-            as a proposed value, with its sheet and cell as the source. A proposal is not used in any calculation
-            until someone accepts it there. Cells beyond the preview can be typed in by hand.
-          </p>
-          <div className="space-y-2">
-            {cells.map((row, i) => (
-              <div key={i} className="grid grid-cols-2 gap-2 sm:grid-cols-[1fr_6rem_1.4fr_5rem_auto]">
-                <Select
-                  aria-label="Sheet"
-                  value={row.sheet}
-                  onChange={(e) => setCells(cells.map((x, j) => (j === i ? { ...x, sheet: e.target.value } : x)))}
-                >
-                  {sheets.map((s) => (
-                    <option key={s.id} value={s.name}>
-                      {s.name}
-                    </option>
-                  ))}
-                </Select>
-                <Input
-                  aria-label="Cell"
-                  placeholder="B7"
-                  value={row.cellRef}
-                  onChange={(e) =>
-                    setCells(cells.map((x, j) => (j === i ? { ...x, cellRef: e.target.value.toUpperCase() } : x)))
-                  }
-                />
-                <Input
-                  aria-label="Field path"
-                  list={`targets-${documentId}`}
-                  placeholder="coal.quantity"
-                  value={row.fieldPath}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setCells(cells.map((x, j) => (j === i ? { ...x, fieldPath: v } : x)));
-                    pickTarget(v, (unit) =>
-                      setCells((cur) => cur.map((x, j) => (j === i && !x.unit ? { ...x, unit } : x)))
-                    );
-                  }}
-                />
-                <Input
-                  aria-label="Unit"
-                  placeholder="unit"
-                  value={row.unit}
-                  onChange={(e) => setCells(cells.map((x, j) => (j === i ? { ...x, unit: e.target.value } : x)))}
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label="Remove row"
-                  disabled={cells.length === 1}
-                  onClick={() => setCells(cells.filter((_, j) => j !== i))}
-                >
-                  <Trash2 />
-                </Button>
-              </div>
-            ))}
-          </div>
-          <div className="mt-3 flex gap-2">
+      {sheets.length > 0 && (
+        <div className="rounded-lg border border-mist-200 bg-white p-4 shadow-xs space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="text-sm font-semibold text-mist-900 flex items-center gap-1.5">
+                <Database className="h-4 w-4 text-teal-600" />
+                Selected Cells Data Entry (Stream Calendar &amp; Facts)
+              </h4>
+              <p className="text-xs text-mist-600 mt-0.5">
+                Assign each selected cell to a BEE PAT-2 Stream, Duration (Month/Year), and Mandatory Source Layer.
+              </p>
+            </div>
             <Button
               variant="secondary"
               size="sm"
               onClick={() =>
-                setCells([...cells, { sheet: sheets[0]?.name ?? "", cellRef: "", fieldPath: "", unit: "" }])
+                setCells([
+                  ...cells,
+                  {
+                    sheet: sheets[0]?.name ?? "",
+                    cellRef: "",
+                    cellValue: "",
+                    streamKey: "coal_quantity",
+                    monthKey: "2023-04",
+                    sourceType: "corroboration",
+                    unit: "t",
+                  },
+                ])
               }
+              className="text-xs"
             >
-              <Plus /> Add cell
+              <Plus className="h-3.5 w-3.5" /> Add Row
             </Button>
+          </div>
+
+          <div className="space-y-2.5">
+            {cells.map((row, i) => (
+              <div
+                key={i}
+                className="grid grid-cols-1 gap-2 rounded-lg border border-mist-200 bg-mist-50/50 p-2.5 sm:grid-cols-[6rem_5rem_6rem_1.4fr_8rem_9rem_5rem_auto] items-center"
+              >
+                {/* Sheet */}
+                <div>
+                  <label className="text-[10px] font-medium text-mist-500 uppercase block mb-0.5">Sheet</label>
+                  <Select
+                    value={row.sheet}
+                    onChange={(e) =>
+                      setCells(cells.map((x, j) => (j === i ? { ...x, sheet: e.target.value } : x)))
+                    }
+                    className="h-8 text-xs font-mono"
+                  >
+                    {sheets.map((s) => (
+                      <option key={s.id} value={s.name}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+
+                {/* Cell Ref */}
+                <div>
+                  <label className="text-[10px] font-medium text-mist-500 uppercase block mb-0.5">Cell</label>
+                  <Input
+                    placeholder="B7"
+                    value={row.cellRef}
+                    onChange={(e) =>
+                      setCells(
+                        cells.map((x, j) =>
+                          j === i ? { ...x, cellRef: e.target.value.toUpperCase() } : x
+                        )
+                      )
+                    }
+                    className="h-8 text-xs font-mono font-bold uppercase"
+                  />
+                </div>
+
+                {/* Cell Value */}
+                <div>
+                  <label className="text-[10px] font-medium text-mist-500 uppercase block mb-0.5">Figure</label>
+                  <Input
+                    placeholder="Value"
+                    value={row.cellValue}
+                    onChange={(e) =>
+                      setCells(cells.map((x, j) => (j === i ? { ...x, cellValue: e.target.value } : x)))
+                    }
+                    className="h-8 text-xs font-mono font-semibold"
+                  />
+                </div>
+
+                {/* Stream / Data Type */}
+                <div>
+                  <label className="text-[10px] font-medium text-mist-500 uppercase block mb-0.5">
+                    1. Data Type / Stream
+                  </label>
+                  <select
+                    value={row.streamKey}
+                    onChange={(e) => {
+                      const k = e.target.value;
+                      const s = CEMENT_STREAMS.find((st) => st.key === k);
+                      setCells(
+                        cells.map((x, j) =>
+                          j === i
+                            ? {
+                                ...x,
+                                streamKey: k,
+                                unit: s?.standardUnit || x.unit,
+                              }
+                            : x
+                        )
+                      );
+                    }}
+                    className="h-8 w-full rounded border border-mist-300 bg-white px-2 text-xs font-medium"
+                  >
+                    {["production", "solid_fuel", "liquid_fuel", "electricity", "process"].map((cat) => (
+                      <optgroup key={cat} label={cat.toUpperCase().replace("_", " ")}>
+                        {CEMENT_STREAMS.filter((s) => s.category === cat).map((s) => (
+                          <option key={s.key} value={s.key}>
+                            {s.label} ({s.standardUnit})
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Duration / Month */}
+                <div>
+                  <label className="text-[10px] font-medium text-mist-500 uppercase block mb-0.5">
+                    2. Duration
+                  </label>
+                  <select
+                    value={row.monthKey}
+                    onChange={(e) =>
+                      setCells(cells.map((x, j) => (j === i ? { ...x, monthKey: e.target.value } : x)))
+                    }
+                    className="h-8 w-full rounded border border-mist-300 bg-white px-2 text-xs font-medium"
+                  >
+                    {fiscalMonths.map((m) => (
+                      <option key={m.key} value={m.key}>
+                        {m.label} ({m.key})
+                      </option>
+                    ))}
+                    <option value="annual">Full Year (Annual)</option>
+                  </select>
+                </div>
+
+                {/* Source Type */}
+                <div>
+                  <label className="text-[10px] font-medium text-mist-500 uppercase block mb-0.5">
+                    3. Source Layer
+                  </label>
+                  <select
+                    value={row.sourceType}
+                    onChange={(e) =>
+                      setCells(
+                        cells.map((x, j) =>
+                          j === i ? { ...x, sourceType: e.target.value as SourceType } : x
+                        )
+                      )
+                    }
+                    className="h-8 w-full rounded border border-mist-300 bg-white px-2 text-xs font-semibold"
+                  >
+                    <option value="sourcing">[S] Sourcing (Bill/GRN)</option>
+                    <option value="corroboration">[C] Corrob. (SCADA/ERP)</option>
+                    <option value="proforma">[P] Pro Forma (Declared)</option>
+                  </select>
+                </div>
+
+                {/* Unit */}
+                <div>
+                  <label className="text-[10px] font-medium text-mist-500 uppercase block mb-0.5">Unit</label>
+                  <Input
+                    placeholder="t"
+                    value={row.unit}
+                    onChange={(e) =>
+                      setCells(cells.map((x, j) => (j === i ? { ...x, unit: e.target.value } : x)))
+                    }
+                    className="h-8 text-xs"
+                  />
+                </div>
+
+                {/* Remove */}
+                <div className="pt-3">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={cells.length === 1}
+                    onClick={() => setCells(cells.filter((_, j) => j !== i))}
+                    className="h-8 w-8 p-0 text-mist-400 hover:text-red-600"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex items-center justify-between pt-2">
+            <p className="text-xs text-mist-500">
+              Selected values are verified into the 12-Month Calendar Ledger with cell coordinates as provenance.
+            </p>
             <Button
               size="sm"
-              disabled={pending || cells.some((c) => !c.cellRef || !c.fieldPath)}
-              onClick={() =>
-                void submit({
-                  type: "cell",
-                  items: cells.map((c) => ({ ...c, unit: c.unit || undefined })),
-                })
-              }
+              variant="primary"
+              disabled={pending || cells.some((c) => !c.cellRef || !c.cellValue)}
+              onClick={() => void handleSaveCalendarReadings()}
+              className="gap-1.5"
             >
-              Propose for review
+              <Check className="h-4 w-4" />
+              {pending ? "Saving..." : "Save to Stream Calendar & Facts"}
             </Button>
           </div>
         </div>
-      ) : null}
+      )}
 
-      {series ? (
-        <div>
-          <p className="mb-1.5 text-[13px] font-medium text-mist-900">
-            Time series <span className="text-xs font-normal text-mist-500">{series.rowCount} rows</span>
+      {series && (
+        <div className="space-y-2">
+          <p className="text-[13px] font-semibold text-mist-900">
+            Time series <span className="text-xs font-normal text-mist-500">({series.rowCount} rows)</span>
           </p>
-          {typeof offset === "number" ? (
-            <p className="mb-2 text-xs text-mist-600">
-              Timestamps without a zone are read as UTC{offset >= 0 ? "+" : "-"}
-              {String(Math.floor(Math.abs(offset) / 60)).padStart(2, "0")}:
-              {String(Math.abs(offset) % 60).padStart(2, "0")}. Enter window times with a zone (for example
-              2025-04-01T00:00:00+05:30) to be exact.
-            </p>
-          ) : null}
-          {warnings.length > 0 ? (
-            <Alert tone="warn" title="Data quality" className="mb-3">
-              <ul className="list-disc pl-4">
-                {warnings.slice(0, 8).map((w) => (
+          {warnings.length > 0 && (
+            <Alert tone="warn" title="Data quality" className="mb-2">
+              <ul className="list-disc pl-4 text-xs">
+                {warnings.slice(0, 5).map((w) => (
                   <li key={w}>{w}</li>
                 ))}
               </ul>
             </Alert>
-          ) : null}
-          <div className="max-h-56 overflow-auto rounded-md border border-mist-200 bg-white">
+          )}
+          <div className="max-h-48 overflow-auto rounded-md border border-mist-200 bg-white">
             <table className="min-w-full text-xs">
-              <thead className="sticky top-0 bg-mist-100 text-mist-600">
+              <thead className="sticky top-0 bg-mist-100 text-mist-700">
                 <tr>
-                  {["Tag", "Readings", "Min", "Mean", "Max", "First", "Last", "Gaps"].map((h) => (
+                  {["Tag", "Readings", "Min", "Mean", "Max", "First", "Last"].map((h) => (
                     <th key={h} className="px-2 py-1 text-left font-medium">
                       {h}
                     </th>
@@ -345,130 +511,17 @@ export function TableMapper({
                     <td className="px-2 py-1 font-mono">{t.tag}</td>
                     <td className="px-2 py-1 tabular">{t.count}</td>
                     <td className="px-2 py-1 tabular">{t.min}</td>
-                    <td className="px-2 py-1 tabular">{Number(t.mean.toFixed(3))}</td>
+                    <td className="px-2 py-1 tabular">{Number(t.mean.toFixed(2))}</td>
                     <td className="px-2 py-1 tabular">{t.max}</td>
-                    <td className="px-2 py-1">{t.first.slice(0, 16)}</td>
-                    <td className="px-2 py-1">{t.last.slice(0, 16)}</td>
-                    <td className="px-2 py-1 tabular">{t.gapCount}</td>
+                    <td className="px-2 py-1 text-[11px] text-mist-500">{t.first.slice(0, 16)}</td>
+                    <td className="px-2 py-1 text-[11px] text-mist-500">{t.last.slice(0, 16)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-
-          <p className="mb-2 mt-4 text-[13px] font-medium text-mist-900">Propose values from time windows</p>
-          <div className="space-y-2">
-            {ranges.map((row, i) => (
-              <div key={i} className="grid grid-cols-2 gap-2 lg:grid-cols-[1fr_1.2fr_1.2fr_6rem_1.3fr_5rem_auto]">
-                <Select
-                  aria-label="Tag"
-                  value={row.tag}
-                  onChange={(e) => setRanges(ranges.map((x, j) => (j === i ? { ...x, tag: e.target.value } : x)))}
-                >
-                  {tags.map((t) => (
-                    <option key={t.tag} value={t.tag}>
-                      {t.tag}
-                    </option>
-                  ))}
-                </Select>
-                <Input
-                  aria-label="Window start"
-                  placeholder="start 2025-04-01T00:00:00+05:30"
-                  value={row.start}
-                  onChange={(e) => setRanges(ranges.map((x, j) => (j === i ? { ...x, start: e.target.value } : x)))}
-                />
-                <Input
-                  aria-label="Window end"
-                  placeholder="end 2025-04-30T23:59:59+05:30"
-                  value={row.end}
-                  onChange={(e) => setRanges(ranges.map((x, j) => (j === i ? { ...x, end: e.target.value } : x)))}
-                />
-                <Select
-                  aria-label="Aggregation"
-                  value={row.aggregation}
-                  onChange={(e) =>
-                    setRanges(
-                      ranges.map((x, j) =>
-                        j === i ? { ...x, aggregation: e.target.value as RangeRow["aggregation"] } : x
-                      )
-                    )
-                  }
-                >
-                  {AGGREGATIONS.map((a) => (
-                    <option key={a} value={a}>
-                      {a}
-                    </option>
-                  ))}
-                </Select>
-                <Input
-                  aria-label="Field path"
-                  list={`targets-${documentId}`}
-                  placeholder="electricity.activeEnergy"
-                  value={row.fieldPath}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setRanges(ranges.map((x, j) => (j === i ? { ...x, fieldPath: v } : x)));
-                    pickTarget(v, (unit) =>
-                      setRanges((cur) => cur.map((x, j) => (j === i && !x.unit ? { ...x, unit } : x)))
-                    );
-                  }}
-                />
-                <Input
-                  aria-label="Unit"
-                  placeholder="unit"
-                  value={row.unit}
-                  onChange={(e) => setRanges(ranges.map((x, j) => (j === i ? { ...x, unit: e.target.value } : x)))}
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label="Remove row"
-                  disabled={ranges.length === 1}
-                  onClick={() => setRanges(ranges.filter((_, j) => j !== i))}
-                >
-                  <Trash2 />
-                </Button>
-              </div>
-            ))}
-          </div>
-          <div className="mt-3 flex gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() =>
-                setRanges([
-                  ...ranges,
-                  { tag: tags[0]?.tag ?? "", start: "", end: "", aggregation: "sum", fieldPath: "", unit: "" },
-                ])
-              }
-            >
-              <Plus /> Add window
-            </Button>
-            <Button
-              size="sm"
-              disabled={pending || ranges.some((r) => !r.tag || !r.start || !r.end || !r.fieldPath)}
-              onClick={() =>
-                void submit({
-                  type: "range",
-                  items: ranges.map((r) => ({ ...r, unit: r.unit || undefined })),
-                })
-              }
-            >
-              Propose for review
-            </Button>
-          </div>
         </div>
-      ) : null}
-
-      {problems.length > 0 ? (
-        <Alert tone="warn" title="Some rows were not proposed">
-          <ul className="list-disc pl-4">
-            {problems.map((p) => (
-              <li key={p}>{p}</li>
-            ))}
-          </ul>
-        </Alert>
-      ) : null}
+      )}
     </div>
   );
 }

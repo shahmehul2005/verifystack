@@ -39,28 +39,76 @@ interface CliExtractionOutput {
 
 export async function POST(req: NextRequest) {
   try {
-    const formData = await req.formData();
-    const file = formData.get("file") as File | null;
-    const engagementId = formData.get("engagementId") as string | null;
-    const mode = (formData.get("mode") as string) || "auto-map"; // "proforma" | "template" | "auto-map"
-    const complianceYear = (formData.get("complianceYear") as string) || "2023-24";
-    const sourceType = (formData.get("sourceType") as string) || "corroboration";
+    let file: File | null = null;
+    let engagementId: string | null = null;
+    let documentId: string | null = null;
+    let mode = "auto-map";
+    let complianceYear = "2023-24";
+    let sourceType = "corroboration";
+    let fileName = "";
+    let bytes: Buffer | null = null;
 
-    if (!file) {
-      return NextResponse.json({ ok: false, error: "No file uploaded" }, { status: 400 });
+    const contentType = req.headers.get("content-type") || "";
+    if (contentType.includes("multipart/form-data")) {
+      const formData = await req.formData();
+      file = formData.get("file") as File | null;
+      engagementId = formData.get("engagementId") as string | null;
+      documentId = formData.get("documentId") as string | null;
+      mode = (formData.get("mode") as string) || "auto-map";
+      complianceYear = (formData.get("complianceYear") as string) || "2023-24";
+      sourceType = (formData.get("sourceType") as string) || "corroboration";
+    } else {
+      const json = await req.json().catch(() => ({}));
+      engagementId = json.engagementId;
+      documentId = json.documentId;
+      mode = json.mode || "auto-map";
+      complianceYear = json.complianceYear || "2023-24";
+      sourceType = json.sourceType || "corroboration";
     }
+
     if (!engagementId) {
       return NextResponse.json({ ok: false, error: "engagementId is required" }, { status: 400 });
     }
 
-    const bytes = Buffer.from(await file.arrayBuffer());
-    const tempFilePath = join(tmpdir(), `upload_${Date.now()}_${file.name}`);
+    const admin = createServiceClient();
+    if (!admin) {
+      return NextResponse.json({ ok: false, error: "Database not configured" }, { status: 503 });
+    }
+
+    let resolvedDocId: string | null = documentId;
+
+    if (file) {
+      bytes = Buffer.from(await file.arrayBuffer());
+      fileName = file.name;
+    } else if (documentId) {
+      const { data: doc, error: docErr } = await admin
+        .from("documents")
+        .select("id, original_filename, storage_path, organization_id, mime_type")
+        .eq("id", documentId)
+        .single();
+
+      if (docErr || !doc) {
+        return NextResponse.json({ ok: false, error: "Document not found" }, { status: 404 });
+      }
+
+      resolvedDocId = doc.id;
+      fileName = doc.original_filename;
+      const { data: blob, error: dlErr } = await admin.storage.from("evidence").download(doc.storage_path);
+      if (dlErr || !blob) {
+        return NextResponse.json({ ok: false, error: "Failed to download document from storage" }, { status: 500 });
+      }
+      bytes = Buffer.from(await blob.arrayBuffer());
+    } else {
+      return NextResponse.json({ ok: false, error: "Either file or documentId must be provided" }, { status: 400 });
+    }
+
+    const tempFilePath = join(tmpdir(), `upload_${Date.now()}_${fileName}`);
     await writeFile(tempFilePath, bytes);
 
     let cliCommand = "auto-map";
     const cliArgs = [tempFilePath, "--year", complianceYear];
 
-    if (mode === "proforma" || file.name.toLowerCase().includes("proforma") || file.name.toLowerCase().includes("performa")) {
+    if (mode === "proforma" || fileName.toLowerCase().includes("proforma") || fileName.toLowerCase().includes("performa")) {
       cliCommand = "parse-proforma";
     } else if (mode === "template") {
       cliCommand = "parse-template";
@@ -85,7 +133,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Persist all extracted readings into Supabase Calendar Store
-      const savedCount = await persistReadings(engagementId, result.readings);
+      const savedCount = await persistReadings(engagementId, result.readings, resolvedDocId);
 
       return NextResponse.json({
         ok: true,
@@ -110,7 +158,8 @@ export async function POST(req: NextRequest) {
 
 async function persistReadings(
   engagementId: string,
-  items: CliExtractionOutput["readings"]
+  items: CliExtractionOutput["readings"],
+  documentId?: string | null
 ): Promise<number> {
   const admin = createServiceClient();
   if (!admin) return 0;
@@ -125,6 +174,19 @@ async function persistReadings(
 
   let count = 0;
   for (const item of items) {
+    const provBbox = item.provenance.bbox || (item.provenance.cell_coordinate ? {
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+      sheet: item.provenance.sheet_name,
+      cellRef: item.provenance.cell_coordinate,
+    } : undefined);
+
+    const sourceText = item.provenance.source_text || (item.provenance.cell_coordinate
+      ? `Cell ${item.provenance.cell_coordinate} on sheet '${item.provenance.sheet_name || ""}'`
+      : "Excel reading");
+
     const res = await saveCalendarReading(admin, {
       engagementId,
       organizationId,
@@ -133,9 +195,10 @@ async function persistReadings(
       sourceType: item.source_type as SourceType,
       valueNumeric: item.normalized_value ?? item.raw_value,
       unit: item.normalized_unit ?? item.unit_as_printed,
-      provenancePage: item.provenance.page,
-      provenanceBbox: item.provenance.bbox,
-      provenanceSourceText: item.provenance.source_text,
+      documentId: documentId ?? undefined,
+      provenancePage: item.provenance.page ?? 1,
+      provenanceBbox: provBbox,
+      provenanceSourceText: sourceText,
     });
     if (res.ok) count++;
   }

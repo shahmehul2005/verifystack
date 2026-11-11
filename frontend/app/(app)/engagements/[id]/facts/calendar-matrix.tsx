@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import Link from "next/link";
 import {
   CalendarGridData,
   MonthCell,
@@ -18,8 +19,12 @@ import {
   FileSpreadsheet,
   Download,
   Upload,
+  ExternalLink,
+  Eye,
+  Copy,
 } from "lucide-react";
 import { useSoftReload } from "@/lib/soft-reload";
+import { EvidencePageViewer } from "@/components/workbench/evidence-page-viewer";
 
 interface CalendarMatrixProps {
   initialGrid: CalendarGridData;
@@ -45,6 +50,7 @@ export function CalendarMatrix({ initialGrid, engagementId }: CalendarMatrixProp
   const [dailySourceType, setDailySourceType] = useState<"sourcing" | "corroboration">("sourcing");
   const [isSavingDaily, setIsSavingDaily] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
+  const [inspectingReading, setInspectingReading] = useState<CalendarReading | null>(null);
 
   // Excel Import State
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -678,6 +684,155 @@ export function CalendarMatrix({ initialGrid, engagementId }: CalendarMatrixProp
         </div>
       )}
 
+      {/* Provenance Document Inspector Modal */}
+      {inspectingReading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-xl border border-mist-200 bg-white shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between border-b border-mist-200 bg-mist-50 px-5 py-3.5">
+              <div className="flex items-center gap-2.5">
+                <Eye className="h-5 w-5 text-teal-600" />
+                <div>
+                  <h3 className="text-sm font-semibold text-mist-900">
+                    Provenance Inspector &amp; Document Source
+                  </h3>
+                  <p className="text-xs text-mist-500 font-mono">
+                    {inspectingReading.streamKey} · {inspectingReading.monthKey} [{inspectingReading.sourceType.toUpperCase()}]
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setInspectingReading(null)}
+                className="rounded p-1 text-mist-400 hover:bg-mist-200 hover:text-mist-800"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+              {inspectingReading.documentId ? (
+                <div className="rounded-lg border border-mist-200 bg-mist-50/50 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-mist-800 flex items-center gap-1.5">
+                      <FileText className="h-4 w-4 text-mist-600" />
+                      {inspectingReading.documentName || "Source Document"}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={`/api/documents/${inspectingReading.documentId}/file`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] text-teal-700 hover:underline font-medium"
+                      >
+                        <Download className="h-3 w-3" /> Download
+                      </a>
+                      <Link
+                        href={`/engagements/${engagementId}/workbench?docId=${inspectingReading.documentId}&page=${inspectingReading.provenancePage || 1}`}
+                        className="inline-flex items-center gap-1 text-[11px] text-teal-700 hover:underline font-semibold bg-teal-50 px-2 py-0.5 rounded border border-teal-200"
+                      >
+                        <ExternalLink className="h-3 w-3" /> Open in Workbench
+                      </Link>
+                    </div>
+                  </div>
+
+                  {inspectingReading.provenanceBbox?.cellRef ? (
+                    <div className="rounded border border-amber-200 bg-amber-50/60 p-4 text-center space-y-1.5 my-2">
+                      <div className="text-xs font-semibold text-amber-900">Spreadsheet Cell Reference</div>
+                      <div className="text-base font-mono font-bold text-amber-950">
+                        {inspectingReading.provenanceBbox.sheet ? `${inspectingReading.provenanceBbox.sheet}!` : ""}
+                        {inspectingReading.provenanceBbox.cellRef}
+                      </div>
+                      <div className="text-xs text-amber-800">
+                        Recorded figure: <span className="font-bold">{inspectingReading.valueNumeric} {inspectingReading.unit}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="max-h-96 overflow-auto rounded border border-mist-300 bg-white">
+                      <EvidencePageViewer
+                        src={`/api/documents/${inspectingReading.documentId}/file`}
+                        page={inspectingReading.provenancePage ?? 1}
+                        bbox={
+                          inspectingReading.provenanceBbox &&
+                          inspectingReading.provenanceBbox.width != null &&
+                          inspectingReading.provenanceBbox.width > 0 &&
+                          inspectingReading.provenanceBbox.height != null &&
+                          inspectingReading.provenanceBbox.x != null &&
+                          inspectingReading.provenanceBbox.y != null
+                            ? {
+                                x: inspectingReading.provenanceBbox.x,
+                                y: inspectingReading.provenanceBbox.y,
+                                width: inspectingReading.provenanceBbox.width,
+                                height: inspectingReading.provenanceBbox.height,
+                              }
+                            : null
+                        }
+                      />
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-mist-200 bg-mist-50 p-4 text-center text-xs text-mist-600">
+                  Manual entry without linked document.
+                </div>
+              )}
+
+              <div className="rounded-lg border border-mist-200 bg-white p-3.5 space-y-2 text-xs">
+                <div className="grid grid-cols-2 gap-2 pb-2 border-b border-mist-100">
+                  <div>
+                    <span className="text-mist-500 block text-[11px]">Normalized Figure:</span>
+                    <span className="font-mono font-bold text-mist-900 text-sm">
+                      {inspectingReading.standardValue} {inspectingReading.standardUnit}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-mist-500 block text-[11px]">Stated Value &amp; Unit:</span>
+                    <span className="font-mono text-mist-800">
+                      {inspectingReading.valueNumeric} {inspectingReading.unit}
+                    </span>
+                  </div>
+                </div>
+
+                {inspectingReading.provenanceSourceText && (
+                  <div>
+                    <span className="text-mist-500 block text-[11px] mb-0.5">Verbatim Extraction Text:</span>
+                    <p className="rounded bg-mist-50 p-2 font-mono text-[11px] text-mist-800 border border-mist-100">
+                      {inspectingReading.provenanceSourceText}
+                    </p>
+                  </div>
+                )}
+
+                {inspectingReading.inputHash && (
+                  <div className="pt-1">
+                    <span className="text-mist-500 block text-[11px] mb-0.5">Cryptographic Input Fingerprint:</span>
+                    <div className="flex items-center justify-between rounded bg-mist-100 px-2 py-1 font-mono text-[10px] text-mist-700">
+                      <span className="truncate">{inspectingReading.inputHash}</span>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(inspectingReading.inputHash || "");
+                          toast.success("SHA-256 hash copied to clipboard");
+                        }}
+                        className="ml-2 shrink-0 text-mist-500 hover:text-mist-900"
+                        title="Copy SHA-256"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between border-t border-mist-200 bg-mist-50 px-5 py-3">
+              <span className="text-[11px] text-emerald-700 font-medium">
+                ✓ Verified Reading (Status: {inspectingReading.state})
+              </span>
+              <Button variant="secondary" size="sm" onClick={() => setInspectingReading(null)}>
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Cell Evidence Drawer */}
       {selectedCell && (
         <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col bg-white shadow-2xl border-l border-mist-200">
@@ -763,6 +918,8 @@ export function CalendarMatrix({ initialGrid, engagementId }: CalendarMatrixProp
                     badgeColor="bg-blue-100 text-blue-800"
                     reading={selectedCell.month.sourcing}
                     unit={selectedCell.unit}
+                    engagementId={engagementId}
+                    onInspect={setInspectingReading}
                   />
                 )}
 
@@ -774,6 +931,8 @@ export function CalendarMatrix({ initialGrid, engagementId }: CalendarMatrixProp
                     badgeColor="bg-purple-100 text-purple-800"
                     reading={selectedCell.month.corroboration}
                     unit={selectedCell.unit}
+                    engagementId={engagementId}
+                    onInspect={setInspectingReading}
                   />
                 )}
 
@@ -785,6 +944,8 @@ export function CalendarMatrix({ initialGrid, engagementId }: CalendarMatrixProp
                     badgeColor="bg-amber-100 text-amber-800"
                     reading={selectedCell.month.proforma}
                     unit={selectedCell.unit}
+                    engagementId={engagementId}
+                    onInspect={setInspectingReading}
                   />
                 )}
               </>
@@ -893,11 +1054,35 @@ export function CalendarMatrix({ initialGrid, engagementId }: CalendarMatrixProp
                         </div>
 
                         {r.documentName && (
-                          <div className="flex items-center justify-between text-[11px] text-mist-500">
-                            <span className="truncate max-w-[280px]" title={r.documentName}>
+                          <div className="flex items-center justify-between text-[11px] text-mist-600 pt-1 border-t border-mist-100">
+                            <button
+                              type="button"
+                              onClick={() => setInspectingReading(r)}
+                              className="truncate max-w-[200px] text-left text-teal-800 hover:underline flex items-center gap-1 font-medium"
+                              title={`Click to inspect: ${r.documentName}`}
+                            >
                               📄 {r.documentName}
-                            </span>
-                            {r.provenancePage && <span>p. {r.provenancePage}</span>}
+                            </button>
+                            <div className="flex items-center gap-1">
+                              {r.provenancePage && <span className="font-mono text-[10px] text-mist-500">p. {r.provenancePage}</span>}
+                              <button
+                                type="button"
+                                onClick={() => setInspectingReading(r)}
+                                className="p-0.5 text-teal-700 hover:text-teal-900"
+                                title="Inspect Source"
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                              </button>
+                              {r.documentId && (
+                                <Link
+                                  href={`/engagements/${engagementId}/workbench?docId=${r.documentId}&page=${r.provenancePage || 1}`}
+                                  className="p-0.5 text-mist-500 hover:text-mist-900"
+                                  title="Open in Workbench"
+                                >
+                                  <ExternalLink className="h-3.5 w-3.5" />
+                                </Link>
+                              )}
+                            </div>
                           </div>
                         )}
 
@@ -929,12 +1114,16 @@ function ReadingEvidenceCard({
   badgeColor,
   reading,
   unit,
+  engagementId,
+  onInspect,
 }: {
   title: string;
   badgeText: string;
   badgeColor: string;
   reading: CalendarReading;
   unit: string;
+  engagementId: string;
+  onInspect: (r: CalendarReading) => void;
 }) {
   return (
     <div className="rounded-lg border border-mist-200 bg-white p-3.5 shadow-sm space-y-2.5">
@@ -958,13 +1147,37 @@ function ReadingEvidenceCard({
       </div>
 
       {reading.documentName && (
-        <div className="flex items-center justify-between text-xs">
+        <div className="flex items-center justify-between text-xs pt-1 border-t border-mist-100">
           <span className="text-mist-500 flex items-center gap-1">
-            <FileText className="h-3.5 w-3.5" /> Source File:
+            <FileText className="h-3.5 w-3.5 text-mist-600" /> Source File:
           </span>
-          <span className="font-medium text-mist-800 max-w-[240px] truncate" title={reading.documentName}>
-            {reading.documentName}
-          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => onInspect(reading)}
+              className="font-medium text-teal-800 hover:text-teal-950 underline max-w-[170px] truncate text-left"
+              title={`Click to inspect provenance: ${reading.documentName}`}
+            >
+              {reading.documentName}
+            </button>
+            <button
+              type="button"
+              onClick={() => onInspect(reading)}
+              title="Inspect Provenance Facsimile"
+              className="rounded p-1 text-teal-700 hover:bg-teal-50"
+            >
+              <Eye className="h-3.5 w-3.5" />
+            </button>
+            {reading.documentId && (
+              <Link
+                href={`/engagements/${engagementId}/workbench?docId=${reading.documentId}&page=${reading.provenancePage || 1}`}
+                title="Open in Review Workbench"
+                className="rounded p-1 text-mist-500 hover:bg-mist-100 hover:text-mist-900"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+              </Link>
+            )}
+          </div>
         </div>
       )}
 
@@ -985,11 +1198,24 @@ function ReadingEvidenceCard({
       )}
 
       {reading.provenanceBbox && (
+        <div className="flex items-center justify-between text-[11px] text-mist-700 font-mono bg-mist-50 p-1.5 rounded border border-mist-100">
+          <span className="text-[10px] text-mist-500">
+            {reading.provenanceBbox.cellRef ? '📊 Cell:' : '📍 Bounding Box:'}
+          </span>
+          <span className="font-semibold text-mist-900">
+            {reading.provenanceBbox.cellRef
+              ? `${reading.provenanceBbox.sheet ? reading.provenanceBbox.sheet + '!' : ''}${reading.provenanceBbox.cellRef}`
+              : `x:${reading.provenanceBbox.x?.toFixed(2)} y:${reading.provenanceBbox.y?.toFixed(2)} [${Math.round((reading.provenanceBbox.width || 0) * 100)}% × ${Math.round((reading.provenanceBbox.height || 0) * 100)}%]`
+            }
+          </span>
+        </div>
+      )}
+
+      {reading.inputHash && (
         <div className="flex items-center justify-between text-[10px] text-mist-400 font-mono">
-          <span>Bounding Box:</span>
-          <span>
-            x:{reading.provenanceBbox.x.toFixed(2)} y:{reading.provenanceBbox.y.toFixed(2)} w:
-            {reading.provenanceBbox.width.toFixed(2)} h:{reading.provenanceBbox.height.toFixed(2)}
+          <span>SHA-256:</span>
+          <span className="truncate max-w-[190px]" title={reading.inputHash}>
+            {reading.inputHash.slice(0, 16)}…
           </span>
         </div>
       )}

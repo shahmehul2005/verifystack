@@ -376,7 +376,14 @@ export async function saveCalendarReading(
     unit?: string | null;
     documentId?: string | null;
     provenancePage?: number | null;
-    provenanceBbox?: { x: number; y: number; width: number; height: number } | null;
+    provenanceBbox?: {
+      x?: number;
+      y?: number;
+      width?: number;
+      height?: number;
+      sheet?: string;
+      cellRef?: string;
+    } | null;
     provenanceSourceText?: string | null;
     reviewedBy?: string | null;
   }

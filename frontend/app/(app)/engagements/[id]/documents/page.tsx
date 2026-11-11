@@ -22,8 +22,7 @@ import { ExtractAllButton } from "./extract-all-button";
 import { ExtractButton } from "./extract-button";
 import { TableMapper, type DatasetView } from "./table-mapper";
 import { SlotChecklist } from "./slot-checklist";
-import { SummaryReviewButton } from "./summary-review";
-import { ProformaReviewButton } from "./proforma-review";
+import { ExcelCalendarImportButton } from "./excel-calendar-import-button";
 import { DocTypeSelector } from "./doc-type-selector";
 import { DocRow } from "./doc-row";
 import { PdfInlineViewer } from "./pdf-viewer";
@@ -89,7 +88,6 @@ export default async function DocumentsPage({
   const isAdeetie = engagement.scheme === "ADEETIE";
   const targets = packFieldTargets(pack);
   const slots = pack.evidence_slots ?? [];
-  const hasProforma = (pack.proforma_inputs?.length ?? 0) > 0;
   const datasetsByDoc = new Map<string, DatasetView[]>();
   for (const d of datasets ?? []) {
     const list = datasetsByDoc.get(d.document_id) ?? [];
@@ -171,22 +169,18 @@ export default async function DocumentsPage({
                   actions={
                     <>
                       {canExtract && !isTable ? <ExtractButton documentId={d.id} engagementId={id} /> : null}
-                      {canDecide && hasProforma && (d.slot === "proforma_workbook" || d.doc_type === "proforma_workbook" || /pro-?forma/i.test(d.original_filename)) && d.mime_type === XLSX_MIME ? (
-                        <ProformaReviewButton documentId={d.id} documentName={d.original_filename} engagementId={id} />
-                      ) : null}
                       {isTable && canDecide ? (
-                        <SummaryReviewButton
+                        <ExcelCalendarImportButton
                           documentId={d.id}
                           documentName={d.original_filename}
                           engagementId={id}
-                          targets={targets}
                         />
                       ) : null}
                     </>
                   }
                   mapper={
                     isTable && canExtract && ds.length > 0 ? (
-                      <TableMapper documentId={d.id} datasets={ds} targets={targets} />
+                      <TableMapper documentId={d.id} engagementId={id} datasets={ds} targets={targets} />
                     ) : null
                   }
                   pdfViewer={

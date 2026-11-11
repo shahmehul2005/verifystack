@@ -22,7 +22,6 @@ import { useBoxReader } from "@/components/workbench/use-box-reader";
 import { describeRegion, type Region } from "@verifystack/backend/domain/deskreview/snip";
 import type { InputState } from "@verifystack/backend/domain/calc/run";
 import { toast } from "sonner";
-import { CevPanel, type CevRow } from "@/components/review/cev-panel";
 
 export interface ReviewField {
   id: string;
@@ -70,9 +69,9 @@ export function ReviewWorkbench({
   facsimileDocId,
   documents = [],
   targets = [],
-  cevGroups = {},
-  cevDocNames = {},
-  cevLabels = {},
+  initialDocId,
+  initialPage,
+  initialFieldId,
 }: {
   engagementId: string;
   fields: ReviewField[];
@@ -81,15 +80,18 @@ export function ReviewWorkbench({
   documents?: SnipDocument[];
   /** The fields a snipped value can be added to. */
   targets?: SnipTarget[];
-  /** Canonical evidence values grouped by canonical_key. */
-  cevGroups?: Record<string, CevRow[]>;
-  /** document_id to original_filename for CEV provenance display. */
-  cevDocNames?: Record<string, string>;
-  /** canonical_key to human label from the registry. */
-  cevLabels?: Record<string, string>;
+  initialDocId?: string;
+  initialPage?: number;
+  initialFieldId?: string;
 }) {
   const { softReload, isRefreshing } = useSoftReload();
-  const [focused, setFocused] = useState<ReviewField | null>(fields[0] ?? null);
+  const matchedField = initialFieldId
+    ? fields.find((f) => f.id === initialFieldId)
+    : initialDocId
+    ? fields.find((f) => f.document_id === initialDocId && (!initialPage || f.page === initialPage))
+    : null;
+
+  const [focused, setFocused] = useState<ReviewField | null>(matchedField ?? fields[0] ?? null);
   const [correction, setCorrection] = useState("");
   // The value just added is brought into view as soon as the reloaded list holds it.
   const [pendingFocus, setPendingFocus] = useState<string | null>(null);
@@ -101,9 +103,12 @@ export function ReviewWorkbench({
 
   // Snip: draw a box on a page for a value the model missed, and add it for review.
   const canSnip = documents.length > 0 && targets.length > 0 && !facsimileDocId;
-  const [snipping, setSnipping] = useState(fields.length === 0 && canSnip);
-  const [snipDocId, setSnipDocId] = useState(fields[0]?.document_id ?? documents[0]?.id ?? "");
-  const [snipPage, setSnipPage] = useState(fields[0]?.page ?? 1);
+  const shouldSnip = Boolean(initialDocId && !matchedField) || (fields.length === 0 && canSnip);
+  const [snipping, setSnipping] = useState(shouldSnip);
+  const [snipDocId, setSnipDocId] = useState(
+    initialDocId ?? fields[0]?.document_id ?? documents[0]?.id ?? ""
+  );
+  const [snipPage, setSnipPage] = useState(initialPage ?? fields[0]?.page ?? 1);
   const [numPages, setNumPages] = useState<number | null>(null);
   const [region, setRegion] = useState<Region | null>(null);
   const [live, setLive] = useState<Region | null>(null);
@@ -656,21 +661,7 @@ export function ReviewWorkbench({
         </div>
       </div>
     </div>
-    {Object.keys(cevGroups).length > 0 ? (
-      <section className="mt-8">
-        <h2 className="mb-1 text-sm font-semibold text-mist-900">Canonical Evidence</h2>
-        <p className="mb-3 text-[13px] text-mist-600">
-          Multi-source values for each registry quantity. Accept, correct or reject proposals;
-          roll up settled monthly values into an annual total; then promote to the facts ledger.
-        </p>
-        <CevPanel
-          engagementId={engagementId}
-          groups={cevGroups}
-          docNames={cevDocNames}
-          labels={cevLabels}
-        />
-      </section>
-    ) : null}
+
     </>
   );
 }

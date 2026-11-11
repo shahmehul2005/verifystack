@@ -20,9 +20,7 @@ import { loadPack, packFieldTargets } from "@verifystack/backend/domain/packs";
 import { isSnipProvenance } from "@verifystack/backend/domain/deskreview/snip";
 import { inputStatuses } from "@verifystack/backend/domain/calc/run";
 import { loadCommittedFactsForEngagement } from "@verifystack/backend/lib/data/committedEvidence";
-import { registryForPack } from "@verifystack/backend/domain/registry";
 import { ReviewWorkbench, type ReviewField } from "./review-workbench";
-import type { CevRow } from "@/components/review/cev-panel";
 import type { Json } from "@verifystack/backend/lib/supabase/types";
 
 function asBBox(raw: Json) {
@@ -42,11 +40,14 @@ export const metadata = { title: "Review workbench" };
 
 export default async function AppWorkbenchPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ docId?: string; page?: string; fieldId?: string }>;
 }) {
   if (!isSupabaseConfigured()) return <ConfigureSupabase />;
   const { id } = await params;
+  const sp = searchParams ? await searchParams : {};
   const session = await getSession();
   if (!session?.organizationId) return <ForbiddenState />;
   if (!hasCapability(session.role, "review.decide")) {
@@ -55,7 +56,7 @@ export default async function AppWorkbenchPage({
   const engagement = await getEngagement(id, session.organizationId);
   if (!engagement) notFound();
   const supabase = createServiceClient() ?? (await createServerSupabase());
-  const [triage, { data: docs }, committedFacts, { data: cevRows }] = await Promise.all([
+  const [triage, { data: docs }, committedFacts] = await Promise.all([
     loadEngagementTriage(session.organizationId, id),
     supabase!
       .from("documents")
@@ -63,12 +64,6 @@ export default async function AppWorkbenchPage({
       .eq("engagement_id", id)
       .eq("organization_id", session.organizationId),
     loadCommittedFactsForEngagement(supabase!, id, session.organizationId),
-    supabase!
-      .from("canonical_evidence_values")
-      .select("*")
-      .eq("engagement_id", id)
-      .eq("organization_id", session.organizationId)
-      .order("created_at", { ascending: false }),
   ]);
 
   const docById = new Map((docs ?? []).map((d) => [d.id, d]));
@@ -121,29 +116,6 @@ export default async function AppWorkbenchPage({
     .filter((d) => d.mime_type === "application/pdf" || d.mime_type.startsWith("image/"))
     .map((d) => ({ id: d.id, name: d.original_filename, mimeType: d.mime_type }));
   const hasLowRisk = plan.lowRiskPending > 0 || plan.sample.length > 0;
-
-  // Build CEV groups and label map
-  const cevGroups: Record<string, CevRow[]> = {};
-  for (const row of cevRows ?? []) {
-    const key = row.canonical_key as string;
-    if (!cevGroups[key]) cevGroups[key] = [];
-    cevGroups[key]!.push(row as unknown as CevRow);
-  }
-
-  // doc names for CEV provenance (all docs in this engagement)
-  const cevDocNames: Record<string, string> = {};
-  for (const d of docs ?? []) {
-    cevDocNames[d.id] = d.original_filename;
-  }
-
-  // human-readable labels from the registry (canonical_key → entry.meaning)
-  const registry = registryForPack(engagement.pack_id);
-  const cevLabels: Record<string, string> = {};
-  if (registry) {
-    for (const entry of registry.entries) {
-      cevLabels[entry.key] = entry.meaning;
-    }
-  }
 
   return (
     <>
@@ -256,9 +228,9 @@ export default async function AppWorkbenchPage({
           fields={mapped}
           documents={snipDocs}
           targets={targets}
-          cevGroups={cevGroups}
-          cevDocNames={cevDocNames}
-          cevLabels={cevLabels}
+          initialDocId={sp.docId}
+          initialPage={sp.page ? Number(sp.page) : undefined}
+          initialFieldId={sp.fieldId}
         />
       )}
     </>
