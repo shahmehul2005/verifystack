@@ -44,3 +44,8 @@ next-env.d.ts
 
 pdfs/
 
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
