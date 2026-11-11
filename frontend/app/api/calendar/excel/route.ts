@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { writeFile, unlink } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { saveCalendarReading } from "@verifystack/backend/lib/data/calendarStore";
@@ -118,15 +118,29 @@ export async function POST(req: NextRequest) {
       cliArgs.push("--source", sourceType);
     }
 
+        const repoRoot = resolve(process.cwd(), process.cwd().endsWith("frontend") ? ".." : ".");
+
     try {
-      const { stdout } = await execFileAsync("python", [
+      const { stdout, stderr } = await execFileAsync("python", [
         "-m",
         "services.extractor.cli",
         cliCommand,
         ...cliArgs,
-      ]);
+      ], {
+        cwd: repoRoot,
+        env: { ...process.env, PYTHONPATH: repoRoot },
+      });
 
-      const result: CliExtractionOutput = JSON.parse(stdout);
+      if (!stdout && stderr) {
+        return NextResponse.json({ ok: false, error: stderr }, { status: 500 });
+      }
+
+      let result: CliExtractionOutput;
+      try {
+        result = JSON.parse(stdout);
+      } catch {
+        return NextResponse.json({ ok: false, error: `Invalid JSON from CLI: ${stdout || stderr}` }, { status: 500 });
+      }
 
       if (!result.ok) {
         return NextResponse.json({ ok: false, error: result.error || "CLI extraction failed" }, { status: 500 });

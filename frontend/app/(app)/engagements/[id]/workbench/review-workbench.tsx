@@ -99,6 +99,9 @@ export function ReviewWorkbench({
   const setFocus = (field: ReviewField | null) => {
     setPendingFocus(null);
     setFocused(field);
+    setCustomStreamKey(null);
+    setCustomMonthKey(null);
+    setCustomSourceType(null);
   };
 
   // Snip: draw a box on a page for a value the model missed, and add it for review.
@@ -122,6 +125,72 @@ export function ReviewWorkbench({
   const [snipUnit, setSnipUnit] = useState("");
   const [snipText, setSnipText] = useState("");
   const [snipSaving, setSnipSaving] = useState(false);
+
+  // Focus Review Calendar Ingest state & derivations
+  const inferredCalendarProps = useMemo<{
+    streamKey: string;
+    monthKey: string;
+    sourceType: SourceType;
+  }>(() => {
+    if (!focus) {
+      return {
+        streamKey: "coal_quantity",
+        monthKey: "2023-04",
+        sourceType: "sourcing",
+      };
+    }
+    const doc = documents.find((d) => d.id === focus.document_id);
+    const docName = (doc?.name || "").toLowerCase();
+
+    // 1. Inferred Source Type
+    let inferredSource: SourceType = "sourcing";
+    if (docName.includes("proforma") || docName.includes("form-1") || docName.includes("form1")) {
+      inferredSource = "proforma";
+    } else if (
+      docName.includes("erp") ||
+      docName.includes("scada") ||
+      docName.includes("daily") ||
+      docName.includes("register") ||
+      docName.includes("log")
+    ) {
+      inferredSource = "corroboration";
+    } else {
+      inferredSource = "sourcing";
+    }
+
+    // 2. Inferred Month
+    const m = matchDateToMonthKey(docName) || matchDateToMonthKey(focus.source_text);
+    const inferredMonth = m || "2023-04";
+
+    // 3. Inferred Stream
+    let inferredStream = "coal_quantity";
+    const matchedStream = CEMENT_STREAMS.find(
+      (s) => s.calcBindingPath === focus.field_path || focus.field_path.toLowerCase().includes(s.key)
+    );
+    if (matchedStream) {
+      inferredStream = matchedStream.key;
+    } else if (docName.includes("clinker")) {
+      inferredStream = "clinker_production";
+    } else if (docName.includes("coal")) {
+      inferredStream = docName.includes("gcv") ? "coal_gcv" : "coal_quantity";
+    } else if (docName.includes("power") || docName.includes("electricity")) {
+      inferredStream = "grid_electricity";
+    }
+
+    return {
+      streamKey: inferredStream,
+      monthKey: inferredMonth,
+      sourceType: inferredSource,
+    };
+  }, [focus, documents]);
+
+  const [customStreamKey, setCustomStreamKey] = useState<string | null>(null);
+  const [customMonthKey, setCustomMonthKey] = useState<string | null>(null);
+  const [customSourceType, setCustomSourceType] = useState<SourceType | null>(null);
+
+  const focusStreamKey = customStreamKey ?? inferredCalendarProps.streamKey;
+  const focusMonthKey = customMonthKey ?? inferredCalendarProps.monthKey;
+  const focusSourceType = customSourceType ?? inferredCalendarProps.sourceType;
   const snipDoc = documents.find((d) => d.id === snipDocId);
   function chooseDocumentForSnip(docId: string) {
     setSnipDocId(docId);
@@ -241,6 +310,9 @@ export function ReviewWorkbench({
         extractedFieldId: focus.id,
         state,
         correction: state === "corrected" ? correction : undefined,
+        sourceType: focusSourceType,
+        monthKey: focusMonthKey,
+        streamKey: focusStreamKey,
       }),
     });
     const json = await res.json();
@@ -584,6 +656,91 @@ export function ReviewWorkbench({
                 value={correction}
                 onChange={(e) => setCorrection(e.target.value)}
               />
+
+              {/* Data Type & Source Layer for 12-Month Calendar Ingest */}
+              <div className="rounded-lg border border-mist-200 bg-mist-50/70 p-3.5 space-y-3 mt-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-mist-900 flex items-center gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5 text-teal-600" />
+                    Calendar Target &amp; Source Layer
+                  </span>
+                  <span className="rounded bg-teal-100 px-1.5 py-0.5 text-[10px] font-semibold text-teal-800">
+                    ✨ AI Suggested
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  {/* Stream Selection */}
+                  <div>
+                    <label className="text-[10px] font-medium text-mist-500 uppercase block mb-1">
+                      1. Data Type / Stream
+                    </label>
+                    <select
+                      value={focusStreamKey}
+                      onChange={(e) => setCustomStreamKey(e.target.value)}
+                      className="h-8 w-full rounded border border-mist-300 bg-white px-2 text-xs font-medium"
+                    >
+                      {["production", "solid_fuel", "liquid_fuel", "electricity", "process"].map((cat) => (
+                        <optgroup key={cat} label={cat.toUpperCase().replace("_", " ")}>
+                          {CEMENT_STREAMS.filter((s) => s.category === cat).map((s) => (
+                            <option key={s.key} value={s.key}>
+                              {s.label} ({s.standardUnit})
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Duration Selection */}
+                  <div>
+                    <label className="text-[10px] font-medium text-mist-500 uppercase block mb-1">
+                      2. Duration / Month
+                    </label>
+                    <select
+                      value={focusMonthKey}
+                      onChange={(e) => setCustomMonthKey(e.target.value)}
+                      className="h-8 w-full rounded border border-mist-300 bg-white px-2 text-xs font-medium"
+                    >
+                      {fiscalMonths.map((m) => (
+                        <option key={m.key} value={m.key}>
+                          {m.label} ({m.key})
+                        </option>
+                      ))}
+                      <option value="annual">Full Compliance Year (Annual)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Mandatory Source Layer Buttons */}
+                <div>
+                  <label className="text-[10px] font-medium text-mist-500 uppercase block mb-1">
+                    3. Source Layer (Mandatory)
+                  </label>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {[
+                      { type: "sourcing" as const, label: "[S] Sourcing", desc: "Third-Party Bill" },
+                      { type: "corroboration" as const, label: "[C] Corrob.", desc: "SCADA / ERP Log" },
+                      { type: "proforma" as const, label: "[P] Pro Forma", desc: "Declared Return" },
+                    ].map((btn) => (
+                      <button
+                        key={btn.type}
+                        type="button"
+                        onClick={() => setCustomSourceType(btn.type)}
+                        className={`rounded-lg border px-2 py-1.5 text-center transition-colors ${
+                          focusSourceType === btn.type
+                            ? "border-teal-600 bg-teal-50 font-bold text-teal-950 shadow-xs ring-1 ring-teal-600"
+                            : "border-mist-200 bg-white text-mist-600 hover:bg-mist-50"
+                        }`}
+                      >
+                        <div className="text-xs font-semibold leading-tight">{btn.label}</div>
+                        <div className="text-[9px] text-mist-500 leading-tight mt-0.5">{btn.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button disabled={isRefreshing} onClick={() => void decide("accepted")}>
                   <Check />

@@ -24,7 +24,7 @@ export function EvidencePageViewer({
 }) {
   if (!src) {
     return (
-      <div className="relative mx-auto aspect-[210/297] w-full max-w-[520px] rounded-md border border-dashed border-mist-300 bg-white">
+      <div className="relative mx-auto aspect-[210/297] w-full max-w-[720px] rounded-md border border-dashed border-mist-300 bg-white">
         <p className="p-6 text-[13px] leading-relaxed text-mist-500">
           No page file on this document. Upload a PDF or image on the engagement to bind a real
           page.
@@ -36,7 +36,7 @@ export function EvidencePageViewer({
 
   if (mimeType?.startsWith("image/")) {
     return (
-      <div className="relative mx-auto w-full max-w-[520px] overflow-hidden rounded-md border border-mist-200 bg-white shadow-sm">
+      <div className="relative mx-auto w-full max-w-[720px] overflow-hidden rounded-md border border-mist-200 bg-white shadow-sm">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={src} alt="Evidence page" className="block w-full" />
         {bbox ? <Highlight bbox={bbox} /> : null}
@@ -94,15 +94,16 @@ function PdfCanvas({
       const wrap = wrapRef.current;
       if (!canvas || !wrap) return;
 
-      const cssWidth = wrap.clientWidth || 520;
+      const dpr = typeof window !== "undefined" ? Math.max(window.devicePixelRatio || 1, 2) : 2;
+      const cssWidth = wrap.clientWidth || 680;
       const unscaled = pdfPage.getViewport({ scale: 1 });
-      const scale = cssWidth / unscaled.width;
-      const viewport = pdfPage.getViewport({ scale });
+      const baseScale = cssWidth / unscaled.width;
+      const viewport = pdfPage.getViewport({ scale: baseScale * dpr });
       const context = canvas.getContext("2d");
       if (!context) throw new Error("Canvas 2D context unavailable");
 
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
       canvas.style.width = "100%";
       canvas.style.height = "auto";
 
@@ -133,7 +134,7 @@ function PdfCanvas({
   return (
     <div
       ref={wrapRef}
-      className="relative mx-auto w-full max-w-[520px] overflow-hidden rounded-md border border-mist-200 bg-white shadow-sm"
+      className="relative mx-auto w-full max-w-[720px] overflow-hidden rounded-md border border-mist-200 bg-white shadow-sm"
     >
       {status === "loading" ? (
         <p role="status" className="flex items-center gap-2.5 p-6 text-[13px] text-mist-500">
