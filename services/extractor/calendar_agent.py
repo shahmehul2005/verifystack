@@ -518,3 +518,89 @@ def process_raw_structure_with_rules(
         filtered_irrelevant_count=filtered_count,
         warnings=warnings,
     )
+
+
+# =============================================================================
+# UNIFIED TWO-AGENT ORCHESTRATOR
+# =============================================================================
+
+def run_two_stage_extraction(
+    file_bytes_or_path: Union[bytes, str],
+    file_name: str,
+    compliance_year: str = "2023-24",
+    default_source_type: Optional[SourceType] = None,
+    force_llm: bool = False,
+) -> CalendarBatchExtractionOutput:
+    """
+    Orchestrates the full Two-Agent Architecture:
+    1. Agent 1 (Raw Structural Extractor):
+       Extracts physical table geometries, markdown tables, cell coordinates, and text key-values.
+    2. Agent 2 (Semantic Calendar Mapper):
+       - If LLM is available (GEMINI_API_KEY/OPENAI_API_KEY) or force_llm=True:
+         Uses Pydantic AI LLM Agent with domain tools to perform semantic reasoning,
+         filter administrative noise, and map to cement streams.
+       - Fallback / Fast path:
+         Uses the high-precision deterministic rules engine.
+    """
+    from .raw_extractor import extract_raw_structure_from_excel, extract_raw_structure_from_pdf
+
+    ext = os.path.splitext(file_name)[1].lower()
+    is_pdf = ext == ".pdf"
+
+    # Stage 1: Agent 1 Layout Extraction
+    if is_pdf:
+        if isinstance(file_bytes_or_path, str):
+            with open(file_bytes_or_path, "rb") as f:
+                content = f.read()
+        else:
+            content = file_bytes_or_path
+        structure = extract_raw_structure_from_pdf(content, document_name=file_name)
+    else:
+        structure = extract_raw_structure_from_excel(file_bytes_or_path, document_name=file_name)
+
+    # Stage 2: Agent 2 Semantic Mapping
+    has_api_key = bool(
+        os.environ.get("GEMINI_API_KEY") or
+        os.environ.get("GOOGLE_API_KEY") or
+        os.environ.get("OPENAI_API_KEY")
+    )
+
+    if has_api_key or force_llm:
+        try:
+            agent = create_calendar_agent()
+            table_snippets = "\n\n".join([
+                f"### Table: {t.table_id} ({t.sheet_or_page})\n{t.raw_markdown or ''}"
+                for t in structure.tables[:5]
+            ])
+            kv_snippets = "\n".join([
+                f"- {kv.key}: {kv.raw_value} {kv.unit_candidate or ''} (from '{kv.source_text}')"
+                for kv in structure.key_values[:30]
+            ])
+
+            prompt = (
+                f"Document Name: {file_name}\n"
+                f"Compliance Year: {compliance_year}\n"
+                f"Default Source Layer: {default_source_type.value if default_source_type else 'sourcing'}\n\n"
+                f"=== AGENT 1 EXTRACTED TABLES ===\n{table_snippets}\n\n"
+                f"=== AGENT 1 EXTRACTED KEY-VALUES ===\n{kv_snippets}\n\n"
+                f"Analyze these structures using your tools. Filter out irrelevant administrative noise. "
+                f"Map to statutory BEE PAT-2 cement streams and output valid CalendarReadingItem items."
+            )
+
+            res = agent.run_sync(prompt)
+            output: CalendarBatchExtractionOutput = res.output
+            if output.readings:
+                for r in output.readings:
+                    if structure.document_sha256 and not r.provenance.document_sha256:
+                        r.provenance.document_sha256 = structure.document_sha256
+                return output
+        except Exception:
+            # Fallback to rules engine if model call fails
+            pass
+
+    # High-precision deterministic fallback
+    return process_raw_structure_with_rules(
+        structure,
+        compliance_year=compliance_year,
+        default_source_type=default_source_type,
+    )

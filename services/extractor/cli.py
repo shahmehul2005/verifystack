@@ -11,7 +11,7 @@ import os
 import sys
 from typing import Any
 
-from .calendar_agent import process_raw_structure_with_rules
+from .calendar_agent import run_two_stage_extraction
 from .excel_processor import (
     auto_map_arbitrary_excel,
     generate_blank_template,
@@ -19,10 +19,6 @@ from .excel_processor import (
     parse_verifystack_template,
 )
 from .models import SourceType
-from .raw_extractor import (
-    extract_raw_structure_from_excel,
-    extract_raw_structure_from_pdf,
-)
 
 
 def main():
@@ -50,6 +46,7 @@ def main():
     p_ts.add_argument("file_path", help="Path to PDF, Excel, or CSV file")
     p_ts.add_argument("--year", default="2023-24")
     p_ts.add_argument("--source", default="corroboration")
+    p_ts.add_argument("--llm", action="store_true", help="Force LLM brain (Gemini / OpenAI) for Agent 2")
 
     # Subcommand: generate-template
     p_gen = subparsers.add_parser("generate-template", help="Generate blank 12-month Excel template")
@@ -87,14 +84,13 @@ def main():
         st = SourceType.SOURCING if args.source == "sourcing" else (
             SourceType.PROFORMA if args.source == "proforma" else SourceType.CORROBORATION
         )
-        ext = os.path.splitext(args.file_path)[1].lower()
-        if ext == ".pdf":
-            with open(args.file_path, "rb") as f:
-                raw_structure = extract_raw_structure_from_pdf(f.read(), document_name=os.path.basename(args.file_path))
-        else:
-            raw_structure = extract_raw_structure_from_excel(args.file_path, document_name=os.path.basename(args.file_path))
-
-        result = process_raw_structure_with_rules(raw_structure, compliance_year=args.year, default_source_type=st)
+        result = run_two_stage_extraction(
+            args.file_path,
+            file_name=os.path.basename(args.file_path),
+            compliance_year=args.year,
+            default_source_type=st,
+            force_llm=args.llm,
+        )
         out = [r.model_dump() for r in result.readings]
         print(json.dumps({
             "ok": True,
