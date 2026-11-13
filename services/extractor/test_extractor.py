@@ -254,3 +254,81 @@ def test_pydantic_ai_agent_creation():
     # Verify agent runs in test mode
     res = agent.run_sync("Extract fuel data: Coal 20,000 MT in April 2023")
     assert res is not None
+
+
+# ============================================================================
+# 8. TWO-AGENT PIPELINE & DAILY GRANULARITY TESTS
+# ============================================================================
+
+def test_daily_scada_excel_two_agent_extraction():
+    """Tests that daily plant logs are extracted as individual day readings."""
+    import pandas as pd
+    from services.extractor.raw_extractor import extract_raw_structure_from_excel
+    from services.extractor.calendar_agent import process_raw_structure_with_rules
+
+    daily_df = pd.DataFrame({
+        "Date": ["01/04/2023", "02/04/2023", "03/04/2023", "15/04/2023"],
+        "Kiln Clinker Prod (t/d)": [2100.5, 2150.0, 2080.0, 2200.0],
+        "Coal Feed (MT)": [310.0, 315.0, 305.0, 320.0],
+        "Grid Power (kWh)": [65000, 66000, 64000, 67000],
+        "Shift Incharge": ["Ramesh", "Suresh", "Ramesh", "Dinesh"],  # Irrelevant administrative
+        "Remarks": ["Smooth operation", "Normal", "Kiln speed 3.2", "Normal"],
+    })
+
+    buf = io.BytesIO()
+    daily_df.to_excel(buf, sheet_name="Daily_SCADA", index=False)
+    file_bytes = buf.getvalue()
+
+    # Agent 1: Raw structural extraction
+    raw_struct = extract_raw_structure_from_excel(file_bytes, document_name="daily_scada_apr23.xlsx")
+    assert len(raw_struct.tables) == 1
+    assert raw_struct.tables[0].sheet_or_page == "Daily_SCADA"
+
+    # Agent 2: Semantic mapping & relevance filtering
+    out = process_raw_structure_with_rules(raw_struct, compliance_year="2023-24")
+
+    # Verify granularity and filtering
+    assert out.granularity == "daily"
+    assert out.filtered_irrelevant_count >= 2  # Filtered Shift Incharge and Remarks!
+
+    # 4 rows x 3 streams = 12 daily readings
+    assert len(out.readings) == 12
+
+    # Check first reading attributes
+    r1 = out.readings[0]
+    assert r1.duration_kind == "daily"
+    assert r1.date_key == "2023-04-01"
+    assert r1.month_key == "2023-04"
+    assert r1.stream_key == BEEPATSectorStream.CLINKER_PRODUCTION
+    assert r1.normalized_value == 2100.5
+    assert r1.source_type == SourceType.CORROBORATION
+
+
+def test_factor_register_and_energy_calculations():
+    """Tests comprehensive fuel-to-energy factor lookups and emission formulas."""
+    from services.extractor.factors import (
+        get_fuel_factor,
+        calculate_fuel_emissions_tco2e,
+        CLINKER_CALCINATION_FACTOR,
+        CEA_GRID_EMISSION_FACTOR,
+    )
+
+    # 1. Lookups
+    petcoke_def = get_fuel_factor("petcoke")
+    assert petcoke_def is not None
+    assert petcoke_def.default_gcv == 8200.0
+    assert petcoke_def.emission_factor_tj == 97.5
+
+    imported_coal_def = get_fuel_factor("imported_coal")
+    assert imported_coal_def is not None
+    assert imported_coal_def.default_gcv == 5800.0
+
+    # 2. Emissions & Energy
+    # 10,000 tonnes of petcoke at 8,200 kcal/kg
+    energy_tj, emissions = calculate_fuel_emissions_tco2e("petcoke", quantity=10000.0, gcv_kcal=8200.0)
+    assert energy_tj > 300.0
+    assert emissions > 25000.0
+
+    # 3. Calcination & Grid factors
+    assert CLINKER_CALCINATION_FACTOR == 0.525
+    assert CEA_GRID_EMISSION_FACTOR == 0.716

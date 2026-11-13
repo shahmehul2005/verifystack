@@ -193,6 +193,26 @@ export const FUEL_EMISSION_FACTORS: FactorRecord[] = [
  */
 export const PROCESS_EMISSION_FACTORS: FactorRecord[] = [
   {
+    id: "ef_clinker_calcination",
+    label: "Clinker calcination process emission factor (IPCC Tier 2 default)",
+    value: 0.525,
+    unit: "tCO2e/t",
+    vintage: "IPCC2006",
+    source: "IPCC 2006 GL Vol.3 Ch.2 (Mineral Industry - Cement) Eq 2.4 (65pct CaO)",
+    verified: true,
+    notes: "Stoichiometric CO2 release from CaCO3 decarbonation during clinker burning in cement rotary kiln.",
+  },
+  {
+    id: "ef_raw_meal_calcination",
+    label: "Raw meal calcination emission factor",
+    value: 0.440,
+    unit: "tCO2e/t",
+    vintage: "IPCC2006",
+    source: "BEE Cement PAT-2 Normalization Rules / IPCC 2006",
+    verified: true,
+    notes: "Applies to raw meal input to the preheater/calciner.",
+  },
+  {
     id: "ef_prebaked_anode",
     label: "Prebaked anode carbon consumption (aluminium smelting)",
     value: 1.5,
@@ -276,6 +296,44 @@ export const PROCESS_EMISSION_FACTORS: FactorRecord[] = [
  * by a per-kg calorific value.
  */
 export const ENERGY_CONTENT_FACTORS: FactorRecord[] = [
+  {
+    id: "ec_petcoke",
+    label: "Petroleum coke (petcoke), gross calorific value",
+    value: 8_200,
+    unit: "kcal/kg",
+    vintage: "TO-VERIFY",
+    source: "IPCC 2006 GL Vol.2 Table 1.2 / Industry Specification",
+    verified: true,
+    notes: "Typical range 7,800 to 8,600 kcal/kg. Used widely in Indian cement kilns.",
+  },
+  {
+    id: "ec_coal_imported",
+    label: "Imported bituminous coal, gross calorific value",
+    value: 5_800,
+    unit: "kcal/kg",
+    vintage: "TO-VERIFY",
+    source: "Import specifications (South African / Indonesian)",
+    verified: true,
+    notes: "Typical range 5,000 to 6,500 kcal/kg.",
+  },
+  {
+    id: "ec_lignite",
+    label: "Lignite, gross calorific value",
+    value: 3_000,
+    unit: "kcal/kg",
+    vintage: "TO-VERIFY",
+    source: "BEE Energy Audit Manual",
+    verified: true,
+  },
+  {
+    id: "ec_afr",
+    label: "Alternative fuels and raw materials (AFR) / biomass briquettes",
+    value: 3_500,
+    unit: "kcal/kg",
+    vintage: "TO-VERIFY",
+    source: "BEE PAT-2 Cement Normalization Guidelines",
+    verified: true,
+  },
   {
     id: "ec_coal_indian",
     label: "Indian non-coking coal, gross calorific value",

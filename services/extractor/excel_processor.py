@@ -20,6 +20,7 @@ from openpyxl.utils import get_column_letter
 import pandas as pd
 import xlrd
 
+from .calendar_agent import tool_parse_duration_and_date
 from .models import (
     BEEPATSectorStream,
     CalendarReadingItem,
@@ -559,9 +560,17 @@ def auto_map_arbitrary_excel(
 
     for r_i, (_, row) in enumerate(df_data.iterrows()):
         raw_m = row[date_col]
-        month_key = parse_fiscal_month(raw_m, compliance_year)
-        if not month_key:
-            continue  # Skips blank lines, subheaders, or non-month notes
+        dur_info = tool_parse_duration_and_date(raw_m, compliance_year)
+        if not dur_info:
+            month_fallback = parse_fiscal_month(raw_m, compliance_year)
+            if month_fallback:
+                dur_info = {
+                    "duration_kind": "annual" if month_fallback == "annual" else "monthly",
+                    "month_key": month_fallback,
+                    "date_key": None,
+                }
+            else:
+                continue  # Skips blank lines, subheaders, or non-date notes
 
         for col_name, stream in col_mapping.items():
             raw_v = row[col_name]
@@ -588,8 +597,9 @@ def auto_map_arbitrary_excel(
             readings.append(
                 CalendarReadingItem(
                     stream_key=stream,
-                    duration_kind="annual" if month_key == "annual" else "monthly",
-                    month_key=month_key,
+                    duration_kind=dur_info["duration_kind"],
+                    month_key=dur_info["month_key"],
+                    date_key=dur_info["date_key"],
                     source_type=source_type,
                     raw_value=flt_val,
                     unit_as_printed=unit_guess,
@@ -599,7 +609,7 @@ def auto_map_arbitrary_excel(
                     provenance=ExtractionProvenance(
                         sheet_name=best_sheet,
                         cell_coordinate=f"{best_sheet}!{col_name}_Row{r_i + header_idx + 2}",
-                        source_text=f"{flt_val} (Month: {raw_m}, Col: {col_name})",
+                        source_text=f"{flt_val} (Period: {raw_m}, Col: {col_name})",
                         document_sha256=document_sha256,
                     ),
                 )

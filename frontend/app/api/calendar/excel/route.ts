@@ -16,6 +16,7 @@ interface CliExtractionOutput {
     stream_key: string;
     duration_kind: string;
     month_key: string;
+    date_key?: string | null;
     source_type: string;
     raw_value: number;
     unit_as_printed: string;
@@ -113,6 +114,9 @@ export async function POST(req: NextRequest) {
     } else if (mode === "template") {
       cliCommand = "parse-template";
       cliArgs.push("--source", sourceType);
+    } else if (mode === "two-stage") {
+      cliCommand = "two-stage-extract";
+      cliArgs.push("--source", sourceType);
     } else {
       cliCommand = "auto-map";
       cliArgs.push("--source", sourceType);
@@ -140,6 +144,35 @@ export async function POST(req: NextRequest) {
         result = JSON.parse(stdout);
       } catch {
         return NextResponse.json({ ok: false, error: `Invalid JSON from CLI: ${stdout || stderr}` }, { status: 500 });
+      }
+
+      // If auto-map returned zero readings on an arbitrary plant spreadsheet,
+      // fallback to the two-stage extractor (Agent 1 layout -> Agent 2 semantic mapper)
+      if (result.ok && result.readings.length === 0 && cliCommand === "auto-map") {
+        try {
+          const fallback = await execFileAsync("python", [
+            "-m",
+            "services.extractor.cli",
+            "two-stage-extract",
+            tempFilePath,
+            "--year",
+            complianceYear,
+            "--source",
+            sourceType,
+          ], {
+            cwd: repoRoot,
+            env: { ...process.env, PYTHONPATH: repoRoot },
+          });
+          if (fallback.stdout) {
+            const fallbackParsed = JSON.parse(fallback.stdout) as CliExtractionOutput;
+            if (fallbackParsed.ok && fallbackParsed.readings?.length > 0) {
+              result = fallbackParsed;
+              cliCommand = "two-stage-extract";
+            }
+          }
+        } catch {
+          // keep original result
+        }
       }
 
       if (!result.ok) {
@@ -206,6 +239,7 @@ async function persistReadings(
       organizationId,
       streamKey: item.stream_key,
       monthKey: item.month_key,
+      readingDate: item.date_key ?? undefined,
       sourceType: item.source_type as SourceType,
       valueNumeric: item.normalized_value ?? item.raw_value,
       unit: item.normalized_unit ?? item.unit_as_printed,

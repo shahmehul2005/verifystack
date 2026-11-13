@@ -77,6 +77,58 @@ class NormalizedBBox(BaseModel):
     height: Annotated[float, Field(ge=0.0, le=1.0)]
 
 
+# ============================================================================
+# AGENT 1: Raw Structural & Tabular Models
+# ============================================================================
+
+class RawTableCell(BaseModel):
+    """A single cell inside an extracted table."""
+    row_idx: int
+    col_idx: int
+    col_header: str
+    value: Any
+    cell_coordinate: Optional[str] = None  # e.g. "D18" or "Sheet1!B4"
+    bbox: Optional[NormalizedBBox] = None
+
+
+class RawTable(BaseModel):
+    """Accurately extracted tabular structure from PDF or Excel."""
+    table_id: str
+    sheet_or_page: str
+    page_number: Optional[int] = None
+    headers: List[str]
+    rows: List[List[Any]]
+    cells: List[RawTableCell] = Field(default_factory=list)
+    raw_markdown: Optional[str] = None
+
+
+class RawKeyValue(BaseModel):
+    """A key-value fact identified in document text with physical locator."""
+    key: str
+    raw_value: str
+    unit_candidate: Optional[str] = None
+    page: Optional[int] = None
+    bbox: Optional[NormalizedBBox] = None
+    source_text: str
+
+
+class RawDocumentStructure(BaseModel):
+    """
+    Agent 1 Output: Complete structured representations of all tables,
+    labeled blocks, and key-values without hallucinated domain schemas.
+    """
+    document_name: str
+    document_sha256: Optional[str] = None
+    file_type: Literal["pdf", "excel", "csv", "text"]
+    tables: List[RawTable] = Field(default_factory=list)
+    key_values: List[RawKeyValue] = Field(default_factory=list)
+    summary_text: str = ""
+
+
+# ============================================================================
+# AGENT 2: Semantic Calendar Models
+# ============================================================================
+
 class ExtractionProvenance(BaseModel):
     """
     Auditor-grade provenance.
@@ -103,12 +155,17 @@ class ExtractionProvenance(BaseModel):
 class CalendarReadingItem(BaseModel):
     """
     A single granular evidence reading validated for ingestion into the 12-month calendar grid.
+    Supports both monthly summaries and daily granular logs (e.g. SCADA exports, daily shift logs).
     """
     stream_key: BEEPATSectorStream
-    duration_kind: Literal["monthly", "annual", "single_reading"] = "monthly"
+    duration_kind: Literal["monthly", "daily", "annual", "single_reading"] = "monthly"
     month_key: str = Field(
         ...,
         description="Fiscal month in YYYY-MM format (e.g. '2023-04' through '2024-03') or 'annual'"
+    )
+    date_key: Optional[str] = Field(
+        default=None,
+        description="Exact date in YYYY-MM-DD format for daily readings (e.g. '2023-04-15')"
     )
     source_type: SourceType
     raw_value: float = Field(..., description="Numerical value as parsed from the evidence")
@@ -135,6 +192,16 @@ class CalendarReadingItem(BaseModel):
             return "annual"
         if not re.match(r"^\d{4}-(0[1-9]|1[0-2])$", v):
             raise ValueError(f"Invalid month_key '{v}'. Must be 'YYYY-MM' (e.g. '2023-04') or 'annual'.")
+        return v
+
+    @field_validator("date_key")
+    @classmethod
+    def validate_date_key_format(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v = v.strip()
+        if not re.match(r"^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$", v):
+            raise ValueError(f"Invalid date_key '{v}'. Must be 'YYYY-MM-DD' (e.g. '2023-04-15').")
         return v
 
 

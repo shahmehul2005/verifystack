@@ -13,6 +13,9 @@ import {
   Layers,
   Split,
   Eye,
+  FileText,
+  Download,
+  ShieldCheck,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -27,7 +30,7 @@ export function CalendarDeskReview({
   engagementId,
   documents,
 }: CalendarDeskReviewProps) {
-  const [activeTab, setActiveTab] = useState<"variance" | "completeness" | "rollup" | "preview">("variance");
+  const [activeTab, setActiveTab] = useState<"variance" | "completeness" | "rollup" | "preview" | "binder">("variance");
   const [selectedStreamKey, setSelectedStreamKey] = useState<string>("all");
   const [previewDocId, setPreviewDocId] = useState<string>(documents[0]?.id ?? "");
 
@@ -176,6 +179,30 @@ export function CalendarDeskReview({
           <Eye className="h-4 w-4" />
           4. Side-by-Side Pro Forma Preview
         </button>
+
+        <button
+          onClick={() => setActiveTab("binder")}
+          className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition-colors flex items-center gap-1.5 ${
+            activeTab === "binder"
+              ? "border-mist-900 text-mist-900"
+              : "border-transparent text-mist-500 hover:text-mist-800"
+          }`}
+        >
+          <FileText className="h-4 w-4" />
+          5. Sealed Audit Binder
+        </button>
+
+        <div className="ml-auto flex items-center pr-2">
+          <a
+            href={`/api/desk-review/binder?engagementId=${engagementId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-md border border-mist-300 bg-white px-3 py-1.5 text-xs font-medium text-mist-800 shadow-xs hover:bg-mist-50"
+          >
+            <Download className="h-3.5 w-3.5 text-mist-600" />
+            Download Binder (PDF)
+          </a>
+        </div>
       </div>
 
       {/* Tab 1: Cross-Checks & Source Variance */}
@@ -513,6 +540,74 @@ export function CalendarDeskReview({
                   <Search className="h-3.5 w-3.5" />
                   Need to snip or correct a value from this document? Open Review Workbench →
                 </Link>
+              </div>
+            </CardBody>
+          </Card>
+        </div>
+      )}
+
+      {/* Tab 5: Sealed Audit Binder */}
+      {activeTab === "binder" && (
+        <div className="space-y-4">
+          <Card className="border-mist-200">
+            <CardHeader
+              title="Sealed Desk Review Audit Binder"
+              description="Statutory Evidence Dossier"
+              actions={
+                <a
+                  href={`/api/desk-review/binder?engagementId=${engagementId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 rounded-lg bg-mist-900 px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-mist-800"
+                >
+                  <Download className="h-4 w-4" />
+                  Download Sealed Binder (PDF)
+                </a>
+              }
+            />
+            <CardBody className="p-5 space-y-4 text-xs text-mist-700 leading-relaxed">
+              <p>
+                The audit binder is a deterministic, regulator-ready PDF compilation that binds together every piece of evidence cited during desk review into an immutable dossier.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                <div className="rounded-lg border border-mist-200 bg-mist-50/50 p-4 space-y-2">
+                  <div className="flex items-center gap-2 font-bold text-mist-900">
+                    <ShieldCheck className="h-4 w-4 text-teal-600" />
+                    1. Lead Tie-Out Schedule
+                  </div>
+                  <p className="text-[11px] text-mist-600 leading-normal">
+                    Mathematical reconciliation of Scope 1, Scope 2, and production totals against declared pro forma returns, evaluated against the 2% aggregate materiality threshold.
+                  </p>
+                </div>
+
+                <div className="rounded-lg border border-mist-200 bg-mist-50/50 p-4 space-y-2">
+                  <div className="flex items-center gap-2 font-bold text-mist-900">
+                    <Layers className="h-4 w-4 text-teal-600" />
+                    2. Statutory Register Findings
+                  </div>
+                  <p className="text-[11px] text-mist-600 leading-normal">
+                    Formal audit findings with citations to specific regulatory register clauses, documented verifier decisions, and mandatory auditee responses.
+                  </p>
+                </div>
+
+                <div className="rounded-lg border border-mist-200 bg-mist-50/50 p-4 space-y-2">
+                  <div className="flex items-center gap-2 font-bold text-mist-900">
+                    <FileText className="h-4 w-4 text-teal-600" />
+                    3. SHA-256 Verified Evidence
+                  </div>
+                  <p className="text-[11px] text-mist-600 leading-normal">
+                    Exact PDF pages with auditor bounding-box snips drawn on-page, stamped with cryptographic content digests and file hashes.
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-md border border-teal-200 bg-teal-50/60 p-3.5 flex items-start gap-3 mt-3">
+                <CheckCircle2 className="h-5 w-5 text-teal-700 shrink-0 mt-0.5" />
+                <div className="text-xs text-teal-900">
+                  <span className="font-semibold block mb-0.5">Regulator Invariant: Fully Reproducible Digest</span>
+                  The SHA-256 of the binder and each cited document hash are permanently recorded in the immutable audit event log, allowing accreditation bodies (BEE, NABCB) to independently verify the audit trail.
+                </div>
               </div>
             </CardBody>
           </Card>
