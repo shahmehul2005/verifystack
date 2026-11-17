@@ -1,0 +1,6 @@
+# Whitelist: only the Python service goes into the image.
+*
+!services
+**/__pycache__
+services/extractor/tests
+services/requirements-dev.txt
