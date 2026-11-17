@@ -14,6 +14,8 @@ import {
 } from "@verifystack/backend/domain/signoff/guards";
 import { loadTechnicalReview } from "@verifystack/backend/lib/data/technicalReview";
 import { assertTechnicalReviewAllowsSignoff } from "@verifystack/backend/domain/review/technical";
+import { loadAcceptance } from "@verifystack/backend/lib/data/acceptance";
+import { assertAcceptanceAllowsSignoff } from "@verifystack/backend/domain/engagements/acceptance";
 import { createEsignProvider } from "@verifystack/backend/domain/esign/provider";
 import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
 import { signoffsForPass } from "@verifystack/backend/domain/adeetie/lifecycle";
@@ -61,6 +63,10 @@ export async function POST(req: Request) {
     // none (or only a stale one), stops sign-off. Same loader the review page uses.
     const review = await loadTechnicalReview(organizationId, engagement);
     assertTechnicalReviewAllowsSignoff(review.state);
+
+    // CCTS: the agency has to have declared impartiality, the contract and the sector scope (ACVA accreditation 5.5, 6.6, 3.5).
+    const acceptance = await loadAcceptance(organizationId, engagement);
+    assertAcceptanceAllowsSignoff(acceptance.state);
 
     const { data: existing } = await supabase
       .from("signoffs")

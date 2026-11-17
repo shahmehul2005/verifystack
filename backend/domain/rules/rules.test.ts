@@ -202,17 +202,23 @@ describe("TS001 series completeness", () => {
 });
 
 describe("EF001 grid factor vintage", () => {
-  it("flags a mismatched vintage", () => {
-    const r = runRules(ctx({ gridFactorVintageUsed: "FY2023-24" }));
-    expect(r.findings.some((f) => f.ruleId === "EF001")).toBe(true);
+  it("flags a vintage that is not the baseline year", () => {
+    const r = runRules(ctx({ gridFactorVintageUsed: "FY2025-26", baselineYear: "FY2023-24" }));
+    const f = r.findings.find((x) => x.ruleId === "EF001");
+    expect(f).toBeDefined();
+    expect(f?.detail).toMatch(/baseline year is FY2023-24/);
   });
 
-  it("stays quiet when the vintage matches", () => {
-    const r = runRules(ctx({ gridFactorVintageUsed: "FY2025-26" }));
+  it("stays quiet when the vintage is the baseline year, even if it is not the compliance year", () => {
+    const r = runRules(ctx({ gridFactorVintageUsed: "FY2023-24", baselineYear: "FY2023-24" }));
+    expect(r.findings.some((f) => f.ruleId === "EF001")).toBe(false);
+  });
+
+  it("is silent, not failed, when no baseline year is recorded", () => {
+    const r = runRules(ctx({ gridFactorVintageUsed: "FY2023-24" }));
     expect(r.findings.some((f) => f.ruleId === "EF001")).toBe(false);
   });
 });
-
 describe("SM001 sampling frequency", () => {
   it("flags under-sampling against throughput", () => {
     const r = runRules(

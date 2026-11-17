@@ -201,6 +201,8 @@ function gridVintageFromCalc(calc: CalcResult): string | undefined {
 
 export function reconciliationContextFromFacts(opts: {
   complianceYear: string;
+  /** Baseline year BEE approved for the entity, when the engagement records it. */
+  baselineYear?: string | null;
   calc: CalcResult;
   facts: ProvenancedFact[];
 }): ReconciliationContext {
@@ -213,6 +215,7 @@ export function reconciliationContextFromFacts(opts: {
     labCertificates: labCertificatesFromFacts(opts.facts),
     samplingRecords: [],
     gridFactorVintageUsed: gridVintageFromCalc(opts.calc),
+    ...(opts.baselineYear ? { baselineYear: opts.baselineYear } : {}),
     materialityPct: DEFAULT_MATERIALITY_PCT,
     stockTolerancePct: 0.5,
   };

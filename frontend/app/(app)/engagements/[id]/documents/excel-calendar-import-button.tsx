@@ -14,6 +14,10 @@ interface IngestResult {
   savedCount: number;
   mappings?: Record<string, string>;
   unmapped?: string[];
+  skipped?: Array<{ rawId: string | null; label: string | null; reason: string; detail?: string | null }>;
+  warnings?: string[];
+  model?: string;
+  inputHash?: string;
   error?: string;
 }
 
@@ -57,7 +61,6 @@ export function ExcelCalendarImportButton({
           documentId,
           mode,
           sourceType,
-          complianceYear: "2023-24",
         }),
       });
 
@@ -138,6 +141,13 @@ export function ExcelCalendarImportButton({
                       </p>
                     </div>
                   </div>
+
+                  {((result.skipped?.length ?? 0) > 0 || (result.warnings?.length ?? 0) > 0) && (
+                    <p className="text-xs text-amber-800">
+                      {result.skipped?.length ?? 0} skipped, {result.warnings?.length ?? 0} warnings. Saved readings are
+                      suggestions until reviewed.
+                    </p>
+                  )}
 
                   {result.mappings && Object.keys(result.mappings).length > 0 && (
                     <div className="rounded-lg border border-mist-200 bg-mist-50/50 p-3 space-y-2">

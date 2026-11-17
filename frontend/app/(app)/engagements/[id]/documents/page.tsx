@@ -6,7 +6,7 @@ import { Table, Td, Th } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { getSession } from "@/lib/session";
 import { hasCapability } from "@verifystack/backend/lib/auth/capabilities";
-import { isGeminiConfigured, isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
+import { isExtractorConfigured, isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configured";
 import { isBatchable } from "@verifystack/backend/domain/extraction/classifyBatch";
 import { needsExtraction } from "@verifystack/backend/domain/extraction/extractRunner";
 import { getEngagement } from "@/lib/session";
@@ -108,8 +108,8 @@ export default async function DocumentsPage({
         actions={
           canUpload ? (
             <div className="flex flex-wrap items-start justify-end gap-3">
-              {canExtract && toExtract.length > 0 ? <ExtractAllButton engagementId={id} candidates={toExtract} configured={isGeminiConfigured()} /> : null}
-              {unassigned.length > 0 ? <ClassifyAllButton engagementId={id} candidates={unassigned} configured={isGeminiConfigured()} /> : null}
+              {canExtract && toExtract.length > 0 ? <ExtractAllButton engagementId={id} candidates={toExtract} configured={isExtractorConfigured()} /> : null}
+              {unassigned.length > 0 ? <ClassifyAllButton engagementId={id} candidates={unassigned} configured={isExtractorConfigured()} /> : null}
               <UploadForm engagementId={id} disabled={!canStartWork(pack)} />
             </div>
           ) : undefined

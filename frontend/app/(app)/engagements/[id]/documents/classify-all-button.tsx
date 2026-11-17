@@ -101,7 +101,7 @@ export function ClassifyAllButton({
           title={
             configured
               ? "Sends the first page of each unassigned file to the model, a few at a time. A type that is already set is never changed."
-              : "Gemini is not configured for this deployment."
+              : "The extractor service is not configured for this deployment (EXTRACTOR_URL and EXTRACTOR_API_KEY)."
           }
         >
           <Sparkles className={running ? "animate-spin" : undefined} />

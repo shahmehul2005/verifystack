@@ -44,6 +44,15 @@ export async function POST(
       packId: engagement.pack_id,
     });
 
+    if (!result.ok && result.errorCode === "extractor_not_configured") {
+      return NextResponse.json(
+        {
+          ...result,
+          error: "The extractor service is not configured. Set EXTRACTOR_URL and EXTRACTOR_API_KEY.",
+        },
+        { status: 503 }
+      );
+    }
     if (result.ok) {
       await ensureEngagementStatus({
         organizationId,

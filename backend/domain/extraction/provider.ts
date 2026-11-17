@@ -20,7 +20,7 @@ export interface DocumentPage {
 
 /** Everything needed to reproduce or audit a single model call. */
 export interface AiActionLog {
-  tool: "classify_document" | "classify_batch" | "extract_fields";
+  tool: "classify_document" | "classify_batch" | "extract_fields" | "extract_calendar";
   provider: string;
   model: string;
   promptVersion: string;

@@ -16,6 +16,16 @@ export const EngagementCreateSchema = z.object({
   plantName: z.string().trim().max(200).optional(),
   complianceYear: z.string().trim().min(4).max(20),
   geiTarget: z.number().nullable().optional(),
+  /**
+   * CCTS: the baseline year BEE approved for the entity, e.g. FY2023-24. The CEA grid factor is frozen at
+   * it, so reconciliation checks the factor vintage against this year, not the compliance year.
+   */
+  baselineYear: z
+    .string()
+    .trim()
+    .regex(/^FY\d{4}-\d{2}$/, "Use a financial-year label such as FY2023-24")
+    .nullable()
+    .optional(),
   adeetieCluster: z.string().max(200).nullable().optional(),
   adeetieState: z.string().max(100).nullable().optional(),
   enterpriseCategory: z.enum(ENTERPRISE_CATEGORIES).nullable().optional(),

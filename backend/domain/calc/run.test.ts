@@ -85,6 +85,21 @@ describe("calculation run wrapper", () => {
     ).toThrow(/process\.calcinationEmissions/);
   });
 
+  it("warns when the cement biomass stream is counted, because its treatment is open (BIO001, template EXC-01)", () => {
+    const pack = loadPack("CCTS-CEMENT-v1");
+    const base = oneFactPerPath(["quantity", "calorificValue", "activeEnergy", "production"]);
+    const none = assessRunReadiness(pack, base, { draftMode: true, complianceYear: "FY2025-26" });
+    expect(none.warnings.join(" ")).not.toMatch(/BIO001/);
+
+    const biomass: ProvenancedFact[] = [
+      { ...processFact("fact-biomass-q", 100), field_path: "biomass.quantity", unit: "t", source_text: "100 t biomass" },
+      { ...processFact("fact-biomass-cv", 3500), field_path: "biomass.calorificValue", unit: "kcal/kg", source_text: "3500 kcal/kg" },
+    ];
+    const withBiomass = assessRunReadiness(pack, [...base, ...biomass], { draftMode: true, complianceYear: "FY2025-26" });
+    expect(withBiomass.canRun).toBe(true);
+    expect(withBiomass.warnings.join(" ")).toMatch(/BIO001/);
+  });
+
   describe("process CO2 and the intensity basis (Detailed Procedure Section 3.4(1) Note, p. 7)", () => {
     const pack = loadPack("CCTS-CEMENT-v1");
     const noProcess = () => oneFactPerPath(["quantity", "calorificValue", "activeEnergy", "production"]);

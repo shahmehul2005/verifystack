@@ -189,19 +189,56 @@ for (const f of blocks) {
   if (!closedJson.ok) fail("close_finding", JSON.stringify(closedJson));
 }
 
-const sign = await api("/api/signoff", {
+// CCTS sign-off has two gates the lead cannot clear alone: the engagement acceptance declaration
+// (impartiality, contract, sector scope) and the independent technical review, which has to come from a
+// second person who did not draft the work. This smoke test is a single user, so it checks that both
+// gates hold rather than getting past them.
+async function trySignoff() {
+  const res = await api("/api/signoff", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      engagementId,
+      attestorName: "E2E Lead Verifier",
+      statement: "Named attestation for the E2E cement run. Draft factors only.",
+      role: "lead_verifier",
+    }),
+  });
+  return { status: res.status, json: await res.json() };
+}
+
+const gateAcceptance = await trySignoff();
+console.log("12a_signoff_needs_acceptance", gateAcceptance.status, gateAcceptance.json.error ?? "");
+if (gateAcceptance.json.ok || !/acceptance/i.test(gateAcceptance.json.error ?? "")) {
+  fail("acceptance_gate_did_not_hold", JSON.stringify(gateAcceptance.json));
+}
+
+const accept = await api("/api/acceptance", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
     engagementId,
-    attestorName: "E2E Lead Verifier",
-    statement: "Named attestation for the E2E cement run. Draft factors only.",
-    role: "lead_verifier",
+    declaration: {
+      advisedOnMonitoringPlan: false,
+      relationshipWithEntity: false,
+      consultancyOwnershipLink: false,
+      otherImpartialityThreat: false,
+      contractInAgencyName: true,
+      contractReference: "E2E-CONTRACT-1",
+      contractReviewJustification: "E2E run: cement is in scope and there is no prior advisory work.",
+      sectorInAccreditedScope: true,
+    },
   }),
 });
-const signJson = await sign.json();
-console.log("12_signoff", sign.status, signJson.ok, signJson.error ?? "");
-if (!signJson.ok) fail("signoff", JSON.stringify(signJson));
+const acceptJson = await accept.json();
+console.log("12b_acceptance", accept.status, acceptJson.ok, acceptJson.outcome ?? acceptJson.error ?? "");
+if (!acceptJson.ok || acceptJson.outcome !== "cleared") fail("acceptance", JSON.stringify(acceptJson));
+
+const gateReview = await trySignoff();
+console.log("12c_signoff_needs_technical_review", gateReview.status, gateReview.json.error ?? "");
+if (gateReview.json.ok || !/technical review/i.test(gateReview.json.error ?? "")) {
+  fail("technical_review_gate_did_not_hold", JSON.stringify(gateReview.json));
+}
 
 const file = await api(`/api/documents/${documentId}/file`);
 console.log("13_file", file.status, file.headers.get("content-type"));

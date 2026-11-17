@@ -76,6 +76,12 @@ export interface CalendarReading {
   state: "suggested" | "accepted" | "corrected";
   reviewedAt?: string | null;
   reviewedBy?: string | null;
+  /** Flags and locator from canonical_evidence_values.reading_meta */
+  meta?: {
+    verified?: boolean;
+    needsReview?: boolean;
+    locator?: { sheet?: string; cellRef?: string };
+  };
 }
 
 export interface MonthCell {

@@ -1,0 +1,6 @@
+# Extractor_Service test dependencies.
+# Install from the repo root: pip install -r services/requirements.txt -r services/requirements-dev.txt
+pytest>=9.1.1
+hypothesis>=6.100.0
+reportlab>=5.0.1
+httpx>=0.28.1

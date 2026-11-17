@@ -19,8 +19,9 @@ import {
   type DocType,
 } from "./schemas";
 import { provenanceGate } from "./provenance";
-import { GeminiExtractionProvider } from "./gemini";
-import { isGeminiConfigured } from "@verifystack/backend/lib/supabase/configured";
+import { ExtractorServiceProvider } from "./extractorServiceProvider";
+import { insertAiLog } from "./aiLog";
+import { isExtractorConfigured } from "@verifystack/backend/lib/supabase/configured";
 import { qualifyExtractedFieldPaths } from "./fieldPaths";
 import { registryForPack } from "../registry";
 import { annotateDocument, isMissingRegistryColumn, registryColumns } from "../registry/annotate";
@@ -33,7 +34,7 @@ import {
   type SplitPage,
 } from "./pages";
 import type { Json } from "@verifystack/backend/lib/supabase/types";
-import type { AiActionLog, DocumentPage, ExtractionResult } from "./provider";
+import type { DocumentPage, ExtractionProvider, ExtractionResult } from "./provider";
 import { createCevFromExtraction } from "../evidence";
 import type { CevPeriodKind } from "../evidence/types";
 
@@ -73,6 +74,7 @@ export interface RunDocumentExtractionResult {
   dropped: number;
   pages?: number;
   error?: string;
+  errorCode?: "extractor_not_configured";
 }
 
 function flattenProvenanced(
@@ -168,12 +170,12 @@ export async function runDocumentExtraction(
     return { ok: false, extracted: 0, dropped: 0, error: jobErr?.message ?? "Could not create extraction job" };
   }
 
-  if (!isGeminiConfigured()) {
+  if (!isExtractorConfigured()) {
     await admin
       .from("extraction_jobs")
       .update({
         status: "failed",
-        error: "GEMINI_API_KEY is not set.",
+        error: "EXTRACTOR_URL and EXTRACTOR_API_KEY are not set.",
         finished_at: new Date().toISOString(),
       })
       .eq("id", job.id);
@@ -182,7 +184,9 @@ export async function runDocumentExtraction(
       jobId: job.id,
       extracted: 0,
       dropped: 0,
-      error: "Gemini is not configured, so nothing can be read off the page.",
+      errorCode: "extractor_not_configured",
+      error:
+        "The extractor service is not configured. Set EXTRACTOR_URL and EXTRACTOR_API_KEY, so nothing can be read off the page.",
     };
   }
 
@@ -219,10 +223,7 @@ export async function runDocumentExtraction(
     );
     await admin.from("documents").update({ page_count: pages.length }).eq("id", input.documentId);
 
-    const provider = new GeminiExtractionProvider({
-      apiKey: process.env.GEMINI_API_KEY!,
-      model: process.env.GEMINI_MODEL || undefined,
-    });
+    const provider: ExtractionProvider = new ExtractorServiceProvider();
 
     let docType: DocType | null = (doc.doc_type as DocType) || null;
     if (!docType && doc.slot && isExtractable(doc.slot as DocType)) {
@@ -503,7 +504,7 @@ export async function runDocumentExtraction(
 }
 
 async function classifyBestPage(
-  provider: GeminiExtractionProvider,
+  provider: ExtractionProvider,
   pages: SplitPage[],
   evidenceId: string,
   admin: NonNullable<ReturnType<typeof createServiceClient>>,
@@ -517,26 +518,4 @@ async function classifyBestPage(
   const second = await provider.classify(toDocumentPage(pages[1], evidenceId), { allowedDocTypes });
   await insertAiLog(admin, organizationId, second.log);
   return classificationScore(second) > classificationScore(first) ? second : first;
-}
-
-async function insertAiLog(
-  admin: NonNullable<ReturnType<typeof createServiceClient>>,
-  organizationId: string,
-  log: AiActionLog
-) {
-  await admin.from("ai_action_logs").insert({
-    organization_id: organizationId,
-    tool: log.tool,
-    provider: log.provider,
-    model: log.model,
-    prompt_version: log.promptVersion,
-    input_hash: log.inputHash,
-    evidence_id: log.evidenceId,
-    page_number: log.pageNumber,
-    started_at: log.startedAt,
-    duration_ms: log.durationMs,
-    raw_output: log.rawOutput,
-    ok: log.ok,
-    error: log.error ?? null,
-  });
 }

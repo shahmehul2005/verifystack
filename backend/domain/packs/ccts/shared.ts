@@ -10,6 +10,13 @@ import type {
 import type { FuelPhase } from "../../factors";
 import type { Unit } from "../../units";
 
+/**
+ * Source for `technical_review_required` on CCTS packs. The accreditation procedure
+ * requires each validation and verification to be reviewed by someone who is not on
+ * the team that did it, and sets the reviewer's minimum competence.
+ */
+export const CCTS_TECHNICAL_REVIEW_SOURCE =
+  "BEE Accreditation Procedure and Eligibility Criteria for ACVA (v1.0, July 2024) Sections 4.4.3, 4.4.4 and 5.4.3 - independent reviewer outside the verification team";
 /** Evidence types every CCTS GEI pack recognises. Sector packs may append more. */
 export const CCTS_COMMON_TAXONOMY: PackDocType[] = [
   {

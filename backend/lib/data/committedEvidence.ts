@@ -166,7 +166,9 @@ export async function loadCommittedFactsForEngagement(
 
   // 1. Load Calendar Grid and harvest verified annual roll-ups
   try {
-    const grid = await loadCalendarGridForEngagement(supabase, engagementId, organizationId);
+    const grid = await loadCalendarGridForEngagement(supabase, engagementId, organizationId, {
+      states: ["accepted", "corrected"],
+    });
     for (const cat of grid.categories) {
       for (const row of cat.rows) {
         if (row.annualRollup.value !== null && Number.isFinite(row.annualRollup.value)) {

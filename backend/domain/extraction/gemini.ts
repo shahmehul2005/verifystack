@@ -21,7 +21,7 @@ import {
   type Classification,
   type DocType,
 } from "./schemas";
-import { softenExtraction } from "./soften";
+import { validate } from "./validate";
 import { parseBatchOutput } from "./classifyBatch";
 import type {
   AiActionLog,
@@ -189,7 +189,7 @@ export class GeminiExtractionProvider implements ExtractionProvider {
 
     const typeList = typesToUse.map((t) => `"${t.id}"`).concat(`"unknown"`).join(", ");
     const guidelines = typesToUse
-      .map((t) => `- "${t.id}": ${t.label}${t.notes ? ` — ${t.notes}` : ""}`)
+      .map((t) => `- "${t.id}": ${t.label}${t.notes ? ` â€” ${t.notes}` : ""}`)
       .join("\n");
 
     const instruction = `${SHARED_RULES}
@@ -229,7 +229,7 @@ Return JSON of the form:
     const t0 = Date.now();
     const types = options.allowedDocTypes.length > 0 ? options.allowedDocTypes : DOC_TYPES.map((id) => ({ id, label: id, notes: "" }));
     const typeList = types.map((t) => `"${t.id}"`).concat(`"unknown"`).join(", ");
-    const guidelines = types.map((t) => `- "${t.id}": ${t.label}${t.notes ? ` — ${t.notes}` : ""}`).join("\n");
+    const guidelines = types.map((t) => `- "${t.id}": ${t.label}${t.notes ? ` â€” ${t.notes}` : ""}`).join("\n");
 
     const instruction = `You are classifying scanned industrial compliance documents for a greenhouse gas
 verification audit.
@@ -339,7 +339,7 @@ Measured amounts instead use:
 
 Fields marked "| null" must be null when not present on the page.
 If a rupee amount has no unit printed, set unitAsPrinted to "".
-Dates in the JSON value must be YYYY-MM-DD (e.g. 14-Dec-17 → 2017-12-14). Keep sourceText as printed.
+Dates in the JSON value must be YYYY-MM-DD (e.g. 14-Dec-17 â†’ 2017-12-14). Keep sourceText as printed.
 HSN codes are strings, not numbers.
 
 Expected shape:
@@ -349,58 +349,4 @@ ${schemaShapeHint(schema)}`;
     if (!log.ok || text === null) return { ok: false, log };
     return validate(schema, text, log, { soften: true });
   }
-}
-
-function stripCodeFence(raw: string): string {
-  const trimmed = raw.trim();
-  const fence = /^```(?:json)?\s*([\s\S]*?)\s*```$/;
-  const m = trimmed.match(fence);
-  return m ? m[1] : trimmed;
-}
-
-function validate<T extends z.ZodTypeAny>(
-  schema: T,
-  raw: string,
-  log: AiActionLog,
-  opts: { soften: boolean }
-): ExtractionResult<z.infer<T>> {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stripCodeFence(raw));
-  } catch {
-    return {
-      ok: false,
-      validationErrors: ["Model output was not valid JSON"],
-      log: { ...log, ok: false, error: "invalid_json" },
-    };
-  }
-
-  const payload = opts.soften
-    ? softenExtraction(parsed, log.pageNumber ?? 1)
-    : parsed;
-  const result = schema.safeParse(payload);
-  if (!result.success) {
-    if (opts.soften && payload && typeof payload === "object") {
-      return {
-        ok: true,
-        data: payload as z.infer<T>,
-        validationErrors: result.error.issues.map(
-          (i) => `${i.path.join(".") || "(root)"}: ${i.message}`
-        ),
-        log: {
-          ...log,
-          ok: true,
-          error: `Partial extraction with validation warnings: ${result.error.issues.map((i) => i.message).slice(0, 3).join("; ")}`,
-        },
-      };
-    }
-    return {
-      ok: false,
-      validationErrors: result.error.issues.map(
-        (i) => `${i.path.join(".") || "(root)"}: ${i.message}`
-      ),
-      log: { ...log, ok: false, error: "schema_validation_failed" },
-    };
-  }
-  return { ok: true, data: result.data, log };
 }

@@ -10,6 +10,7 @@ import {
   checkSumMatches,
   checkUnmappedFuel,
   clinkerConsumedForCement,
+  checkClinkerFactorRange,
 } from "./tieout";
 
 describe("checkSumMatches", () => {
@@ -192,5 +193,42 @@ describe("checkFormulaIntegrity", () => {
     expect(r.status).toBe("fail");
     expect(r.actual).toBe(2);
     expect(r.detail).toMatch(/B17/);
+  });
+});
+
+describe("checkClinkerFactorRange", () => {
+  it("passes factors between 0 and 1", () => {
+    const r = checkClinkerFactorRange({
+      id: "cf",
+      label: "cf",
+      factors: [
+        { label: "OPC", value: 0.92 },
+        { label: "PPC", value: 0.7 },
+        { label: "PSC", value: 0.55 },
+      ],
+    });
+    expect(r.status).toBe("pass");
+  });
+
+  it("fails a factor above 1 or at 0, and names it", () => {
+    const r = checkClinkerFactorRange({
+      id: "cf",
+      label: "cf",
+      factors: [
+        { label: "OPC", value: 92 },
+        { label: "PPC", value: 0 },
+        { label: "PSC", value: 0.55 },
+      ],
+    });
+    expect(r.status).toBe("fail");
+    expect(r.detail).toMatch(/OPC 92/);
+    expect(r.detail).toMatch(/PPC 0/);
+  });
+
+  it("skips an unreadable factor and is not applicable when none can be read", () => {
+    expect(checkClinkerFactorRange({ id: "cf", label: "cf", factors: [{ label: "OPC", value: NaN }] }).status).toBe("not_applicable");
+    expect(
+      checkClinkerFactorRange({ id: "cf", label: "cf", factors: [{ label: "OPC", value: 0.9 }, { label: "PSC", value: NaN }] }).status
+    ).toBe("pass");
   });
 });

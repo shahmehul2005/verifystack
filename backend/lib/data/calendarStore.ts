@@ -11,6 +11,7 @@ import {
   computeCellVariance,
   computeAnnualRollup,
   matchDateToMonthKey,
+  fiscalYearWindow,
   type SourceType,
   type CalendarGridData,
   type StreamCalendarRow,
@@ -75,7 +76,8 @@ export function inferSourceType(
 export async function loadCalendarGridForEngagement(
   supabase: SupabaseClient<Database>,
   engagementId: string,
-  organizationId: string
+  organizationId: string,
+  opts?: { states?: readonly string[] }
 ): Promise<CalendarGridData> {
   // 1. Fetch engagement metadata for compliance year
   const { data: eng } = await supabase
@@ -98,13 +100,15 @@ export async function loadCalendarGridForEngagement(
   const docMap = new Map((docRows ?? []).map((d) => [d.id, d]));
 
   // 3. Fetch evidence values from canonical_evidence_values
-  const { data: cevRows } = await supabase
+  const cevQuery = supabase
     .from("canonical_evidence_values")
     .select("*")
     .eq("engagement_id", engagementId)
-    .eq("organization_id", organizationId)
-    .not("state", "in", '("rejected","withdrawn")')
-    .order("period_start", { ascending: true });
+    .eq("organization_id", organizationId);
+  const { data: cevRows } = await (opts?.states
+    ? cevQuery.in("state", [...opts.states] as Array<Database["public"]["Tables"]["canonical_evidence_values"]["Row"]["state"]>)
+    : cevQuery.not("state", "in", '("rejected","withdrawn")')
+  ).order("period_start", { ascending: true });
 
   // 4. Map raw CEVs into CalendarReadings
   const readings: CalendarReading[] = [];
@@ -158,15 +162,35 @@ export async function loadCalendarGridForEngagement(
         ? row.correction_unit
         : (row.value_unit ?? streamDef.standardUnit);
 
+    // A corrected row's correction wins over any stale original standard_value.
     const standardVal =
-      row.standard_value ??
-      normalizeStreamValue(rawVal, rawUnit, streamDef.standardUnit);
+      row.state !== "corrected" && row.standard_value != null
+        ? row.standard_value
+        : normalizeStreamValue(rawVal, rawUnit, streamDef.standardUnit);
 
     const isDaily =
       row.period_kind === "daily" ||
       row.period_kind === "single_reading" ||
       (row.period_start !== null && row.period_start === row.period_end);
     const readingDate = isDaily ? row.period_start : null;
+
+    const rm =
+      row.reading_meta && typeof row.reading_meta === "object" && !Array.isArray(row.reading_meta)
+        ? (row.reading_meta as Record<string, unknown>)
+        : {};
+    const loc =
+      rm.locator && typeof rm.locator === "object" && !Array.isArray(rm.locator)
+        ? (rm.locator as Record<string, unknown>)
+        : null;
+    const meta: NonNullable<CalendarReading["meta"]> = {};
+    if (typeof rm.verified === "boolean") meta.verified = rm.verified;
+    if (typeof rm.needsReview === "boolean") meta.needsReview = rm.needsReview;
+    if (loc) {
+      const locator: { sheet?: string; cellRef?: string } = {};
+      if (typeof loc.sheet === "string") locator.sheet = loc.sheet;
+      if (typeof loc.cellRef === "string") locator.cellRef = loc.cellRef;
+      if (locator.sheet || locator.cellRef) meta.locator = locator;
+    }
 
     readings.push({
       id: row.id,
@@ -175,7 +199,7 @@ export async function loadCalendarGridForEngagement(
       monthKey,
       startDate: row.period_start ?? `${monthKey}-01`,
       endDate: row.period_end ?? `${monthKey}-28`,
-      periodKind: (row.period_kind as any) ?? (isDaily ? "daily" : "monthly"),
+      periodKind: (row.period_kind as CalendarReading["periodKind"] | null) ?? (isDaily ? "daily" : "monthly"),
       readingDate,
       sourceType,
       valueNumeric: rawVal,
@@ -191,6 +215,7 @@ export async function loadCalendarGridForEngagement(
       state: (row.state as "suggested" | "accepted" | "corrected") ?? "suggested",
       reviewedAt: row.reviewed_at,
       reviewedBy: row.reviewed_by,
+      meta,
     });
   }
 
@@ -360,8 +385,26 @@ export async function loadCalendarGridForEngagement(
   };
 }
 
+/** Flags and locators kept in canonical_evidence_values.reading_meta (migration 0030). */
+export interface ReadingMeta {
+  verified?: boolean;
+  needsReview?: boolean;
+  derived?: boolean;
+  unitAssumed?: boolean;
+  locator?: { sheet?: string; cellRef?: string };
+  rawId?: string;
+  model?: string;
+  inputHash?: string;
+  [key: string]: unknown;
+}
+
+const MONTH_KEY_RE = /^(\d{4})-(0[1-9]|1[0-2])$/;
+
 /**
  * Saves a new Calendar Reading into canonical_evidence_values.
+ *
+ * `state` defaults to "suggested" when a document is attached and "accepted"
+ * otherwise. Annual periods come from the engagement's compliance year.
  */
 export async function saveCalendarReading(
   supabase: SupabaseClient<Database>,
@@ -386,6 +429,13 @@ export async function saveCalendarReading(
     } | null;
     provenanceSourceText?: string | null;
     reviewedBy?: string | null;
+    state?: "suggested" | "accepted";
+    complianceYear?: string;
+    valueAsStated?: string | null;
+    standardValue?: number | null;
+    extractionMethod?: "ai_extraction" | "workbook_reader" | "manual_entry";
+    confidence?: number | null;
+    readingMeta?: ReadingMeta;
   }
 ): Promise<{ ok: boolean; id?: string; error?: string }> {
   const streamDef = getStreamDefinition(params.streamKey);
@@ -393,25 +443,85 @@ export async function saveCalendarReading(
     return { ok: false, error: `Unknown stream key: ${params.streamKey}` };
   }
 
-  const unit = params.unit || streamDef.standardUnit;
-  const standardVal = normalizeStreamValue(params.valueNumeric, unit, streamDef.standardUnit);
+  // 1-2. State and reviewer fields
+  const state = params.state ?? (params.documentId ? "suggested" : "accepted");
+  if (state === "accepted" && !params.reviewedBy) {
+    return { ok: false, error: "accepted readings need reviewedBy" };
+  }
 
-  let periodKind: "daily" | "monthly" | "annual" = params.monthKey === "annual" ? "annual" : "monthly";
-  let startDate = `${params.monthKey}-01`;
-  let endDate = `${params.monthKey}-28`;
+  // 3. Period dates
+  let periodKind: "daily" | "monthly" | "annual";
+  let startDate: string;
+  let endDate: string;
+  const monthMatch = MONTH_KEY_RE.exec(params.monthKey);
 
   if (params.readingDate) {
     periodKind = "daily";
     startDate = params.readingDate;
     endDate = params.readingDate;
+  } else if (monthMatch) {
+    const y = Number(monthMatch[1]);
+    const m = Number(monthMatch[2]);
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    periodKind = "monthly";
+    startDate = `${params.monthKey}-01`;
+    endDate = `${params.monthKey}-${String(lastDay).padStart(2, "0")}`;
   } else if (params.monthKey === "annual") {
-    startDate = "2023-04-01";
-    endDate = "2024-03-31";
+    let label = params.complianceYear;
+    if (label === undefined) {
+      const { data: eng } = await supabase
+        .from("engagements")
+        .select("compliance_year")
+        .eq("id", params.engagementId)
+        .eq("organization_id", params.organizationId)
+        .maybeSingle();
+      label = eng?.compliance_year ?? "";
+    }
+    const window = fiscalYearWindow(label);
+    if (!window) {
+      return {
+        ok: false,
+        error: `Cannot place an annual reading: compliance year "${label}" is not an FY label`,
+      };
+    }
+    periodKind = "annual";
+    startDate = window.start;
+    endDate = window.end;
+  } else {
+    return { ok: false, error: `Invalid monthKey "${String(params.monthKey).slice(0, 40)}"` };
   }
 
-  // Generate hashes
+  // 4. Values
+  const unit = params.unit || streamDef.standardUnit;
+  const standardVal =
+    params.standardValue ?? normalizeStreamValue(params.valueNumeric, unit, streamDef.standardUnit);
+  const valueAsStated = params.valueAsStated ?? String(params.valueNumeric);
+
+  // 5. Provenance. The bbox needs a page (cev_snip_complete).
+  const page = params.provenancePage ?? null;
+  const bbox = page != null ? ((params.provenanceBbox as unknown as Json) ?? null) : null;
+  const sourceText =
+    params.provenanceSourceText ??
+    (params.documentId ? null : `Manual reading for ${streamDef.label}`);
+
+  // 6. Extraction method keeps cev_ai_provenance satisfied
+  const extractionMethod =
+    params.extractionMethod ??
+    (params.documentId ? (page != null ? "ai_extraction" : "workbook_reader") : "manual_entry");
+
+  // 7. reading_meta, with the sheet/cell locator for Excel readings
+  const meta: ReadingMeta = { ...(params.readingMeta ?? {}) };
+  const bb = params.provenanceBbox;
+  if (page == null && bb && (bb.sheet || bb.cellRef) && !meta.locator) {
+    meta.locator = {
+      ...(bb.sheet ? { sheet: bb.sheet } : {}),
+      ...(bb.cellRef ? { cellRef: bb.cellRef } : {}),
+    };
+  }
+
+  // 8. Hashes
   const inputHash = createHash("sha256")
-    .update(`${params.documentId ?? "manual"}|${params.provenancePage ?? 1}|${params.provenanceSourceText ?? ""}`)
+    .update(`${params.documentId ?? "manual"}|${page ?? "na"}|${params.provenanceSourceText ?? ""}`)
     .digest("hex");
   const outputHash = createHash("sha256")
     .update(`${params.streamKey}|${params.monthKey}|${params.sourceType}|${standardVal}|${streamDef.standardUnit}`)
@@ -429,24 +539,26 @@ export async function saveCalendarReading(
       engagement_id: params.engagementId,
       canonical_key: canonicalKey,
       registry_version: registryVersion,
-      extraction_method: params.documentId ? "ai_extraction" : "manual_entry",
+      extraction_method: extractionMethod,
       document_id: params.documentId ?? null,
       period_kind: periodKind,
       period_start: startDate,
       period_end: endDate,
       value_numeric: params.valueNumeric,
       value_unit: unit,
-      value_as_stated: String(params.valueNumeric),
+      value_as_stated: valueAsStated,
       standard_value: standardVal,
       standard_unit: streamDef.standardUnit,
-      provenance_page: params.provenancePage ?? 1,
-      provenance_bbox: (params.provenanceBbox as unknown as Json) ?? null,
-      provenance_source_text: params.provenanceSourceText ?? `Manual reading for ${streamDef.label}`,
+      confidence: params.confidence ?? null,
+      provenance_page: page,
+      provenance_bbox: bbox,
+      provenance_source_text: sourceText,
+      reading_meta: meta as unknown as Json,
       input_hash: inputHash,
       output_hash: outputHash,
-      state: "accepted",
-      reviewed_by: params.reviewedBy ?? null,
-      reviewed_at: new Date().toISOString(),
+      state,
+      reviewed_by: state === "accepted" ? (params.reviewedBy ?? null) : null,
+      reviewed_at: state === "accepted" ? new Date().toISOString() : null,
     })
     .select("id")
     .single();
@@ -457,7 +569,6 @@ export async function saveCalendarReading(
 
   return { ok: true, id: data.id };
 }
-
 /**
  * Commits verified Annual Roll-Ups to the facts table and/or canonical_evidence_values
  * so calculation runs can consume them deterministically with zero multiple-value conflicts.
@@ -466,8 +577,18 @@ export async function commitAnnualRollupsToCalculation(
   supabase: SupabaseClient<Database>,
   engagementId: string,
   organizationId: string
-): Promise<{ committed: number; rollups: Record<string, number> }> {
-  const grid = await loadCalendarGridForEngagement(supabase, engagementId, organizationId);
+): Promise<{ committed: number; rollups: Record<string, number>; error?: string }> {
+  const grid = await loadCalendarGridForEngagement(supabase, engagementId, organizationId, {
+    states: ["accepted", "corrected"],
+  });
+  const window = fiscalYearWindow(grid.complianceYear);
+  if (!window) {
+    return {
+      committed: 0,
+      rollups: {},
+      error: `compliance year "${grid.complianceYear}" is not a recognized financial year`,
+    };
+  }
   const rollups: Record<string, number> = {};
   let committed = 0;
 
@@ -511,8 +632,8 @@ export async function commitAnnualRollupsToCalculation(
             registry_version: `source_type:${row.annualRollup.sourceType}`,
             extraction_method: "workbook_reader",
             period_kind: "annual",
-            period_start: "2023-04-01",
-            period_end: "2024-03-31",
+            period_start: window.start,
+            period_end: window.end,
             value_numeric: annualVal,
             value_unit: stream.standardUnit,
             value_as_stated: String(annualVal),
@@ -541,8 +662,8 @@ export async function commitAnnualRollupsToCalculation(
               value_json: annualVal,
               unit: stream.standardUnit,
               canonical_key: stream.key,
-              period_start: "2023-04-01",
-              period_end: "2024-03-31",
+              period_start: window.start,
+              period_end: window.end,
               period_status: "known",
               provenance_type: "document_page",
               source_text: `Verified annual roll-up for ${stream.label}`,
@@ -556,8 +677,8 @@ export async function commitAnnualRollupsToCalculation(
             value_json: annualVal,
             unit: stream.standardUnit,
             canonical_key: stream.key,
-            period_start: "2023-04-01",
-            period_end: "2024-03-31",
+            period_start: window.start,
+            period_end: window.end,
             period_status: "known",
             provenance_type: "document_page",
             source_text: `Verified annual roll-up for ${stream.label}`,

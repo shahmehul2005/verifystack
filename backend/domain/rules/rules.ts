@@ -177,22 +177,28 @@ export const seriesCompletenessRule: Rule = {
   },
 };
 
-/** Using a grid factor from the wrong year is a recurring finding. */
+/**
+ * The CEA grid factor is fixed at the entity's baseline year and not moved each compliance year
+ * (the monitoring plan template says "fixed at baseline year; no normalization"). So the vintage is
+ * compared with the baseline year, never with the compliance year. With no baseline year recorded
+ * this stays silent: that is "not checked", not "passed".
+ */
 export const gridVintageRule: Rule = {
   id: "EF001",
-  title: "Grid emission factor vintage does not match the compliance year",
+  title: "Grid emission factor vintage does not match the baseline year",
   clauseRef: "BEE CCTS Detailed Procedure Clause 4(4)(vii) & Section 5.10(vi) — CEA grid emission factor frozen at baseline year",
   run(ctx) {
-    if (!ctx.gridFactorVintageUsed) return [];
-    if (ctx.gridFactorVintageUsed === ctx.complianceYear) return [];
+    if (!ctx.gridFactorVintageUsed || !ctx.baselineYear) return [];
+    if (ctx.gridFactorVintageUsed === ctx.baselineYear) return [];
     return [
       {
         ruleId: this.id,
         severity: "warn",
         title: this.title,
         detail:
-          `Compliance year is ${ctx.complianceYear} but the grid emission factor applied carries vintage ` +
-          `${ctx.gridFactorVintageUsed}. Confirm which CEA database version applies to this cycle.`,
+          `The grid emission factor applied carries vintage ${ctx.gridFactorVintageUsed}, but the entity's ` +
+          `baseline year is ${ctx.baselineYear} and the factor is frozen at the baseline year. ` +
+          `Confirm which CEA database version the approved baseline uses.`,
         clauseRef: this.clauseRef,
         evidenceRefs: [],
       },

@@ -12,9 +12,72 @@ must say which version it bumps. Current versions:
 | CCTS packs (9 sectors)        | 1.0.0                             | `backend/domain/packs/ccts/`            |
 | ADEETIE packs (14 sectors)    | 1.0.0                             | `backend/domain/packs/adeetie/`         |
 | Extraction prompt             | `2026-08-31.classify-no-soften`   | `backend/domain/extraction/gemini.ts`   |
+| Extractor prompt              | `extractor-1`                     | `services/extractor/agents.py`          |
 | Citation prompt               | `2026-09-05.cite-retrieved-only`  | `backend/domain/citations/types.ts`     |
 
 ## [Unreleased]
+### Extraction moves to a Python Extractor_Service
+- **The Python service in `services/extractor/` replaces the TypeScript Gemini extraction** for classifying pages,
+  extracting document fields and reading calendar workbooks. The web app calls it over HTTP through
+  `backend/lib/extractor/client.ts` (settings `EXTRACTOR_URL` and `EXTRACTOR_API_KEY`). With either unset, the
+  extraction routes return HTTP 503. The TypeScript workbook readers stay and still feed calculation. Models still
+  never produce a number used in a calculation; code does.
+- **New endpoints:** `GET /health`, `GET /v1/template`, `POST /v1/classify`, `POST /v1/classify-batch`,
+  `POST /v1/extract-fields` and `POST /v1/extract-calendar`, each (except `/health`) behind an `X-Extractor-Key` header.
+  The calendar template route now calls `GET /v1/template` instead of shelling out to the CLI.
+- **New prompt version `extractor-1`** (`services/extractor/agents.py`). The old `gemini.ts` prompt constants are no
+  longer used by extraction. No pack or engine version changes.
+- **`ExtractorServiceProvider`** (`backend/domain/extraction/extractorServiceProvider.ts`) implements the existing
+  `ExtractionProvider` interface on top of the client. `/api/extract`, `/api/documents/[id]/type`,
+  `classify-batch` and `runDocument` use it. The field catalogue sent to the service is built from the Zod schemas
+  (`fieldCatalogue.ts`).
+- **Migration `0030` (`canonical_evidence_values.reading_meta`, jsonb, default `{}`).** Apply it before deploying the
+  web app. Reader flags (`verified`, `needsReview`, `derived`, `unitAssumed`) and the Excel sheet/cell locator are
+  written there.
+- **`saveCalendarReading` stores the state `suggested`** for extracted readings (a person still accepts them) and
+  records the real period dates of the reading instead of a hardcoded window. An Excel sheet/cell location moves into
+  `reading_meta.locator` rather than the page bounding box.
+- **Roll-up and committed facts count only accepted and corrected readings.** A suggested, rejected or superseded
+  reading no longer reaches a total.
+- **`fiscalYearWindow`** (`backend/domain/calendar/months.ts`) derives the April to March window from the compliance
+  year label. It replaces the hardcoded annual window. An unreadable label gives no window, and the reading is
+  reported as skipped rather than placed in a guessed year.
+- **Fixes in the extraction path:**
+  - Stream and label matching uses word boundaries, not substrings, and an ambiguous match is reported, not chosen.
+  - Workbook columns beyond `Z` are read (`AA`, `AB` and so on).
+  - A missing unit no longer defaults to `t`.
+  - Input is no longer truncated before it reaches the model, and the 3-page limit is gone.
+  - The page default of 1 is gone: a field read without a page carries none.
+  - A missing API key no longer falls back to the test model; the routes return 503.
+- **Security: the calendar Excel import route requires a signed-in user and is scoped to the caller's organisation.**
+  It was reachable without authentication.
+- **Security: the dev-session fallback is removed.** A request with no valid session is rejected; nothing falls back to a
+  development user.
+### Desk review: the pro forma opens inline instead of downloading
+- The pro forma now opens in the side-by-side panel as a read-only grid with sheet tabs. A new
+  `GET /api/documents/[id]/sheet` route parses the stored workbook with the deterministic readers (`parseXlsx`, or
+  `parseCsv`) and returns a bounded window of rows (200 by default, 500 at most, with a truncation flag). It needs
+  sign-in, and returns 415 for other types and 422 for a corrupt workbook.
+- A separate **Download** control uses `?download=1` on `GET /api/documents/[id]/file`, which forces an attachment for
+  any type and leaves the `Content-Type` as it was.
+### Aligned to the BEE ACVA accreditation procedure and the CCTS monitoring plan template
+- **Independent technical review is now required on every CCTS pack** (`technical_review_required`, source
+  `technical_review_source`: accreditation procedure 4.4.3, 4.4.4, 5.4.3). The loader refuses the flag without a source.
+  CCTS sign-off therefore needs an approval from a reviewer who did not draft the work. ADEETIE packs are unchanged.
+  No calculation changes, so no pack version bump.
+- **Engagement acceptance (CCTS).** New immutable `engagement_acceptances` table (migration 0028), `/api/acceptance`, and a
+  card on the Plan page. The agency declares impartiality (advised on the monitoring plan, consultancy ownership link,
+  other relationships and threats), a contract in its own name with a recorded review, and sector scope. Advising on the
+  monitoring plan or a consultancy ownership link is a decline. Sign-off is refused for CCTS until the latest declaration
+  is cleared. Existing CCTS engagements need a declaration before they can be signed off.
+- **Cement pack:** a submission-gate evidence slot for the approved monitoring plan (template s.5.6.13).
+- `scripts/e2e-flow.mjs` now checks that both sign-off gates hold instead of signing off with one user.
+- **EF001 compares the grid factor vintage with the baseline year, not the compliance year.** The factor is frozen at the
+  BEE-approved baseline year. New optional `engagements.baseline_year` (migration 0029) and a wizard field for CCTS. With no
+  baseline year recorded the rule is silent. The demo seed plants a baseline mismatch so the pipeline still shows the finding.
+- **Cement biomass stream warns when counted.** `PackStreamBinding.reviewNote` shows a caution on the readiness check;
+  the cement `afr-biomass` stream uses it because its charcoal factor contradicts the pack's own BIO001 clause. No number changes.
+- **Desk review `clinker_factor_range`**: a clinker factor of 0 or above 1 is a finding (physical bound).
 
 ### Desk review: the same quantity from every source, side by side, and one check from it
 

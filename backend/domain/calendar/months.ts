@@ -1,3 +1,4 @@
+import { fyStartOf } from "../packs/emissionBasis";
 import type { CalendarMonth } from "./types";
 
 const MONTH_NAMES = [
@@ -6,21 +7,36 @@ const MONTH_NAMES = [
 ];
 
 /**
+ * Start year of an Indian financial year label, or null when it is not one.
+ * Accepts "FY2025-26", "2025-26", "FY 2025-2026" (via `fyStartOf`) and "FY25-26".
+ */
+export function fiscalStartYear(label: string | null | undefined): number | null {
+  if (!label) return null;
+  const long = fyStartOf(label);
+  if (long !== null) return long;
+  const m = /(?:^|[^A-Za-z0-9])FY\s*(\d{2})\s*[-\u2013/]\s*(\d{2})(?!\d)/i.exec(label);
+  if (!m) return null;
+  const start = Number(m[1]);
+  const end = Number(m[2]);
+  return (start + 1) % 100 === end ? 2000 + start : null;
+}
+
+/** The 1 Apr - 31 Mar window of a financial year label, or null when it does not parse. */
+export function fiscalYearWindow(
+  label: string | null | undefined,
+): { start: string; end: string } | null {
+  const y = fiscalStartYear(label);
+  if (y === null) return null;
+  return { start: `${y}-04-01`, end: `${y + 1}-03-31` };
+}
+
+/**
  * Returns the 12 compliance months for an Indian financial year (1 Apr - 31 Mar).
- * Accepts strings like "FY2023-24", "2023-24", "FY23-24", "2023", etc.
- * Defaults to 2023-24 if unparseable.
+ * Accepts strings like "FY2023-24", "2023-24", "FY23-24".
+ * Defaults to 2023-24 if unparseable (display only; use `fiscalYearWindow` for data).
  */
 export function getFiscalMonths(complianceYear: string): CalendarMonth[] {
-  let startYear = 2023;
-  const match = complianceYear.match(/(\d{4})/);
-  if (match) {
-    startYear = parseInt(match[1], 10);
-  } else {
-    const shortMatch = complianceYear.match(/FY(\d{2})/i);
-    if (shortMatch) {
-      startYear = 2000 + parseInt(shortMatch[1], 10);
-    }
-  }
+  const startYear = fiscalStartYear(complianceYear) ?? 2023;
 
   const endYear = startYear + 1;
 

@@ -5,10 +5,10 @@ import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
 import { getEngagement } from "@verifystack/backend/lib/data/engagements";
 import { LIMITS, rateLimit } from "@verifystack/backend/lib/rateLimit";
-import { isGeminiConfigured } from "@verifystack/backend/lib/supabase/configured";
+import { isExtractorConfigured } from "@verifystack/backend/lib/supabase/configured";
 import { loadPack } from "@verifystack/backend/domain/packs";
 import { inferSlot } from "@verifystack/backend/domain/deskreview";
-import { GeminiExtractionProvider } from "@verifystack/backend/domain/extraction/gemini";
+import { ExtractorServiceProvider } from "@verifystack/backend/domain/extraction/extractorServiceProvider";
 import { PageSplitError, firstEvidencePage } from "@verifystack/backend/domain/extraction/pages";
 import { CONFIDENCE_POLICY } from "@verifystack/backend/domain/extraction/schemas";
 import {
@@ -57,7 +57,9 @@ export async function POST(req: Request) {
 
     const engagement = await getEngagement(engagementId, organizationId);
     if (!engagement) return fail(404, "Not found", false);
-    if (!isGeminiConfigured()) return fail(503, "Gemini is not configured for document classification.", false);
+    if (!isExtractorConfigured()) {
+      return fail(503, "The extractor service is not configured. Set EXTRACTOR_URL and EXTRACTOR_API_KEY.", false);
+    }
     const supabase = createServiceClient();
     if (!supabase) return fail(503, "Supabase is not configured", false);
 
@@ -133,7 +135,7 @@ export async function POST(req: Request) {
 
     let inputHash: string | null = null;
     if (toSend.length > 0) {
-      const provider = new GeminiExtractionProvider({ apiKey: process.env.GEMINI_API_KEY!, model: process.env.GEMINI_MODEL || undefined });
+      const provider = new ExtractorServiceProvider();
       const answer = await provider.classifyBatch(
         toSend.map((t) => t.page),
         { allowedDocTypes: taxonomy }

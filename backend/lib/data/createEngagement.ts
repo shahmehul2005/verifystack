@@ -60,6 +60,7 @@ export async function createEngagementRecord(args: {
   const stage = initialStage(pack.stages);
   const extra = {
     ...(stage ? { stage } : {}),
+    ...(!isAdeetie && input.baselineYear ? { baseline_year: input.baselineYear } : {}),
     ...(isAdeetie
       ? {
           adeetie_cluster: input.adeetieCluster ?? null,

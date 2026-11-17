@@ -100,6 +100,11 @@ export function validatePack(pack: MethodologyPack): string[] {
       problems.push(`${pack.pack_id}: technical_review_required needs a cited source; it is off until one exists.`);
     }
   }
+  if (pack.technical_review_required && !pack.technical_review_source?.trim()) {
+    problems.push(
+      `${pack.pack_id}: technical_review_required needs technical_review_source, the clause that requires it.`
+    );
+  }
   if (pack.schema_version === 2 && pack.status === "runnable" && pack.structure_only) {
     problems.push(`${pack.pack_id}: structure_only and runnable are mutually exclusive.`);
   }

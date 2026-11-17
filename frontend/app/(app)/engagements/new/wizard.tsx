@@ -55,6 +55,7 @@ export function EngagementWizard() {
   const [plantName, setPlantName] = useState("");
   const [complianceYear, setComplianceYear] = useState(currentFyLabel());
   const [geiTarget, setGeiTarget] = useState("0.82");
+  const [baselineYear, setBaselineYear] = useState("");
 
   const [clusterChoice, setClusterChoice] = useState("");
   const [distanceKm, setDistanceKm] = useState("");
@@ -273,6 +274,7 @@ export function EngagementWizard() {
         plantName,
         complianceYear,
         geiTarget: !isAdeetie && geiTarget ? Number(geiTarget) : null,
+        baselineYear: !isAdeetie && baselineYear.trim() ? baselineYear.trim() : null,
         ...(isAdeetie
           ? {
               adeetieCluster: cluster,
@@ -459,6 +461,20 @@ export function EngagementWizard() {
                     onChange={(e) => setGeiTarget(e.target.value)}
                   />
                   <FieldHint>Optional. Leave blank if the target is not yet notified.</FieldHint>
+                </div>
+              ) : null}
+              {!isAdeetie ? (
+                <div>
+                  <Label htmlFor="baseline-year">Baseline year approved by BEE</Label>
+                  <Input
+                    id="baseline-year"
+                    value={baselineYear}
+                    onChange={(e) => setBaselineYear(e.target.value)}
+                    placeholder="FY2023-24"
+                  />
+                  <FieldHint>
+                    Optional. The CEA grid factor is frozen at this year, so reconciliation checks the factor vintage against it.
+                  </FieldHint>
                 </div>
               ) : null}
             </div>

@@ -67,6 +67,12 @@ export interface ReconciliationContext {
   samplingRecords: SamplingRecord[];
   /** Grid factor vintage the entity actually used, for vintage checking. */
   gridFactorVintageUsed?: string;
+  /**
+   * The baseline year BEE approved for the entity, as a financial-year label. The CEA grid factor is
+   * frozen at this year, so it is what the vintage is checked against. Absent means it was not
+   * recorded, and EF001 stays silent rather than guessing.
+   */
+  baselineYear?: string;
   materialityPct?: number;
   /** Tolerance for stock balance reconciliation, as a fraction. */
   stockTolerancePct?: number;

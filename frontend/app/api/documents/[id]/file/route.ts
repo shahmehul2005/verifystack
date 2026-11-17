@@ -9,7 +9,7 @@ import { contentDisposition, isEvidenceMimeType, isMissingObjectMessage } from "
  * without a cross-origin signed-URL hop.
  */
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -49,12 +49,14 @@ export async function GET(
 
     // Anything outside the evidence types is downloaded, never rendered.
     const renderable = isEvidenceMimeType(doc.mime_type);
+    // ?download=1 forces an attachment for any type. Content-Type is unchanged.
+    const forceDownload = new URL(req.url).searchParams.get("download") === "1";
     return new Response(data, {
       headers: {
         "Content-Type": renderable ? doc.mime_type : "application/octet-stream",
         "Cache-Control": "private, max-age=60",
         "Content-Disposition": contentDisposition(
-          renderable ? "inline" : "attachment",
+          renderable && !forceDownload ? "inline" : "attachment",
           doc.original_filename
         ),
         "X-Content-Type-Options": "nosniff",

@@ -7,9 +7,9 @@ import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
 import { getEngagement } from "@verifystack/backend/lib/data/engagements";
 import { loadPack } from "@verifystack/backend/domain/packs";
-import { GeminiExtractionProvider } from "@verifystack/backend/domain/extraction/gemini";
+import { ExtractorServiceProvider } from "@verifystack/backend/domain/extraction/extractorServiceProvider";
 import { splitEvidencePages } from "@verifystack/backend/domain/extraction/pages";
-import { isGeminiConfigured } from "@verifystack/backend/lib/supabase/configured";
+import { isExtractorConfigured } from "@verifystack/backend/lib/supabase/configured";
 
 export const runtime = "nodejs";
 
@@ -136,9 +136,12 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     if (!engagement) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
     const pack = loadPack(engagement.pack_id);
 
-    if (!isGeminiConfigured()) {
+    if (!isExtractorConfigured()) {
       return NextResponse.json(
-        { ok: false, error: "Gemini is not configured for document classification." },
+        {
+          ok: false,
+          error: "The extractor service is not configured. Set EXTRACTOR_URL and EXTRACTOR_API_KEY.",
+        },
         { status: 503 }
       );
     }
@@ -154,10 +157,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       return NextResponse.json({ ok: false, error: "Document has no readable pages" }, { status: 422 });
     }
 
-    const provider = new GeminiExtractionProvider({
-      apiKey: process.env.GEMINI_API_KEY!,
-      model: process.env.GEMINI_MODEL || undefined,
-    });
+    const provider = new ExtractorServiceProvider();
 
     const allowedTaxonomy = (pack.document_taxonomy ?? []).map((t) => ({
       id: t.id,

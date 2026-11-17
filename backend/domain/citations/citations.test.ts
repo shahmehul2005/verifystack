@@ -258,7 +258,7 @@ function findingFor(ruleId: string): RuleFinding {
           ],
         })
       ).findings,
-    EF001: () => runRules(cctsCtx({ gridFactorVintageUsed: "FY2023-24" })).findings,
+    EF001: () => runRules(cctsCtx({ gridFactorVintageUsed: "FY2023-24", baselineYear: "FY2022-23" })).findings,
   };
 
   const pool = { ...adeetie, ...ccts }[ruleId]?.() ?? [];

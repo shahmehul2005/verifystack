@@ -18,8 +18,9 @@
  *     whether or not the pack requires review, because a reviewer said no.
  *
  * Whether a given scheme *requires* a technical review is a pack field that
- * defaults to off. Which schemes require one is an open item in the regulatory
- * register; this module enforces the rule where a pack asks for it.
+ * defaults to off and needs a cited source to switch on. CCTS packs require it
+ * (BEE ACVA accreditation procedure 4.4.3, 5.4.3); ADEETIE packs do not yet.
+ * This module enforces the rule where a pack asks for it.
  */
 
 import { hashCanonical } from "../canonical";

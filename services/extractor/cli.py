@@ -1,112 +1,226 @@
-"""
-CLI Interface for VerifyStack Pydantic Extractor.
-Allows command-line invocation and headless Next.js execution.
+"""Command line interface for the Extractor_Service.
+
+Run from the repo root as ``python -m services.extractor.cli``:
+
+* ``serve [--host 127.0.0.1] [--port 8001]`` starts the HTTP service with uvicorn.
+* ``extract FILE [--year FY2025-26] [--source corroboration] [--layout auto]`` runs the
+  calendar pipeline on one file and prints the API response body as JSON.
+* ``template OUT [--year FY2025-26]`` writes the calendar template workbook.
+
+``extract`` and ``template`` write only JSON to stdout, so a caller can parse it. On a
+failure they print the same error body the API returns and exit with status 1. A usage
+error exits with status 2. Nothing else is written to stdout: argparse writes to stderr
+and the package silences the pydantic-ai banner.
+
+The heavy imports (FastAPI, uvicorn, pydantic-ai) happen inside the commands that need
+them, so ``--help`` and ``template`` stay fast and independent of the API module.
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
-import os
 import sys
+from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
-from .calendar_agent import run_two_stage_extraction
-from .excel_processor import (
-    auto_map_arbitrary_excel,
-    generate_blank_template,
-    parse_bee_pat2_proforma,
-    parse_verifystack_template,
-)
-from .models import SourceType
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 8001
+
+EXIT_OK = 0
+EXIT_FAILURE = 1
+EXIT_USAGE = 2  # argparse uses 2 for usage errors too
 
 
-def main():
-    parser = argparse.ArgumentParser(description="VerifyStack Pydantic AI Extraction CLI")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+def _emit(body: dict[str, Any]) -> None:
+    """Print one JSON document to stdout."""
+    sys.stdout.write(json.dumps(body, ensure_ascii=False, indent=2))
+    sys.stdout.write("\n")
+    sys.stdout.flush()
 
-    # Subcommand: parse-proforma
-    p_prof = subparsers.add_parser("parse-proforma", help="Parse official BEE PAT-2 proforma (.xls)")
-    p_prof.add_argument("file_path", help="Path to .xls proforma file")
-    p_prof.add_argument("--year", default="2023-24", help="Compliance year e.g. 2023-24")
 
-    # Subcommand: parse-template
-    p_tmpl = subparsers.add_parser("parse-template", help="Parse standard VerifyStack 12-month template")
-    p_tmpl.add_argument("file_path", help="Path to .xlsx or .csv template")
-    p_tmpl.add_argument("--source", default="corroboration", choices=["sourcing", "corroboration", "proforma"])
+def _error_body(
+    code: str,
+    message: str,
+    *,
+    category: str | None = None,
+    supported: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    """The error envelope of the HTTP contract: ``{ok: false, error: {...}}``."""
+    error: dict[str, Any] = {"code": code, "message": message, "category": category}
+    if supported is not None:
+        error["supported"] = list(supported)
+    return {"ok": False, "error": error}
 
-    # Subcommand: auto-map
-    p_map = subparsers.add_parser("auto-map", help="Auto-map arbitrary plant spreadsheet")
-    p_map.add_argument("file_path", help="Path to arbitrary plant Excel file")
-    p_map.add_argument("--year", default="2023-24")
-    p_map.add_argument("--source", default="corroboration")
 
-    # Subcommand: two-stage-extract (Agent 1 -> Agent 2)
-    p_ts = subparsers.add_parser("two-stage-extract", help="Run Agent 1 (raw structure) -> Agent 2 (calendar mapper)")
-    p_ts.add_argument("file_path", help="Path to PDF, Excel, or CSV file")
-    p_ts.add_argument("--year", default="2023-24")
-    p_ts.add_argument("--source", default="corroboration")
-    p_ts.add_argument("--llm", action="store_true", help="Force LLM brain (Gemini / OpenAI) for Agent 2")
+def _fail(
+    code: str,
+    message: str,
+    *,
+    category: str | None = None,
+    supported: Sequence[str] | None = None,
+) -> int:
+    _emit(_error_body(code, message, category=category, supported=supported))
+    return EXIT_FAILURE
 
-    # Subcommand: generate-template
-    p_gen = subparsers.add_parser("generate-template", help="Generate blank 12-month Excel template")
-    p_gen.add_argument("output_path", help="Output file path e.g. template.xlsx")
-    p_gen.add_argument("--year", default="2023-24")
 
-    args = parser.parse_args()
+# ---------------------------------------------------------------------------
+# serve
+# ---------------------------------------------------------------------------
 
-    if args.command == "parse-proforma":
-        readings = parse_bee_pat2_proforma(args.file_path, compliance_year=args.year)
-        out = [r.model_dump() for r in readings]
-        print(json.dumps({"ok": True, "readings": out, "count": len(out)}, indent=2))
 
-    elif args.command == "parse-template":
-        st = SourceType.SOURCING if args.source == "sourcing" else SourceType.CORROBORATION
-        readings = parse_verifystack_template(args.file_path, default_source_type=st)
-        out = [r.model_dump() for r in readings]
-        print(json.dumps({"ok": True, "readings": out, "count": len(out)}, indent=2))
+def _cmd_serve(args: argparse.Namespace) -> int:
+    import uvicorn
 
-    elif args.command == "auto-map":
-        st = SourceType.SOURCING if args.source == "sourcing" else SourceType.CORROBORATION
-        readings, mappings, unmapped = auto_map_arbitrary_excel(
-            args.file_path, compliance_year=args.year, source_type=st
-        )
-        out = [r.model_dump() for r in readings]
-        print(json.dumps({
-            "ok": True,
-            "readings": out,
-            "mappings": mappings,
-            "unmapped": unmapped,
-            "count": len(out)
-        }, indent=2))
+    uvicorn.run("services.extractor.api:app", host=args.host, port=args.port)
+    return EXIT_OK
 
-    elif args.command == "two-stage-extract":
-        st = SourceType.SOURCING if args.source == "sourcing" else (
-            SourceType.PROFORMA if args.source == "proforma" else SourceType.CORROBORATION
-        )
-        result = run_two_stage_extraction(
-            args.file_path,
-            file_name=os.path.basename(args.file_path),
-            compliance_year=args.year,
-            default_source_type=st,
-            force_llm=args.llm,
-        )
-        out = [r.model_dump() for r in result.readings]
-        print(json.dumps({
-            "ok": True,
-            "readings": out,
-            "count": len(out),
-            "granularity": result.granularity,
-            "filtered_count": result.filtered_irrelevant_count,
-            "summary": result.summary,
-        }, indent=2))
 
-    elif args.command == "generate-template":
-        data = generate_blank_template(args.year)
-        with open(args.output_path, "wb") as f:
-            f.write(data)
-        print(json.dumps({"ok": True, "output_path": args.output_path}))
+# ---------------------------------------------------------------------------
+# extract
+# ---------------------------------------------------------------------------
+
+
+def _cmd_extract(args: argparse.Namespace) -> int:
+    from .agents import GeminiModelProvider, ModelNotConfigured
+    from .config import get_settings
+    from .models import CalendarParams, SourceType
+    from .pdf_text import PageCapExceeded
+    from .pipeline import (
+        LayoutNotRecognized,
+        ModelFailure,
+        PipelineDeps,
+        Upload,
+        extract_calendar,
+    )
+    from .workbook import CorruptFile, PasswordProtected, UnsupportedFormat
+
+    settings = get_settings()
+    path = Path(args.file)
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return _fail("bad_request", f"Cannot read file: {path.name}")
+    if not path.is_file():
+        return _fail("bad_request", f"Not a file: {path.name}")
+    if size > settings.max_upload_bytes:
+        limit_mb = settings.max_upload_bytes // (1024 * 1024)
+        return _fail("file_too_large", f"File exceeds {limit_mb} MB")
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return _fail("bad_request", f"Cannot read file: {path.name}")
+
+    params = CalendarParams(
+        compliance_year=args.year,
+        source_type=SourceType(args.source),
+        layout=args.layout,
+    )
+    deps = PipelineDeps(settings=settings, models=GeminiModelProvider(settings))
+
+    try:
+        response = asyncio.run(extract_calendar(Upload(name=path.name, data=data), params, deps))
+    except UnsupportedFormat as exc:
+        return _fail("unsupported_format", str(exc), supported=exc.supported)
+    except PasswordProtected as exc:
+        return _fail("password_protected", str(exc))
+    except CorruptFile as exc:
+        return _fail("corrupt_file", str(exc))
+    except LayoutNotRecognized as exc:
+        return _fail("layout_not_recognized", str(exc))
+    except PageCapExceeded as exc:
+        return _fail("page_cap_exceeded", str(exc))
+    except ModelNotConfigured:
+        return _fail("gemini_key_missing", "GEMINI_API_KEY is not set")
+    except ModelFailure as exc:
+        return _fail("model_failure", "A model call failed", category=exc.category)
+    except Exception as exc:  # noqa: BLE001 - last resort, report the class name only
+        # The message can carry document content or a credential, so it is not printed.
+        return _fail("internal_error", f"Unexpected {type(exc).__name__}")
+
+    _emit(response.model_dump(mode="json"))
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
+# template
+# ---------------------------------------------------------------------------
+
+
+def _cmd_template(args: argparse.Namespace) -> int:
+    from .workbook import build_calendar_template
+
+    try:
+        data = build_calendar_template(args.year)
+    except ValueError as exc:
+        return _fail("bad_request", str(exc))
+
+    out = Path(args.out)
+    try:
+        out.write_bytes(data)
+    except OSError:
+        return _fail("bad_request", f"Cannot write file: {out.name}")
+
+    _emit({"ok": True, "output": str(out), "size_bytes": len(data)})
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
+# Parser
+# ---------------------------------------------------------------------------
+
+
+def build_parser() -> argparse.ArgumentParser:
+    from .models import SourceType
+
+    parser = argparse.ArgumentParser(
+        prog="python -m services.extractor.cli",
+        description="VerifyStack Extractor_Service command line.",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p_serve = sub.add_parser("serve", help="Start the HTTP service")
+    p_serve.add_argument("--host", default=DEFAULT_HOST, help=f"Bind address (default {DEFAULT_HOST})")
+    p_serve.add_argument(
+        "--port", type=int, default=DEFAULT_PORT, help=f"Port (default {DEFAULT_PORT})"
+    )
+    p_serve.set_defaults(func=_cmd_serve)
+
+    p_extract = sub.add_parser("extract", help="Extract calendar readings from one file")
+    p_extract.add_argument("file", metavar="FILE", help="Path to an xlsx, xls, csv or pdf file")
+    p_extract.add_argument(
+        "--year", default=None, help="Compliance year label, for example FY2025-26"
+    )
+    p_extract.add_argument(
+        "--source",
+        default=SourceType.CORROBORATION.value,
+        choices=[s.value for s in SourceType],
+        help="Evidence layer (default corroboration)",
+    )
+    p_extract.add_argument(
+        "--layout",
+        default="auto",
+        choices=["auto", "proforma", "tabular"],
+        help="Spreadsheet layout (default auto)",
+    )
+    p_extract.set_defaults(func=_cmd_extract)
+
+    p_template = sub.add_parser("template", help="Write the calendar template workbook")
+    p_template.add_argument("out", metavar="OUT", help="Output .xlsx path")
+    p_template.add_argument(
+        "--year", default=None, help="Compliance year label, for example FY2025-26"
+    )
+    p_template.set_defaults(func=_cmd_template)
+
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    return int(args.func(args))
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

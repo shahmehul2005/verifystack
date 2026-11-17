@@ -370,6 +370,7 @@ export function assessRunReadiness(
         else basisNotes.push(`"${b.label}" is not required for ${opts!.complianceYear}. ${window.citation}`);
         continue;
       }
+      if (b.reviewNote && s?.bound) basisWarnings.push(b.reviewNote);
       if (b.required && s && !s.bound && !s.partial && !conflictedStreamIds.has(b.streamId)) {
         blockers.push(`"${b.label}" is required by the pack and has no fact at "${b.quantity.path}".`);
       }

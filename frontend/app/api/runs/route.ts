@@ -299,6 +299,7 @@ export async function POST(req: Request) {
     const rules = runRules(
       reconciliationContextFromFacts({
         complianceYear: engagement.compliance_year,
+        baselineYear: engagement.baseline_year,
         calc: run.result,
         facts: scoped.facts,
       })

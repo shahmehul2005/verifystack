@@ -83,7 +83,17 @@ describe("reconciliationContextFromFacts", () => {
     expect(rules.findings.some((f) => f.ruleId === "MB001")).toBe(false);
     expect(rules.findings.some((f) => f.ruleId === "TS001")).toBe(false);
     expect(rules.findings.some((f) => f.ruleId === "SM001")).toBe(false);
-    expect(rules.findings.some((f) => f.ruleId === "EF001")).toBe(true);
+    // No baseline year is recorded for this engagement, so the vintage is not checked.
+    expect(rules.findings.some((f) => f.ruleId === "EF001")).toBe(false);
+    const withBaseline = runRules(
+      reconciliationContextFromFacts({
+        complianceYear: "FY2025-26",
+        baselineYear: "FY2023-24",
+        calc: run.result,
+        facts: seedFacts(),
+      })
+    );
+    expect(withBaseline.findings.some((f) => f.ruleId === "EF001")).toBe(true);
   });
 
   it("reads a lab certificate from this engagement's facts", () => {

@@ -273,6 +273,8 @@ export function seedReconciliationContext(
       },
     ],
     gridFactorVintageUsed: "FY2024-25",
+    // The demo plants a mismatch: the factor applied is not the baseline year's.
+    baselineYear: "FY2023-24",
     materialityPct: 5,
     stockTolerancePct: 0.5,
   };

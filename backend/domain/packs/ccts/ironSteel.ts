@@ -1,4 +1,5 @@
 import type { MethodologyPack } from "../types";
+import { CCTS_TECHNICAL_REVIEW_SOURCE } from "./shared";
 
 /**
  * CCTS-IRON-AND-STEEL-v1 — runnable pack.
@@ -200,6 +201,8 @@ export const CCTS_IRON_AND_STEEL_V1: MethodologyPack = {
     },
   ],
   report_template: "ccts-gei-form-ab-v1",
+  technical_review_required: true,
+  technical_review_source: CCTS_TECHNICAL_REVIEW_SOURCE,
   notes:
     "Runnable. Denominator is tonnes of crude steel. The gazetted GEI target for this sector is NOT held in this pack — it is supplied per engagement. Reductant carbon arrives as a process_direct emissions quantity computed under the sector mass balance; ef_steel_reductant_carbon is registered for that derivation and is verified:false. Sector-specific reconciliation rules (carbon balance closure, route-specific boundary checks) are not yet written; the eight universal rules apply.",
 };

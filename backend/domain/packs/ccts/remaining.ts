@@ -8,6 +8,7 @@ import {
   fuelStream,
   processStream,
   productionBinding,
+  CCTS_TECHNICAL_REVIEW_SOURCE,
 } from "./shared";
 
 const GRID: PackFactorRef = {
@@ -44,6 +45,8 @@ function cctsPack(opts: {
     reconciliation_rules: CCTS_UNIVERSAL_RULES,
     clause_citations: CCTS_UNIVERSAL_CITATIONS,
     report_template: "ccts-gei-form-ab-v1",
+    technical_review_required: true,
+    technical_review_source: CCTS_TECHNICAL_REVIEW_SOURCE,
     notes: opts.notes,
   };
 }

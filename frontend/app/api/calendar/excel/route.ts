@@ -1,254 +1,285 @@
-import { NextRequest, NextResponse } from "next/server";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { writeFile, unlink } from "node:fs/promises";
-import { join, resolve } from "node:path";
-import { tmpdir } from "node:os";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { requireCapability, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
+import { getEngagement } from "@verifystack/backend/lib/data/engagements";
 import { saveCalendarReading } from "@verifystack/backend/lib/data/calendarStore";
-import type { SourceType } from "@verifystack/backend/domain/calendar";
+import { LIMITS } from "@verifystack/backend/lib/rateLimit";
+import { isExtractorConfigured } from "@verifystack/backend/lib/supabase/configured";
+import {
+  extractorClient,
+  type ExtractorErrorKind,
+} from "@verifystack/backend/lib/extractor/client";
+import { jsonError, limitExceeded } from "@/lib/api";
 
-const execFileAsync = promisify(execFile);
+export const runtime = "nodejs";
+export const maxDuration = 300;
 
-interface CliExtractionOutput {
-  ok: boolean;
-  readings: Array<{
-    stream_key: string;
-    duration_kind: string;
-    month_key: string;
-    date_key?: string | null;
-    source_type: string;
-    raw_value: number;
-    unit_as_printed: string;
-    normalized_value?: number;
-    normalized_unit?: string;
-    confidence: number;
-    provenance: {
-      page?: number;
-      bbox?: { x: number; y: number; width: number; height: number };
-      source_text: string;
-      sheet_name?: string;
-      cell_coordinate?: string;
-      document_sha256?: string;
-    };
-  }>;
-  count: number;
-  mappings?: Record<string, string>;
-  unmapped?: string[];
-  error?: string;
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+
+const Body = z.object({
+  engagementId: z.string().uuid(),
+  documentId: z.string().uuid().optional(),
+  mode: z.enum(["auto-map", "proforma", "template", "two-stage"]).default("auto-map"),
+  sourceType: z.enum(["sourcing", "corroboration", "proforma"]).default("corroboration"),
+});
+
+type Layout = "auto" | "proforma" | "tabular";
+const LAYOUT_BY_MODE: Record<z.infer<typeof Body>["mode"], Layout> = {
+  proforma: "proforma",
+  template: "tabular",
+  "auto-map": "auto",
+  "two-stage": "auto",
+};
+
+const STATUS_BY_KIND: Record<ExtractorErrorKind, number> = {
+  too_large: 413,
+  unsupported: 415,
+  unprocessable: 422,
+  timeout: 504,
+  model_unavailable: 503,
+  not_configured: 503,
+  auth: 502,
+  service: 502,
+  invalid_response: 502,
+};
+
+const MESSAGE_BY_KIND: Record<ExtractorErrorKind, string> = {
+  too_large: "The file is too large to extract.",
+  unsupported: "This file type is not supported.",
+  unprocessable: "The file could not be read.",
+  timeout: "The extractor service timed out. Try again.",
+  model_unavailable: "The extractor service has no model configured.",
+  not_configured: "The extractor service is not configured.",
+  auth: "The extractor service rejected the request.",
+  service: "The extractor service failed. Try again.",
+  invalid_response: "The extractor service returned an unexpected response.",
+};
+
+function notFound() {
+  return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    let file: File | null = null;
-    let engagementId: string | null = null;
-    let documentId: string | null = null;
-    let mode = "auto-map";
-    let complianceYear = "2023-24";
-    let sourceType = "corroboration";
-    let fileName = "";
-    let bytes: Buffer | null = null;
+    const session = await requireCapability("documents.upload");
+    const organizationId = assertOrgId(session.organizationId);
+    const limited = limitExceeded(`model:${session.user.id}`, LIMITS.modelCallsPerUser);
+    if (limited) return limited;
 
-    const contentType = req.headers.get("content-type") || "";
+    if (!isExtractorConfigured()) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "The extractor service is not configured. Set EXTRACTOR_URL and EXTRACTOR_API_KEY.",
+        },
+        { status: 503 },
+      );
+    }
+
+    // Parse the body. complianceYear and organizationId from the client are never read.
+    let upload: File | null = null;
+    let raw: Record<string, unknown>;
+    const contentType = req.headers.get("content-type") ?? "";
     if (contentType.includes("multipart/form-data")) {
-      const formData = await req.formData();
-      file = formData.get("file") as File | null;
-      engagementId = formData.get("engagementId") as string | null;
-      documentId = formData.get("documentId") as string | null;
-      mode = (formData.get("mode") as string) || "auto-map";
-      complianceYear = (formData.get("complianceYear") as string) || "2023-24";
-      sourceType = (formData.get("sourceType") as string) || "corroboration";
+      const form = await req.formData().catch(() => null);
+      if (!form) return NextResponse.json({ ok: false, error: "Invalid form data" }, { status: 400 });
+      const f = form.get("file");
+      upload = f instanceof File ? f : null;
+      raw = {};
+      for (const key of ["engagementId", "documentId", "mode", "sourceType"] as const) {
+        const v = form.get(key);
+        if (typeof v === "string" && v !== "") raw[key] = v;
+      }
     } else {
-      const json = await req.json().catch(() => ({}));
-      engagementId = json.engagementId;
-      documentId = json.documentId;
-      mode = json.mode || "auto-map";
-      complianceYear = json.complianceYear || "2023-24";
-      sourceType = json.sourceType || "corroboration";
+      const json: unknown = await req.json().catch(() => null);
+      raw = json && typeof json === "object" ? { ...(json as Record<string, unknown>) } : {};
+      for (const key of Object.keys(raw)) {
+        if (raw[key] === null || raw[key] === "") delete raw[key];
+      }
     }
+    const parsed = Body.safeParse(raw);
+    if (!parsed.success) {
+      return NextResponse.json({ ok: false, error: "Invalid request" }, { status: 400 });
+    }
+    const { engagementId, documentId, mode, sourceType } = parsed.data;
 
-    if (!engagementId) {
-      return NextResponse.json({ ok: false, error: "engagementId is required" }, { status: 400 });
-    }
+    // Engagement first: missing and foreign engagements look the same, before any file is read.
+    const engagement = await getEngagement(engagementId, organizationId);
+    if (!engagement) return notFound();
 
     const admin = createServiceClient();
     if (!admin) {
       return NextResponse.json({ ok: false, error: "Database not configured" }, { status: 503 });
     }
 
-    let resolvedDocId: string | null = documentId;
+    let bytes: Uint8Array;
+    let filename: string;
+    let mimeType: string | undefined;
+    let resolvedDocumentId: string | null = null;
 
-    if (file) {
-      bytes = Buffer.from(await file.arrayBuffer());
-      fileName = file.name;
-    } else if (documentId) {
-      const { data: doc, error: docErr } = await admin
-        .from("documents")
-        .select("id, original_filename, storage_path, organization_id, mime_type")
-        .eq("id", documentId)
-        .single();
-
-      if (docErr || !doc) {
-        return NextResponse.json({ ok: false, error: "Document not found" }, { status: 404 });
+    if (upload) {
+      if (upload.size > MAX_UPLOAD_BYTES) {
+        return NextResponse.json({ ok: false, error: "The file is larger than 25 MB." }, { status: 413 });
       }
-
-      resolvedDocId = doc.id;
-      fileName = doc.original_filename;
+      bytes = new Uint8Array(await upload.arrayBuffer());
+      filename = upload.name || "upload";
+      mimeType = upload.type || undefined;
+      resolvedDocumentId = documentId ?? null;
+      if (resolvedDocumentId) {
+        const { data: own } = await admin
+          .from("documents")
+          .select("id")
+          .eq("id", resolvedDocumentId)
+          .eq("organization_id", organizationId)
+          .eq("engagement_id", engagementId)
+          .maybeSingle();
+        if (!own) return notFound();
+      }
+    } else if (documentId) {
+      const { data: doc } = await admin
+        .from("documents")
+        .select("id, original_filename, storage_path, mime_type")
+        .eq("id", documentId)
+        .eq("organization_id", organizationId)
+        .eq("engagement_id", engagementId)
+        .maybeSingle();
+      if (!doc) return notFound();
       const { data: blob, error: dlErr } = await admin.storage.from("evidence").download(doc.storage_path);
       if (dlErr || !blob) {
-        return NextResponse.json({ ok: false, error: "Failed to download document from storage" }, { status: 500 });
+        return NextResponse.json({ ok: false, error: "Failed to read the document from storage." }, { status: 502 });
       }
-      bytes = Buffer.from(await blob.arrayBuffer());
+      if (blob.size > MAX_UPLOAD_BYTES) {
+        return NextResponse.json({ ok: false, error: "The file is larger than 25 MB." }, { status: 413 });
+      }
+      bytes = new Uint8Array(await blob.arrayBuffer());
+      filename = doc.original_filename;
+      mimeType = doc.mime_type ?? undefined;
+      resolvedDocumentId = doc.id;
     } else {
-      return NextResponse.json({ ok: false, error: "Either file or documentId must be provided" }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "Either a file or a documentId is required." },
+        { status: 400 },
+      );
     }
 
-    const tempFilePath = join(tmpdir(), `upload_${Date.now()}_${fileName}`);
-    await writeFile(tempFilePath, bytes);
-
-    let cliCommand = "auto-map";
-    const cliArgs = [tempFilePath, "--year", complianceYear];
-
-    if (mode === "proforma" || fileName.toLowerCase().includes("proforma") || fileName.toLowerCase().includes("performa")) {
-      cliCommand = "parse-proforma";
-    } else if (mode === "template") {
-      cliCommand = "parse-template";
-      cliArgs.push("--source", sourceType);
-    } else if (mode === "two-stage") {
-      cliCommand = "two-stage-extract";
-      cliArgs.push("--source", sourceType);
-    } else {
-      cliCommand = "auto-map";
-      cliArgs.push("--source", sourceType);
-    }
-
-        const repoRoot = resolve(process.cwd(), process.cwd().endsWith("frontend") ? ".." : ".");
-
-    try {
-      const { stdout, stderr } = await execFileAsync("python", [
-        "-m",
-        "services.extractor.cli",
-        cliCommand,
-        ...cliArgs,
-      ], {
-        cwd: repoRoot,
-        env: { ...process.env, PYTHONPATH: repoRoot },
-      });
-
-      if (!stdout && stderr) {
-        return NextResponse.json({ ok: false, error: stderr }, { status: 500 });
-      }
-
-      let result: CliExtractionOutput;
-      try {
-        result = JSON.parse(stdout);
-      } catch {
-        return NextResponse.json({ ok: false, error: `Invalid JSON from CLI: ${stdout || stderr}` }, { status: 500 });
-      }
-
-      // If auto-map returned zero readings on an arbitrary plant spreadsheet,
-      // fallback to the two-stage extractor (Agent 1 layout -> Agent 2 semantic mapper)
-      if (result.ok && result.readings.length === 0 && cliCommand === "auto-map") {
-        try {
-          const fallback = await execFileAsync("python", [
-            "-m",
-            "services.extractor.cli",
-            "two-stage-extract",
-            tempFilePath,
-            "--year",
-            complianceYear,
-            "--source",
-            sourceType,
-          ], {
-            cwd: repoRoot,
-            env: { ...process.env, PYTHONPATH: repoRoot },
-          });
-          if (fallback.stdout) {
-            const fallbackParsed = JSON.parse(fallback.stdout) as CliExtractionOutput;
-            if (fallbackParsed.ok && fallbackParsed.readings?.length > 0) {
-              result = fallbackParsed;
-              cliCommand = "two-stage-extract";
-            }
-          }
-        } catch {
-          // keep original result
-        }
-      }
-
-      if (!result.ok) {
-        return NextResponse.json({ ok: false, error: result.error || "CLI extraction failed" }, { status: 500 });
-      }
-
-      // Persist all extracted readings into Supabase Calendar Store
-      const savedCount = await persistReadings(engagementId, result.readings, resolvedDocId);
-
-      return NextResponse.json({
-        ok: true,
-        mode: cliCommand,
-        extractedCount: result.count,
-        savedCount,
-        mappings: result.mappings,
-        unmapped: result.unmapped,
-        readings: result.readings,
-      });
-    } finally {
-      // Clean up temp file
-      await unlink(tempFilePath).catch(() => {});
-    }
-  } catch (err) {
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : String(err) },
-      { status: 500 }
-    );
-  }
-}
-
-async function persistReadings(
-  engagementId: string,
-  items: CliExtractionOutput["readings"],
-  documentId?: string | null
-): Promise<number> {
-  const admin = createServiceClient();
-  if (!admin) return 0;
-
-  const { data: eng } = await admin
-    .from("engagements")
-    .select("organization_id")
-    .eq("id", engagementId)
-    .single();
-
-  const organizationId = eng?.organization_id || "";
-
-  let count = 0;
-  for (const item of items) {
-    const provBbox = item.provenance.bbox || (item.provenance.cell_coordinate ? {
-      x: 0,
-      y: 0,
-      width: 0,
-      height: 0,
-      sheet: item.provenance.sheet_name,
-      cellRef: item.provenance.cell_coordinate,
-    } : undefined);
-
-    const sourceText = item.provenance.source_text || (item.provenance.cell_coordinate
-      ? `Cell ${item.provenance.cell_coordinate} on sheet '${item.provenance.sheet_name || ""}'`
-      : "Excel reading");
-
-    const res = await saveCalendarReading(admin, {
-      engagementId,
-      organizationId,
-      streamKey: item.stream_key,
-      monthKey: item.month_key,
-      readingDate: item.date_key ?? undefined,
-      sourceType: item.source_type as SourceType,
-      valueNumeric: item.normalized_value ?? item.raw_value,
-      unit: item.normalized_unit ?? item.unit_as_printed,
-      documentId: documentId ?? undefined,
-      provenancePage: item.provenance.page ?? 1,
-      provenanceBbox: provBbox,
-      provenanceSourceText: sourceText,
+    const complianceYear = engagement.compliance_year;
+    const startedAt = new Date().toISOString();
+    const t0 = Date.now();
+    const result = await extractorClient.extractCalendar({
+      file: { bytes, filename, mimeType },
+      complianceYear,
+      sourceType,
+      layout: LAYOUT_BY_MODE[mode],
     });
-    if (res.ok) count++;
+
+    if (!result.ok) {
+      const kind = result.error.kind;
+      await admin.from("ai_action_logs").insert({
+        organization_id: organizationId,
+        tool: "extract_calendar",
+        provider: "extractor_service",
+        model: "unknown",
+        prompt_version: "unknown",
+        input_hash: "unknown",
+        evidence_id: resolvedDocumentId,
+        page_number: null,
+        started_at: startedAt,
+        duration_ms: Date.now() - t0,
+        raw_output: "",
+        ok: false,
+        error: kind,
+      });
+      return NextResponse.json(
+        { ok: false, error: MESSAGE_BY_KIND[kind] },
+        { status: STATUS_BY_KIND[kind] },
+      );
+    }
+
+    const data = result.data;
+    const skipped: Array<{ rawId: string | null; label: string | null; reason: string; detail?: string | null }> =
+      data.skipped.map((s) => ({ rawId: s.raw_id, label: s.label, reason: s.reason, detail: s.detail }));
+    const mappings: Record<string, string> = {};
+    let savedCount = 0;
+
+    for (const r of data.readings) {
+      if (r.label) mappings[r.label] = r.stream_key;
+      if (r.normalized_value === null) {
+        skipped.push({ rawId: r.raw_id, label: r.label, reason: "no_normalized_value" });
+        continue;
+      }
+      const page = r.provenance.page;
+      const saved = await saveCalendarReading(admin, {
+        engagementId,
+        organizationId,
+        streamKey: r.stream_key,
+        monthKey: r.period.month_key,
+        readingDate: r.period.date,
+        sourceType: r.source_type,
+        valueNumeric: r.value,
+        unit: r.unit_as_stated ?? r.normalized_unit,
+        standardValue: r.normalized_value,
+        valueAsStated: r.value_as_stated,
+        documentId: resolvedDocumentId,
+        provenancePage: page,
+        provenanceBbox: page !== null ? r.provenance.bbox : null,
+        provenanceSourceText: r.provenance.source_text,
+        confidence: r.confidence,
+        extractionMethod: page !== null ? "ai_extraction" : "workbook_reader",
+        state: "suggested",
+        complianceYear,
+        readingMeta: {
+          verified: r.verified,
+          needsReview: r.needs_review,
+          derived: r.derived,
+          unitAssumed: r.unit_assumed,
+          mappingSource: r.mapping_source,
+          reviewReasons: r.review_reasons,
+          locator: {
+            ...(r.provenance.sheet ? { sheet: r.provenance.sheet } : {}),
+            ...(r.provenance.cell ? { cellRef: r.provenance.cell } : {}),
+          },
+          rawId: r.raw_id,
+          model: data.run.model,
+          inputHash: data.run.input_hash,
+        },
+      });
+      if (saved.ok) {
+        savedCount++;
+      } else {
+        skipped.push({ rawId: r.raw_id, label: r.label, reason: "save_failed", detail: saved.error ?? null });
+      }
+    }
+
+    await admin.from("ai_action_logs").insert({
+      organization_id: organizationId,
+      tool: "extract_calendar",
+      provider: "extractor_service",
+      model: data.run.model,
+      prompt_version: data.run.prompt_version,
+      input_hash: data.run.input_hash,
+      evidence_id: resolvedDocumentId,
+      page_number: null,
+      started_at: startedAt,
+      duration_ms: data.run.duration_ms,
+      raw_output: JSON.stringify({ extracted: data.readings.length, saved: savedCount }),
+      ok: true,
+      error: null,
+    });
+
+    return NextResponse.json({
+      ok: true,
+      mode,
+      extractedCount: data.readings.length,
+      savedCount,
+      skipped,
+      warnings: data.warnings,
+      unmapped: data.unmapped,
+      mappings,
+      model: data.run.model,
+      inputHash: data.run.input_hash,
+    });
+  } catch (error) {
+    return jsonError(error);
   }
-  return count;
 }

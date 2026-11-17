@@ -3,7 +3,8 @@ import { z } from "zod";
 import { requireCapability } from "@verifystack/backend/lib/auth/requireRole";
 import { jsonError, limitExceeded } from "@/lib/api";
 import { LIMITS } from "@verifystack/backend/lib/rateLimit";
-import { GeminiExtractionProvider } from "@verifystack/backend/domain/extraction/gemini";
+import { ExtractorServiceProvider } from "@verifystack/backend/domain/extraction/extractorServiceProvider";
+import { isExtractorConfigured } from "@verifystack/backend/lib/supabase/configured";
 import {
   DOC_SCHEMAS,
   isExtractable,
@@ -50,13 +51,12 @@ export async function POST(req: Request) {
     return jsonError(e);
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
+  if (!isExtractorConfigured()) {
     return NextResponse.json(
       {
         ok: false,
         error:
-          "GEMINI_API_KEY is not set. The seeded workbench still runs without it. Add the key to .env.local to try live extraction.",
+          "EXTRACTOR_URL and EXTRACTOR_API_KEY are not set. The seeded workbench still runs without them. Add both to .env.local to try live extraction.",
       },
       { status: 503 }
     );
@@ -84,10 +84,7 @@ export async function POST(req: Request) {
     data: parsed.data.data.replace(/^data:[^;]+;base64,/, ""),
   };
 
-  const provider = new GeminiExtractionProvider({
-    apiKey,
-    model: process.env.GEMINI_MODEL || undefined,
-  });
+  const provider = new ExtractorServiceProvider();
 
   const classified = await provider.classify(page);
   if (!classified.ok || !classified.data) {

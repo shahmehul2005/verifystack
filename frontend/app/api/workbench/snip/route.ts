@@ -101,6 +101,7 @@ export async function POST(req: Request) {
       provenancePage: body.page,
       provenanceBbox: region,
       provenanceSourceText: body.sourceText,
+      state: "accepted",
       reviewedBy: session.user.id,
     });
 

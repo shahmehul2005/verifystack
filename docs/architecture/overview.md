@@ -115,6 +115,11 @@ These sit around the pipeline above. None of them changes how a number is comput
 
 Facts can now have four kinds of provenance, not only a page ([0015](../decisions/0015-provenance-beyond-pages.md)).
 
+Document and calendar extraction (P3) runs in a separate Python service, `services/extractor/`,
+called over HTTP from server-side code ([0026](../decisions/0026-python-extractor-service.md)).
+It is the one HTTP hop between otherwise directly imported workspaces. See
+[`extractor-service.md`](extractor-service.md) for endpoints, settings and how to run it.
+
 ## 5. Domain modules (`backend/domain/`)
 
 | Module         | Responsibility                                                                                         |

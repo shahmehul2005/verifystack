@@ -1,4 +1,5 @@
 import type { MethodologyPack } from "../types";
+import { CCTS_TECHNICAL_REVIEW_SOURCE } from "./shared";
 
 /**
  * CCTS-ALUMINIUM-v1 — runnable pack.
@@ -210,6 +211,8 @@ export const CCTS_ALUMINIUM_V1: MethodologyPack = {
     },
   ],
   report_template: "ccts-gei-form-ab-v1",
+  technical_review_required: true,
+  technical_review_source: CCTS_TECHNICAL_REVIEW_SOURCE,
   notes:
     "Runnable. Denominator is tonnes of aluminium. PFC emissions from anode effects must be supplied as a derived tCO2e quantity — no PFC factor value is held in this system, and ef_pfc_anode_effect is a zero placeholder that would silently understate the total if used. A PFC-specific reconciliation rule and a captive-generation factor path are not yet written.",
 };

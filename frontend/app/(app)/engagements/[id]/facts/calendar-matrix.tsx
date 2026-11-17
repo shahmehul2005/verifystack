@@ -144,7 +144,6 @@ export function CalendarMatrix({ initialGrid, engagementId }: CalendarMatrixProp
       formData.append("file", selectedFile);
       formData.append("engagementId", engagementId);
       formData.append("mode", importMode);
-      formData.append("complianceYear", initialGrid.complianceYear);
       formData.append("sourceType", importSourceType);
 
       const res = await fetch("/api/calendar/excel", {

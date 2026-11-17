@@ -31,6 +31,7 @@ supersedes it and update the status line of the old one.
 | 0023 | [Documents can be removed only while nothing accepted rests on them](0023-guarded-document-removal.md) | Proposed |
 | 0024 | [The website assistant screens, scopes and grounds every answer](0024-website-assistant-guardrails.md) | Accepted |
 | 0025 | [Desk review checks the basis, the chemistry and the digits, in code](0025-desk-review-basis-chemistry-digit-screens.md) | Accepted |
+| 0026 | [Extraction runs in a separate Python service](0026-python-extractor-service.md) | Accepted |
 
 ## Template
 

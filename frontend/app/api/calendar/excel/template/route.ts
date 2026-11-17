@@ -1,44 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-import { readFile, unlink } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 
-const execFileAsync = promisify(execFile);
+import { fiscalStartYear } from "@verifystack/backend/domain/calendar/months";
+import { extractorClient, isExtractorConfigured } from "@verifystack/backend/lib/extractor/client";
+
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const complianceYear = searchParams.get("year") || "2023-24";
-
-  const tempOutputPath = join(tmpdir(), `template_${Date.now()}.xlsx`);
-
-  try {
-    await execFileAsync("python", [
-      "-m",
-      "services.extractor.cli",
-      "generate-template",
-      tempOutputPath,
-      "--year",
-      complianceYear,
-    ]);
-
-    const fileBuffer = await readFile(tempOutputPath);
-
-    return new NextResponse(fileBuffer, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename="verifystack_calendar_template_${complianceYear}.xlsx"`,
-      },
-    });
-  } catch (err) {
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : String(err) },
-      { status: 500 }
-    );
-  } finally {
-    await unlink(tempOutputPath).catch(() => {});
+  const raw = new URL(req.url).searchParams.get("year") || "2023-24";
+  const startYear = fiscalStartYear(raw);
+  if (startYear === null) {
+    return NextResponse.json({ ok: false, error: "Invalid year" }, { status: 400 });
   }
-}
+  const year = `FY${startYear}-${String((startYear + 1) % 100).padStart(2, "0")}`;
 
+  if (!isExtractorConfigured()) {
+    return NextResponse.json(
+      { ok: false, error: "Extractor service is not configured. Set EXTRACTOR_URL and EXTRACTOR_API_KEY." },
+      { status: 503 },
+    );
+  }
+
+  const result = await extractorClient.template(year);
+  if (!result.ok) {
+    const { kind } = result.error;
+    const status = kind === "not_configured" ? 503 : kind === "timeout" ? 504 : 502;
+    return NextResponse.json({ ok: false, error: result.error.message }, { status });
+  }
+
+  return new NextResponse(result.data.bytes, {
+    status: 200,
+    headers: {
+      "Content-Type": XLSX_MIME,
+      "Content-Disposition": `attachment; filename="verifystack_calendar_template_${year}.xlsx"`,
+      "Cache-Control": "no-store",
+    },
+  });
+}

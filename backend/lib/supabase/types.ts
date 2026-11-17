@@ -193,6 +193,8 @@ export interface Database {
           adeetie_phase: AdeetiePhase | null;
           // 0014. Null for schemes whose stage list is not defined.
           stage: string | null;
+          // 0029. CCTS baseline year approved by BEE, e.g. "FY2023-24".
+          baseline_year: string | null;
         }>;
         Insert: Insert<{
           id?: string;
@@ -219,6 +221,7 @@ export interface Database {
           sanctioned_interest_rate_pct?: number | null;
           adeetie_phase?: AdeetiePhase | null;
           stage?: string | null;
+          baseline_year?: string | null;
         }>;
         Update: Update<{
           status?: EngagementStatus;
@@ -565,6 +568,34 @@ export interface Database {
           decision: "approved" | "changes_requested";
           comments: string;
           snapshot_hash: string;
+          created_at?: string;
+        }>;
+        Update: Update<Record<string, never>>;
+        Relationships: [];
+      };
+      engagement_acceptances: {
+        Row: Row<{
+          id: string;
+          organization_id: string;
+          engagement_id: string;
+          version: number;
+          content: Json;
+          content_hash: string;
+          outcome: "cleared" | "blocked";
+          declared_by: string;
+          declared_name: string;
+          created_at: string;
+        }>;
+        Insert: Insert<{
+          id?: string;
+          organization_id: string;
+          engagement_id: string;
+          version: number;
+          content: Json;
+          content_hash: string;
+          outcome: "cleared" | "blocked";
+          declared_by: string;
+          declared_name: string;
           created_at?: string;
         }>;
         Update: Update<Record<string, never>>;
@@ -1037,6 +1068,8 @@ export interface Database {
           provenance_page: number | null;
           provenance_bbox: Json | null;
           provenance_source_text: string | null;
+          // 0030. Reader flags and the sheet/cell locator. Not null, default {}.
+          reading_meta: Json;
           input_hash: string | null;
           output_hash: string | null;
           state: "suggested" | "pending_review" | "accepted" | "corrected" | "rejected" | "withdrawn";
@@ -1081,6 +1114,7 @@ export interface Database {
           provenance_page?: number | null;
           provenance_bbox?: Json | null;
           provenance_source_text?: string | null;
+          reading_meta?: Json;
           input_hash?: string | null;
           output_hash?: string | null;
           state?: "suggested" | "pending_review" | "accepted" | "corrected" | "rejected" | "withdrawn";
@@ -1115,6 +1149,7 @@ export interface Database {
           withdrawn_at?: string | null;
           parent_id?: string | null;
           fact_id?: string | null;
+          reading_meta?: Json;
           updated_at?: string;
         }>;
         Relationships: [];

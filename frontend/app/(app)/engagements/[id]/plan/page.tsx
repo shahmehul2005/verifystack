@@ -21,6 +21,12 @@ import {
 } from "@verifystack/backend/domain/planning/plan";
 import { formatIst, humanize } from "@/lib/format";
 import { PlanEditor, type PlanDraft } from "./plan-editor";
+import { AcceptanceForm } from "./acceptance-form";
+import { loadAcceptance } from "@verifystack/backend/lib/data/acceptance";
+import {
+  AcceptanceDeclarationSchema,
+  evaluateAcceptance,
+} from "@verifystack/backend/domain/engagements/acceptance";
 
 export const metadata = { title: "Verification plan" };
 
@@ -48,6 +54,12 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
       .order("version", { ascending: false }),
     loadEngagementTriage(session.organizationId, id),
   ]);
+
+  const acceptance = await loadAcceptance(session.organizationId, engagement);
+  const latestAcceptance = acceptance.versions[0] ?? null;
+  const acceptanceParsed = latestAcceptance ? AcceptanceDeclarationSchema.safeParse(latestAcceptance.content) : null;
+  const acceptanceDeclaration = acceptanceParsed?.success ? acceptanceParsed.data : null;
+  const acceptanceResult = acceptanceDeclaration ? evaluateAcceptance(acceptanceDeclaration) : null;
 
   const latest = versions?.[0] ?? null;
   const parsed = latest ? PlanContentSchema.safeParse(latest.content) : null;
@@ -77,6 +89,64 @@ export default async function PlanPage({ params }: { params: Promise<{ id: strin
           )
         }
       />
+
+      {acceptance.required ? (
+        <Card className="mb-6">
+          <CardHeader
+            title="Engagement acceptance"
+            description="Before verifying an entity the agency declares impartiality, the contract and the sector scope (ACVA accreditation procedure 5.5, 6.6, 3.5). Sign-off stays closed until a declaration is cleared."
+          />
+          <CardBody>
+            <div className="mb-4 flex flex-wrap items-center gap-3 text-[13px]">
+              <Badge tone={acceptance.state.status === "cleared" ? "ok" : "block"} dot>
+                {acceptance.state.status === "cleared"
+                  ? `v${latestAcceptance?.version} cleared`
+                  : acceptance.state.status === "blocked"
+                    ? `v${latestAcceptance?.version} blocks sign-off`
+                    : "Not recorded"}
+              </Badge>
+              {latestAcceptance ? (
+                <span className="text-mist-600">
+                  {latestAcceptance.declared_name} · {formatIst(latestAcceptance.created_at)}
+                </span>
+              ) : null}
+              {acceptanceResult?.safeguarded ? (
+                <Badge tone="draft">Threat declared, safeguards recorded</Badge>
+              ) : null}
+            </div>
+            {acceptanceResult && acceptanceResult.blockers.length > 0 ? (
+              <Alert tone="warn" title="What blocks this engagement" className="mb-4">
+                <ul className="list-disc pl-4">
+                  {acceptanceResult.blockers.map((b) => (
+                    <li key={b.code}>
+                      {b.message} <span className="text-xs text-mist-500">({b.clause})</span>
+                    </li>
+                  ))}
+                </ul>
+              </Alert>
+            ) : null}
+            {canManage ? (
+              <AcceptanceForm engagementId={id} initial={acceptanceDeclaration ?? {}} />
+            ) : (
+              <p className="text-[13px] text-mist-600">Only the lead verifier records the declaration.</p>
+            )}
+            {acceptance.versions.length > 1 ? (
+              <ul className="mt-4 divide-y divide-mist-100 text-[13px]">
+                {acceptance.versions.map((v) => (
+                  <li key={v.id} className="flex flex-wrap items-center gap-3 py-2">
+                    <span className="font-medium">v{v.version}</span>
+                    <Badge tone={v.outcome === "cleared" ? "ok" : "block"}>{v.outcome}</Badge>
+                    <span className="font-mono text-xs text-mist-500" title={v.content_hash}>
+                      {v.content_hash.slice(0, 10)}…
+                    </span>
+                    <span className="ml-auto text-xs text-mist-500">{formatIst(v.created_at)}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </CardBody>
+        </Card>
+      ) : null}
 
       {latest ? (
         <Card className="mb-6">

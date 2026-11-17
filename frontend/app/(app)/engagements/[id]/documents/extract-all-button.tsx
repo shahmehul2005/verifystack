@@ -98,7 +98,7 @@ export function ExtractAllButton({
           title={
             configured
               ? "Reads every uploaded PDF and image that has not been read yet, one after another. Files already read are skipped."
-              : "Gemini is not configured for this deployment."
+              : "The extractor service is not configured for this deployment (EXTRACTOR_URL and EXTRACTOR_API_KEY)."
           }
         >
           <ScanText className={running ? "animate-pulse" : undefined} />

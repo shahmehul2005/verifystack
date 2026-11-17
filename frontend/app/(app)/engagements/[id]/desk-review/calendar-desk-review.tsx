@@ -18,21 +18,31 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import Link from "next/link";
+import { DownloadLink, WorkbookViewer } from "./workbook-viewer";
 
 interface CalendarDeskReviewProps {
   grid: CalendarGridData;
   engagementId: string;
-  documents: { id: string; name: string; mimeType?: string | null; slot?: string | null }[];
+  documents: {
+    id: string;
+    name: string;
+    mimeType?: string | null;
+    slot?: string | null;
+    previewMode: "embed" | "sheet" | "none";
+  }[];
+  defaultDocumentId: string;
 }
 
 export function CalendarDeskReview({
   grid,
   engagementId,
   documents,
+  defaultDocumentId,
 }: CalendarDeskReviewProps) {
   const [activeTab, setActiveTab] = useState<"variance" | "completeness" | "rollup" | "preview" | "binder">("variance");
   const [selectedStreamKey, setSelectedStreamKey] = useState<string>("all");
-  const [previewDocId, setPreviewDocId] = useState<string>(documents[0]?.id ?? "");
+  const [previewDocId, setPreviewDocId] = useState<string>(defaultDocumentId);
+  const previewDoc = documents.find((d) => d.id === previewDocId);
 
   // Flatten rows across categories
   const allRows: StreamCalendarRow[] = grid.categories.flatMap((c) => c.rows);
@@ -484,27 +494,39 @@ export function CalendarDeskReview({
             <CardHeader
               title="Document Selector"
               actions={
-                <select
-                  value={previewDocId}
-                  onChange={(e) => setPreviewDocId(e.target.value)}
-                  className="rounded border border-mist-300 bg-white px-2 py-1 text-xs max-w-[260px] truncate"
-                >
-                  {documents.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name} {d.slot ? `(${d.slot})` : ""}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={previewDocId}
+                    onChange={(e) => setPreviewDocId(e.target.value)}
+                    className="rounded border border-mist-300 bg-white px-2 py-1 text-xs max-w-[260px] truncate"
+                  >
+                    {documents.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name} {d.slot ? `(${d.slot})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {previewDoc && <DownloadLink documentId={previewDoc.id} />}
+                </div>
               }
             />
             <CardBody className="p-0">
               <div className="h-[650px] w-full bg-mist-100 flex items-center justify-center">
-                {previewDocId ? (
-                  <iframe
-                    src={`/api/documents/${previewDocId}/file`}
-                    className="w-full h-full border-0"
-                    title="Document Preview"
-                  />
+                {previewDoc ? (
+                  previewDoc.previewMode === "embed" ? (
+                    <iframe
+                      src={`/api/documents/${previewDoc.id}/file`}
+                      className="w-full h-full border-0"
+                      title="Document Preview"
+                    />
+                  ) : previewDoc.previewMode === "sheet" ? (
+                    <WorkbookViewer key={previewDoc.id} documentId={previewDoc.id} />
+                  ) : (
+                    <p className="p-4 text-xs text-mist-600">
+                      A preview is not available for this file type
+                      {previewDoc.mimeType ? ` (${previewDoc.mimeType})` : ""}. Use Download to open it.
+                    </p>
+                  )
                 ) : (
                   <p className="text-xs text-mist-500">Select a document to preview</p>
                 )}

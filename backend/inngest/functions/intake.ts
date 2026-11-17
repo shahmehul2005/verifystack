@@ -3,7 +3,7 @@ import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { loadPack } from "@verifystack/backend/domain/packs";
 import { chooseRoute } from "@verifystack/backend/domain/extraction/digital";
 import { documentPageInserts } from "@verifystack/backend/domain/extraction/pages";
-import { isGeminiConfigured } from "@verifystack/backend/lib/supabase/configured";
+import { isExtractorConfigured } from "@verifystack/backend/lib/supabase/configured";
 
 type Uploaded = {
   organizationId: string;
@@ -62,7 +62,7 @@ export const intakeDocument = inngest.createFunction(
 
     await step.sendEvent("kick-extract", {
       name: "documents/extract",
-      data: { ...data, jobId, pageCount, gemini: isGeminiConfigured() },
+      data: { ...data, jobId, pageCount, extractor: isExtractorConfigured() },
     });
 
     return { ok: true, pageCount, jobId, pack: loadPack(data.packId).pack_id };

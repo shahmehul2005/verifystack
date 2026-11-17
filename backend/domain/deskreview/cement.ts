@@ -16,6 +16,7 @@ import {
   checkSumMatches,
   checkUnmappedFuel,
   clinkerConsumedForCement,
+  checkClinkerFactorRange,
   type CheckResult,
 } from "../crosscheck/tieout";
 import { parseCellRef, type XlsxWorkbook } from "../intake/xlsx";
@@ -580,6 +581,17 @@ const RULES: DeskRule[] = [
         relTolerance: T,
         thresholdSource: `${T_SRC}. Clinker factors are the pro forma's.`,
       })
+  ),
+  one("clinker_factor_range", "Production", "Clinker factors lie between 0 and 1", ["pf.cf_opc", "pf.cf_ppc", "pf.cf_psc"], (r) =>
+    checkClinkerFactorRange({
+      id: "clinker_factor_range",
+      label: "Clinker factors lie between 0 and 1",
+      factors: [
+        { label: "OPC", value: num(r, "pf.cf_opc") },
+        { label: "PPC", value: num(r, "pf.cf_ppc") },
+        { label: "PSC", value: num(r, "pf.cf_psc") },
+      ],
+    })
   ),
   one("form1_eq_product", "Form 1 against the pro forma", "Form 1 total equivalent product", ["pf.eq_product_t", "form1.eq_product_t"], (r) =>
     checkRecomputed({ id: "form1_eq_product", label: "Form 1 equivalent product vs pro forma (recomputed)", claimed: num(r, "form1.eq_product_t"), recomputed: num(r, "pf.eq_product_t"), relTolerance: T, thresholdSource: T_SRC })

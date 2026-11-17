@@ -121,6 +121,12 @@ interface PackStreamBindingBase {
    * warns that the intensity is not on the same basis as a target set without it.
    */
   basisWindow?: PackBasisWindow;
+  /**
+   * A caution the run readiness check shows whenever this stream is counted. For a stream whose
+   * treatment is open or disputed: the figure stays in the total (no number is dropped on an
+   * interpretation), and the page says why it needs a person's decision.
+   */
+  reviewNote?: string;
 }
 
 /** A page-cited window of compliance years in which a stream is outside the intensity basis. */
@@ -284,10 +290,14 @@ export interface MethodologyPack {
   structure_only?: PackMethodStructure;
   /**
    * Whether an independent technical review must be recorded before sign-off.
-   * Defaults to false: which schemes require one is an open item in the
-   * regulatory register, so no pack switches it on without a source.
+   * Defaults to false. A pack switches it on only with a cited source in
+   * `technical_review_source` (loader validation refuses it otherwise). CCTS
+   * packs cite the BEE ACVA accreditation procedure, which requires every
+   * validation and verification to be reviewed by a reviewer outside the team.
    */
   technical_review_required?: boolean;
+  /** Clause that requires the independent review. Needed when `technical_review_required` is true. */
+  technical_review_source?: string;
   /**
    * Evidence checklist (verification-first intake). When present, a calculation
    * run is refused until every slot with `gate: "run"` holds a document.

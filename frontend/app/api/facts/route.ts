@@ -135,6 +135,7 @@ export async function POST(req: Request) {
               provenancePage: field.page,
               provenanceBbox: field.bbox as { x: number; y: number; width: number; height: number } | null,
               provenanceSourceText: field.source_text,
+              state: "accepted",
               reviewedBy: session.user.id,
             });
           }

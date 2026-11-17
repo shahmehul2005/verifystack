@@ -1,6 +1,7 @@
 import type { EvidenceSlot, MethodologyPack } from "../types";
 import type { ProformaInput } from "../../proforma/types";
 import { FIRST_TRAJECTORY_PROCESS_BASIS } from "../emissionBasis";
+import { CCTS_TECHNICAL_REVIEW_SOURCE } from "./shared";
 
 /**
  * CCTS-CEMENT-v1 — runnable pack assembled from verified CCTS regulations,
@@ -119,6 +120,15 @@ const CEMENT_EVIDENCE_SLOTS: EvidenceSlot[] = [
     gate: "none",
     accepts: "Daily or monthly petcoke and coal consumption log.",
     basis: "Test set 11 & BEE Detailed Procedure Annexure IV row 17",
+  },
+  {
+    id: "monitoring_plan",
+    label: "Approved monitoring plan",
+    gate: "submission",
+    accepts:
+      "The latest monitoring plan reviewed or approved by BEE (Excel template or PDF), with its version history, so the verification is done against the plan the entity monitored under. Include the gate-to-gate boundary diagram.",
+    basis:
+      "BEE Monitoring Plan Template Instruction (July 2024), s.5.6.13: the latest reviewed plan is made available to the ACVA for verification; plan approval before verification is a tracker item (s.5(5), read from a screenshot, verify)",
   },
   {
     id: "sampling_plan",
@@ -436,6 +446,11 @@ export const CCTS_CEMENT_V1: MethodologyPack = {
       factorKey: "ef_charcoal",
       factorVintage: "IPCC2006",
       phase: "solid",
+      reviewNote:
+        "\"Alternative fuel / biomass (kiln)\" is counted with the placeholder charcoal factor (unverified), so its CO2 is in the total. " +
+        "This pack's own BIO001 clause (Detailed Procedure 5.17) excludes biogenic CO2 from the compliance total, and the BEE monitoring plan template " +
+        "reports biomass separately and treats alternate fuels as excluded only where CPCB or SPCB rules are met (petcoke is not an alternate fuel). " +
+        "Tyre chips and RDF are partly fossil. Decide the treatment of each fuel before relying on the intensity.",
     },
     {
       kind: "process_direct",
@@ -561,6 +576,8 @@ export const CCTS_CEMENT_V1: MethodologyPack = {
     },
   ],
   report_template: "ccts-gei-form-ab-v1",
+  technical_review_required: true,
+  technical_review_source: CCTS_TECHNICAL_REVIEW_SOURCE,
   notes:
     "Runnable. Grounded in BEE Detailed Procedure for Compliance Mechanism under CCTS (v1.0, July 2024). Sub-sectors: 'Cement Integrated' (kiln combustion, calcination, CPP, WHRS, finish grinding) vs 'Cement Grinding' (imported grid HT electricity and inbound clinker; kiln fuels and calcination are not applicable). Pinned kiln coal + HT electricity reproduce the original Cement mapping byte-for-byte. Process calcination offers output-based (Eq. IX–XIII) and input-based (raw meal carbonates) methods. Grid emission factor is frozen at baseline year vintage per Section 5.10(vi). Biogenic CO2 from AFR/biomass is excluded from compliance total per Section 5.17. Furnace oil (IPCC 2006 default factor, unverified) is optional and omitted when facts are absent. Clinker calcination is required from FY2027-28 by either method (one is enough; a run with neither process.calcinationEmissions nor process.rawMealCalcinationEmissions does not proceed). For FY2024-25 to FY2026-27 process emissions are outside the intensity basis per Detailed Procedure Section 3.4(1) Note (p. 7): the streams are not required, so a plant with no process figure is not blocked. A process figure that is supplied is still counted and the run warns that the intensity is then not on the same basis as a target set without it. The reading of those years and of the achieved-intensity basis is open in docs/domain/regulatory-register.md.",
 };

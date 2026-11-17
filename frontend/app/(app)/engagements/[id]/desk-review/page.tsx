@@ -7,6 +7,10 @@ import { isSupabaseConfigured } from "@verifystack/backend/lib/supabase/configur
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
 import { loadCalendarGridForEngagement } from "@verifystack/backend/lib/data/calendarStore";
+import {
+  pickDefaultPreviewDoc,
+  previewModeFor,
+} from "@verifystack/backend/domain/intake/preview";
 import { CalendarDeskReview } from "./calendar-desk-review";
 
 export const metadata = { title: "Desk Review & Pro Forma Cross-Checks" };
@@ -41,7 +45,9 @@ export default async function DeskReviewPage({ params }: { params: Promise<{ id:
     name: d.original_filename,
     slot: d.slot,
     mimeType: d.mime_type,
+    previewMode: previewModeFor(d.mime_type),
   }));
+  const defaultDocumentId = pickDefaultPreviewDoc(documents);
 
   return (
     <div className="space-y-6">
@@ -51,7 +57,12 @@ export default async function DeskReviewPage({ params }: { params: Promise<{ id:
         description="Comprehensive cross-checks between declared sector pro-forma inputs and 12-month primary evidence. Completeness checks, variance thresholds (≤5%), and annual roll-up reconciliations."
       />
 
-      <CalendarDeskReview grid={grid} engagementId={id} documents={documents} />
+      <CalendarDeskReview
+        grid={grid}
+        engagementId={id}
+        documents={documents}
+        defaultDocumentId={defaultDocumentId}
+      />
     </div>
   );
 }

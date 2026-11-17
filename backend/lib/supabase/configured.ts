@@ -17,6 +17,11 @@ export function isGeminiConfigured(): boolean {
   return Boolean(process.env.GEMINI_API_KEY);
 }
 
+/** True when both the extractor service URL and API key are set (server env only). */
+export function isExtractorConfigured(): boolean {
+  return Boolean(process.env.EXTRACTOR_URL && process.env.EXTRACTOR_API_KEY);
+}
+
 export function isInngestConfigured(): boolean {
   return Boolean(process.env.INNGEST_EVENT_KEY && process.env.INNGEST_SIGNING_KEY);
 }

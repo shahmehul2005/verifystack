@@ -1,0 +1,11 @@
+# Extractor_Service runtime dependencies.
+# Install from the repo root: pip install -r services/requirements.txt
+# PyMuPDF is intentionally not used (AGPL-3.0). PDF text and rendering use pdfplumber.
+fastapi>=0.162.4
+uvicorn>=0.54.0
+python-multipart>=0.0.12
+pydantic-ai[google]>=2.67.0
+google-genai>=2.34.0
+pdfplumber>=0.11.10
+openpyxl>=3.1.5
+xlrd>=2.0.2

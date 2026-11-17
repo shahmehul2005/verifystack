@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireCapability, assertOrgId } from "@verifystack/backend/lib/auth/requireRole";
-import type { User } from "@supabase/supabase-js";
 import { createServiceClient } from "@verifystack/backend/lib/supabase/admin";
+import { jsonError } from "@/lib/api";
+import { getEngagement } from "@verifystack/backend/lib/data/engagements";
 import { createServerSupabase } from "@verifystack/backend/lib/supabase/server";
 import {
   loadCalendarGridForEngagement,
@@ -69,6 +70,9 @@ const PostSchema = z.union([
 
 export async function POST(req: Request) {
   try {
+    const session = await requireCapability("review.decide");
+    const organizationId = assertOrgId(session.organizationId);
+
     const json = await req.json().catch(() => null);
     const parsed = PostSchema.safeParse(json);
     if (!parsed.success) {
@@ -83,43 +87,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Database not configured" }, { status: 503 });
     }
 
-    const firstEngId = "items" in parsed.data ? parsed.data.items[0]?.engagementId : parsed.data.engagementId;
-
-    const session = await requireCapability("review.decide").catch(async (err) => {
-      if (process.env.NODE_ENV === "development" || !process.env.VERCEL) {
-        return {
-          user: { id: "dev-verifier" } as unknown as User,
-          role: "lead_verifier" as const,
-          organizationId: "",
-          memberships: [],
-        };
-      }
-      throw err;
-    });
-
-    let organizationId = session.organizationId;
-    if (!organizationId && firstEngId) {
-      const { data: eng } = await supabase
-        .from("engagements")
-        .select("organization_id")
-        .eq("id", firstEngId)
-        .maybeSingle();
-      if (eng?.organization_id) {
-        organizationId = eng.organization_id;
-      }
-    }
-
-    if (!organizationId) {
-      organizationId = assertOrgId(session.organizationId);
-    }
-
     const items = "items" in parsed.data ? parsed.data.items : [parsed.data];
+
+    // Every engagement must belong to the session organization before anything is saved.
+    for (const engagementId of new Set(items.map((i) => i.engagementId))) {
+      const engagement = await getEngagement(engagementId, organizationId);
+      if (!engagement) {
+        return NextResponse.json({ ok: false, error: "Engagement not found" }, { status: 404 });
+      }
+    }
+
     const createdIds: string[] = [];
 
     for (const item of items) {
       const res = await saveCalendarReading(supabase, {
         ...item,
         organizationId,
+        state: "accepted",
         reviewedBy: session.user.id,
       });
 
@@ -133,7 +117,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, id: createdIds[0] ?? null, count: createdIds.length, ids: createdIds });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    return jsonError(err);
   }
 }

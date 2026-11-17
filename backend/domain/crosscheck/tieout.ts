@@ -150,6 +150,36 @@ export function checkMassBalance(args: {
   return { ...inner, detail: `Implied outflow ${fmt(outflow)} t against consumed ${fmt(args.consumed)} t. ${inner.detail}` };
 }
 
+/**
+ * A clinker factor is the clinker used per tonne of that cement, so it lies above 0 and cannot
+ * exceed 1: a tonne of cement cannot contain more than a tonne of clinker. A figure outside that
+ * is a typing or unit error (a percentage entered as a fraction, a tonnage in the factor cell).
+ * This is a physical bound, not a scheme threshold. A factor the workbook leaves empty or blank is
+ * skipped, and if none can be read the check says so.
+ */
+export function checkClinkerFactorRange(args: {
+  id: string;
+  label: string;
+  factors: { label: string; value: number }[];
+}): CheckResult {
+  const readable = args.factors.filter((f) => Number.isFinite(f.value));
+  if (readable.length === 0) {
+    return { id: args.id, label: args.label, status: "not_applicable", detail: "No clinker factor could be read from the pro forma." };
+  }
+  const bad = readable.filter((f) => f.value <= 0 || f.value > 1);
+  return {
+    id: args.id,
+    label: args.label,
+    status: bad.length > 0 ? "fail" : "pass",
+    detail:
+      bad.length > 0
+        ? `Clinker factor outside 0 to 1: ${bad.map((f) => `${f.label} ${fmt(f.value)}`).join("; ")}. ` +
+          `The factor is clinker used per tonne of that cement, so it cannot exceed 1. Check for a percentage typed as a fraction or a wrong cell.`
+        : `Every clinker factor read is between 0 and 1: ${readable.map((f) => `${f.label} ${fmt(f.value)}`).join("; ")}.`,
+    thresholdSource: "Physical bound: a tonne of cement cannot hold more than a tonne of clinker",
+  };
+}
+
 /** Clinker consumed in grinding, from cement output and each cement type's clinker factor. */
 export function clinkerConsumedForCement(
   lines: { label: string; tonnes: number; clinkerFactor: number }[]

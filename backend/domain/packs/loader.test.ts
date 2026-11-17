@@ -5,6 +5,7 @@ import {
   assertRunnable,
   canStartWork,
   validateRegistry,
+  validatePack,
   PackError,
 } from "./loader";
 import { ADEETIE_SECTORS } from "./adeetie";
@@ -83,6 +84,28 @@ describe("pack loader", () => {
 
   it("holds no structurally invalid runnable pack in the registry", () => {
     expect(validateRegistry()).toEqual([]);
+  });
+
+  it("requires an independent technical review on every CCTS pack, with a cited source", () => {
+    for (const p of listPacks({ scheme: "CCTS" })) {
+      expect(p.technical_review_required, p.pack_id).toBe(true);
+      expect(p.technical_review_source, p.pack_id).toMatch(/4\.4\.3/);
+    }
+    // ADEETIE has no source yet, so it stays off.
+    for (const p of listPacks({ scheme: "ADEETIE" })) {
+      expect(p.technical_review_required ?? false, p.pack_id).toBe(false);
+    }
+  });
+
+  it("refuses a pack that switches technical review on without a source", () => {
+    const pack = loadPack("CCTS-CEMENT-v1");
+    pack.technical_review_source = undefined;
+    expect(validatePack(pack).join(" ")).toMatch(/technical_review_source/);
+  });
+
+  it("asks the cement entity for the approved monitoring plan at the submission gate", () => {
+    const slot = loadPack("CCTS-CEMENT-v1").evidence_slots?.find((s) => s.id === "monitoring_plan");
+    expect(slot?.gate).toBe("submission");
   });
 
   it("throws on unknown pack ids", () => {
