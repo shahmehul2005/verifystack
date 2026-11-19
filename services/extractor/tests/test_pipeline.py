@@ -411,10 +411,10 @@ def test_input_hash_changes_with_file_year_source_type_and_model(
 
 
 def test_compute_input_hash_ignores_parameter_key_order() -> None:
-    a = compute_input_hash(["h1"], {"x": 1, "y": 2}, "m")
-    b = compute_input_hash(["h1"], {"y": 2, "x": 1}, "m")
+    a = compute_input_hash(["h1"], {"x": 1, "y": 2}, "m", "gemini")
+    b = compute_input_hash(["h1"], {"y": 2, "x": 1}, "m", "gemini")
     assert a == b
-    assert compute_input_hash(["h1", "h2"], {"x": 1, "y": 2}, "m") != a
+    assert compute_input_hash(["h1", "h2"], {"x": 1, "y": 2}, "m", "gemini") != a
 
 
 def test_file_info_carries_the_real_hash_and_a_safe_name() -> None:

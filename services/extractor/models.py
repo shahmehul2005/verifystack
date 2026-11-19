@@ -299,7 +299,9 @@ class HealthResponse(BaseModel):
     service: str
     version: str
     gemini_configured: bool
+    provider: str
     model: str
+    model_configured: bool
 
 
 class ClassifyResponse(BaseModel):

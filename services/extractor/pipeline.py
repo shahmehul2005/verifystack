@@ -209,8 +209,10 @@ class RunState:
 # ---------------------------------------------------------------------------
 
 
-def compute_input_hash(file_hashes: Sequence[str], params: dict[str, Any], model: str) -> str:
-    """SHA-256 of canonical JSON of the file hashes, parameters, prompt version and model.
+def compute_input_hash(
+    file_hashes: Sequence[str], params: dict[str, Any], model: str, provider: str
+) -> str:
+    """SHA-256 of canonical JSON of the file hashes, parameters, prompt version, provider and model.
 
     Equal input gives an equal hash. Changing one byte of a file, one parameter that
     affects the result, or the model name changes it (Requirement 17.4).
@@ -219,6 +221,7 @@ def compute_input_hash(file_hashes: Sequence[str], params: dict[str, Any], model
         "files": list(file_hashes),
         "params": params,
         "prompt_version": PROMPT_VERSION,
+        "provider": provider,
         "model": model,
     }
     text = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
@@ -232,7 +235,9 @@ def make_run(
         model=deps.settings.model,
         model_calls=state.model_calls,
         prompt_version=PROMPT_VERSION,
-        input_hash=compute_input_hash(file_hashes, params, deps.settings.model),
+        input_hash=compute_input_hash(
+            file_hashes, params, deps.settings.model, deps.settings.provider
+        ),
         duration_ms=max(0, int((time.perf_counter() - state.started) * 1000)),
     )
 

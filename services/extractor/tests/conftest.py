@@ -27,9 +27,15 @@ os.environ.setdefault("PYDANTIC_AI_NO_BANNER", "1")
 # The key the ``auth_headers`` fixture installs.
 TEST_API_KEY = "test-extractor-key"
 
-# Environment names removed before each test: the three named by the design plus every
+# Environment names removed before each test: the five named by the design plus every
 # other ``EXTRACTOR_*`` setting, so a developer's shell cannot change a result.
-_CLEARED_EXACT = ("GEMINI_API_KEY", "EXTRACTOR_API_KEY", "EXTRACTOR_MODEL")
+_CLEARED_EXACT = (
+    "GEMINI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "EXTRACTOR_API_KEY",
+    "EXTRACTOR_MODEL",
+    "EXTRACTOR_PROVIDER",
+)
 _CLEARED_PREFIX = "EXTRACTOR_"
 
 

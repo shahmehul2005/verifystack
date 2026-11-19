@@ -233,6 +233,25 @@ describe("response validation", () => {
     }
   });
 
+  it("parses a /health body with provider and model_configured", async () => {
+    const body = { ...health, provider: "anthropic", model: "claude-haiku-5-5", model_configured: false };
+    fetchMock.mockResolvedValue(jsonResponse(body));
+    const r = await extractorClient.health();
+    expect(r).toEqual({ ok: true, data: body });
+  });
+
+  it("still parses an older /health body without provider or model_configured", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(health));
+    const r = await extractorClient.health();
+    expect(r.ok).toBe(true);
+  });
+
+  it("rejects a wrongly typed model_configured", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ...health, model_configured: "yes" }));
+    const r = await extractorClient.health();
+    expect(!r.ok && r.error.kind).toBe("invalid_response");
+  });
+
   it("rejects unknown keys on strict objects", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ ...health, extra: 1 }));
     const r = await extractorClient.health();

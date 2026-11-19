@@ -36,7 +36,9 @@ from pydantic_ai.exceptions import (
     UsageLimitExceeded,
 )
 from pydantic_ai.models import Model
+from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.google import GoogleModel
+from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.settings import ModelSettings
 
@@ -65,6 +67,9 @@ __all__ = [
     "ModelNotConfigured",
     "ModelProvider",
     "GeminiModelProvider",
+    "AnthropicModelProvider",
+    "build_model_provider",
+    "not_configured_message",
     "classify_failure",
     "UNKNOWN_DOC_TYPE",
 ]
@@ -289,6 +294,39 @@ class GeminiModelProvider:
             self.settings.model,
             provider=GoogleProvider(api_key=self.settings.gemini_api_key),
         )
+
+
+class AnthropicModelProvider:
+    """Builds the Anthropic model from settings. There is no fallback model."""
+
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+
+    def get(self) -> Model:
+        if not self.settings.anthropic_api_key:
+            raise ModelNotConfigured("ANTHROPIC_API_KEY")
+        return AnthropicModel(
+            self.settings.model,
+            provider=AnthropicProvider(api_key=self.settings.anthropic_api_key),
+        )
+
+
+def build_model_provider(settings: Settings) -> ModelProvider:
+    """Select the provider named by ``settings.provider`` (Requirement 21.1, 21.2)."""
+    if settings.provider == "gemini":
+        return GeminiModelProvider(settings)
+    if settings.provider == "anthropic":
+        return AnthropicModelProvider(settings)
+    raise ModelNotConfigured("EXTRACTOR_PROVIDER")
+
+
+def not_configured_message(exc: ModelNotConfigured) -> str:
+    """A message naming the setting to fix: ``GEMINI_API_KEY``, ``ANTHROPIC_API_KEY`` or
+    ``EXTRACTOR_PROVIDER`` (Requirement 21.2, 21.6). Never includes a secret value."""
+    setting = str(exc.args[0]) if exc.args else "GEMINI_API_KEY"
+    if setting == "EXTRACTOR_PROVIDER":
+        return "EXTRACTOR_PROVIDER must be gemini or anthropic, and this request needs a model"
+    return f"{setting} is not set, and this request needs a model"
 
 
 # ---------------------------------------------------------------------------

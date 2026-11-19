@@ -16,6 +16,14 @@ must say which version it bumps. Current versions:
 | Citation prompt               | `2026-09-05.cite-retrieved-only`  | `backend/domain/citations/types.ts`     |
 
 ## [Unreleased]
+### Anthropic model provider for the Extractor_Service
+- **The service can call Anthropic instead of Gemini.** Set `EXTRACTOR_PROVIDER=anthropic` and `ANTHROPIC_API_KEY`
+  in the service's environment. The default stays `gemini`. `EXTRACTOR_MODEL` defaults per provider
+  (`gemini-2.5-flash`, `claude-haiku-5-5`). There is no fallback model; a missing key or unknown provider returns
+  503 `gemini_key_missing` with a message naming the variable. The provider is part of the run's `input_hash`.
+- **`/health` adds `provider`, `model` and `model_configured`** and keeps `gemini_configured`. The TypeScript client
+  treats the new fields as optional. Models still never produce a number used in a calculation.
+
 ### Extraction moves to a Python Extractor_Service
 - **The Python service in `services/extractor/` replaces the TypeScript Gemini extraction** for classifying pages,
   extracting document fields and reading calendar workbooks. The web app calls it over HTTP through

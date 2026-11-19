@@ -84,7 +84,7 @@ def _cmd_serve(args: argparse.Namespace) -> int:
 
 
 def _cmd_extract(args: argparse.Namespace) -> int:
-    from .agents import GeminiModelProvider, ModelNotConfigured
+    from .agents import ModelNotConfigured, build_model_provider, not_configured_message
     from .config import get_settings
     from .models import CalendarParams, SourceType
     from .pdf_text import PageCapExceeded
@@ -118,9 +118,8 @@ def _cmd_extract(args: argparse.Namespace) -> int:
         source_type=SourceType(args.source),
         layout=args.layout,
     )
-    deps = PipelineDeps(settings=settings, models=GeminiModelProvider(settings))
-
     try:
+        deps = PipelineDeps(settings=settings, models=build_model_provider(settings))
         response = asyncio.run(extract_calendar(Upload(name=path.name, data=data), params, deps))
     except UnsupportedFormat as exc:
         return _fail("unsupported_format", str(exc), supported=exc.supported)
@@ -132,8 +131,8 @@ def _cmd_extract(args: argparse.Namespace) -> int:
         return _fail("layout_not_recognized", str(exc))
     except PageCapExceeded as exc:
         return _fail("page_cap_exceeded", str(exc))
-    except ModelNotConfigured:
-        return _fail("gemini_key_missing", "GEMINI_API_KEY is not set")
+    except ModelNotConfigured as exc:
+        return _fail("gemini_key_missing", not_configured_message(exc))
     except ModelFailure as exc:
         return _fail("model_failure", "A model call failed", category=exc.category)
     except Exception as exc:  # noqa: BLE001 - last resort, report the class name only

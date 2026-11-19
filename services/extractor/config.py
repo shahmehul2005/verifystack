@@ -6,7 +6,8 @@ import math
 import os
 from dataclasses import dataclass
 
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_PROVIDER = "gemini"
+DEFAULT_MODEL = {"gemini": "gemini-2.5-flash", "anthropic": "claude-haiku-5-5"}
 DEFAULT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 DEFAULT_MAX_PDF_PAGES = 100
 DEFAULT_MODEL_TIMEOUT_S = 90.0
@@ -17,9 +18,11 @@ DEFAULT_MAX_BATCH = 25
 
 @dataclass(frozen=True)
 class Settings:
+    provider: str  # EXTRACTOR_PROVIDER, "gemini" (default) or "anthropic"; unknown values kept as given
     gemini_api_key: str  # GEMINI_API_KEY
+    anthropic_api_key: str  # ANTHROPIC_API_KEY
     extractor_api_key: str  # EXTRACTOR_API_KEY
-    model: str  # EXTRACTOR_MODEL, default "gemini-2.5-flash" when empty
+    model: str  # EXTRACTOR_MODEL, default depends on the provider when empty
     max_upload_bytes: int  # EXTRACTOR_MAX_UPLOAD_BYTES, default 25 MB
     max_pdf_pages: int  # EXTRACTOR_MAX_PDF_PAGES, default 100
     cors_origins: tuple[str, ...]  # EXTRACTOR_CORS_ORIGINS, comma list, default ()
@@ -69,10 +72,13 @@ def _origins(name: str) -> tuple[str, ...]:
 
 def get_settings() -> Settings:
     """Build Settings from ``os.environ``. Reads the environment on every call."""
+    provider = _text("EXTRACTOR_PROVIDER").lower() or DEFAULT_PROVIDER
     return Settings(
+        provider=provider,
         gemini_api_key=_text("GEMINI_API_KEY"),
+        anthropic_api_key=_text("ANTHROPIC_API_KEY"),
         extractor_api_key=_text("EXTRACTOR_API_KEY"),
-        model=_text("EXTRACTOR_MODEL") or DEFAULT_MODEL,
+        model=_text("EXTRACTOR_MODEL") or DEFAULT_MODEL.get(provider, DEFAULT_MODEL[DEFAULT_PROVIDER]),
         max_upload_bytes=_positive_int("EXTRACTOR_MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES),
         max_pdf_pages=_positive_int("EXTRACTOR_MAX_PDF_PAGES", DEFAULT_MAX_PDF_PAGES),
         cors_origins=_origins("EXTRACTOR_CORS_ORIGINS"),

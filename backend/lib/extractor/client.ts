@@ -166,6 +166,9 @@ export const HealthSchema = z.strictObject({
   version: z.string(),
   gemini_configured: z.boolean(),
   model: z.string(),
+  // Added with the selectable provider. Optional so an older service still parses.
+  provider: z.string().optional(),
+  model_configured: z.boolean().optional(),
 });
 export type Health = z.infer<typeof HealthSchema>;
 

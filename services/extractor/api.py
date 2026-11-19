@@ -46,7 +46,13 @@ from starlette.formparsers import MultiPartException
 from starlette.types import Message
 
 from . import __version__
-from .agents import GeminiModelProvider, ModelNotConfigured, ModelProvider, classify_failure
+from .agents import (
+    ModelNotConfigured,
+    ModelProvider,
+    build_model_provider,
+    classify_failure,
+    not_configured_message,
+)
 from .config import Settings, get_settings
 from .models import (
     CalendarParams,
@@ -139,9 +145,7 @@ def translate_error(exc: BaseException, settings: Settings | None = None) -> Ext
     if isinstance(exc, ExtractorError):
         return exc
     if isinstance(exc, ModelNotConfigured):
-        return ExtractorError(
-            503, "gemini_key_missing", "GEMINI_API_KEY is not set, and this request needs a model"
-        )
+        return ExtractorError(503, "gemini_key_missing", not_configured_message(exc))
     if isinstance(exc, ModelFailure):
         return ExtractorError(
             502, "model_failure", "A model call failed", category=exc.category
@@ -207,9 +211,18 @@ def require_key(
         raise ExtractorError(401, "unauthorized", "Missing or invalid X-Extractor-Key")
 
 
+def _model_configured(settings: Settings) -> bool:
+    """True when the key of the selected provider is set."""
+    if settings.provider == "gemini":
+        return bool(settings.gemini_api_key)
+    if settings.provider == "anthropic":
+        return bool(settings.anthropic_api_key)
+    return False
+
+
 def get_model_provider(settings: Settings = Depends(get_settings)) -> ModelProvider:
     """The model provider. Tests replace it with ``app.dependency_overrides``."""
-    return GeminiModelProvider(settings)
+    return build_model_provider(settings)
 
 
 # ---------------------------------------------------------------------------
@@ -415,7 +428,9 @@ def create_app() -> FastAPI:
             service=SERVICE_NAME,
             version=__version__,
             gemini_configured=bool(settings.gemini_api_key),
+            provider=settings.provider,
             model=settings.model,
+            model_configured=_model_configured(settings),
         )
 
     guarded = [Depends(require_key)]

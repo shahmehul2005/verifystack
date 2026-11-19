@@ -98,14 +98,17 @@ All `/v1/*` endpoints require the `X-Extractor-Key` header. `POST` bodies are
 
 | Endpoint                          | Form fields                                                       | Success body                                                     |
 | --------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `GET /health`                     | none, no key                                                      | `{status, service, version, gemini_configured, model}`           |
+| `GET /health`                     | none, no key                                                      | `{status, service, version, gemini_configured, provider, model, model_configured}` |
 | `GET /v1/template?year=FY2025-26` | query only                                                        | `.xlsx` bytes, `Content-Disposition: attachment`                 |
 | `POST /v1/classify`               | `file`, `allowed_doc_types` (JSON), `page_number`                 | `{ok, classification, run}`                                      |
 | `POST /v1/classify-batch`         | `files` (repeated), `allowed_doc_types`                           | `{ok, items, run}`                                               |
 | `POST /v1/extract-fields`         | `file`, `doc_type`, `page_number`, `catalogue` (JSON)             | `{ok, fields, warnings, run}`                                    |
 | `POST /v1/extract-calendar`       | `file`, `compliance_year`, `source_type`, `layout`                | `{ok, file, readings, skipped, unmapped, warnings, run}`         |
 
-`/health` reports whether a Gemini key is set, never the key.
+`/health` reports the selected `provider`, the resolved `model`, and whether a key is set for
+the selected provider (`model_configured`), never the key. `gemini_configured` is kept for
+older callers. The web app's schema treats `provider` and `model_configured` as optional, so
+an older service still parses.
 
 Errors use one envelope with a `code`:
 
@@ -117,7 +120,7 @@ Errors use one envelope with a `code`:
 | 415    | `unsupported_format`                                           | Format not recognised                            |
 | 422    | `corrupt_file`, `password_protected`, `layout_not_recognized`  | File unreadable, or no table or pro forma found  |
 | 502    | `model_failure`                                                | A model call failed. No partial readings.        |
-| 503    | `extractor_key_missing`, `gemini_key_missing`                  | The named setting is empty                       |
+| 503    | `extractor_key_missing`, `gemini_key_missing`                  | The named setting is empty, or the provider is unknown. `gemini_key_missing` covers all three model cases; its message names `GEMINI_API_KEY`, `ANTHROPIC_API_KEY` or `EXTRACTOR_PROVIDER`. |
 
 The web app routes that call the service are `/api/extract`, `/api/documents/[id]/extract`,
 `/api/documents/[id]/type`, `/api/documents/classify-batch`, `/api/calendar/excel` and
@@ -131,8 +134,10 @@ The service reads its environment on every call (`services/extractor/config.py`)
 | Variable                      | Default             | Meaning                                                    |
 | ----------------------------- | ------------------- | ---------------------------------------------------------- |
 | `EXTRACTOR_API_KEY`           | none, required      | Shared secret. Empty gives 503 on every `/v1/*` endpoint.  |
-| `GEMINI_API_KEY`              | none                | Needed for PDFs, classify, extract-fields and unmapped labels. Empty gives 503 `gemini_key_missing`. There is no fallback model. |
-| `EXTRACTOR_MODEL`             | `gemini-2.5-flash`  | Model name. Empty uses the default.                        |
+| `EXTRACTOR_PROVIDER`          | `gemini`            | `gemini` or `anthropic`. Any other value gives 503 `gemini_key_missing` naming `EXTRACTOR_PROVIDER`. |
+| `GEMINI_API_KEY`              | none                | Needed when the provider is `gemini`, for PDFs, classify, extract-fields and unmapped labels. Empty gives 503 `gemini_key_missing`. There is no fallback model. |
+| `ANTHROPIC_API_KEY`           | none                | Same use when the provider is `anthropic`. Empty gives 503 `gemini_key_missing` naming `ANTHROPIC_API_KEY`. No fallback to Gemini. |
+| `EXTRACTOR_MODEL`             | `gemini-2.5-flash` for `gemini`, `claude-haiku-5-5` for `anthropic` | Model name. Empty uses the default for the selected provider. |
 | `EXTRACTOR_MAX_UPLOAD_BYTES`  | 26214400 (25 MB)    | Per-file cap                                               |
 | `EXTRACTOR_MAX_PDF_PAGES`     | 100                 | Checked before any page is read                            |
 | `EXTRACTOR_CORS_ORIGINS`      | empty               | Comma list. The Next.js server does not need CORS.         |

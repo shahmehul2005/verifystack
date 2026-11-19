@@ -4,9 +4,9 @@ Feature: industrial-extractor, Property 29: Input hash is deterministic.
 
 For any request, repeating it with the same bytes, parameters and model gives the same
 ``input_hash``. Changing any one byte of the file, any parameter that affects the result, or
-the model name gives a different hash.
+the model name or the provider gives a different hash.
 
-**Validates: Requirements 17.4**
+**Validates: Requirements 17.4, 21.12**
 """
 
 from __future__ import annotations
@@ -49,10 +49,10 @@ model_names = st.text(alphabet="abcdefghijklmnopqrstuvwxyz0123456789-.", min_siz
 @settings(max_examples=100, deadline=None)
 @given(file_hash_lists, param_dicts, model_names)
 def test_same_input_gives_same_hash(files: list[str], params: dict, model: str) -> None:  # type: ignore[type-arg]
-    first = compute_input_hash(files, dict(params), model)
+    first = compute_input_hash(files, dict(params), model, "gemini")
     # Key order of the parameters must not matter.
     reordered = dict(reversed(list(params.items())))
-    second = compute_input_hash(list(files), reordered, model)
+    second = compute_input_hash(list(files), reordered, model, "gemini")
     assert first == second
     assert re.fullmatch(r"[0-9a-f]{64}", first)
 
@@ -62,22 +62,22 @@ def test_same_input_gives_same_hash(files: list[str], params: dict, model: str) 
 def test_changing_a_file_param_or_model_changes_the_hash(
     files: list[str], params: dict, model: str, data: st.DataObject  # type: ignore[type-arg]
 ) -> None:
-    base = compute_input_hash(files, params, model)
+    base = compute_input_hash(files, params, model, "gemini")
 
     # One file's bytes change, so its SHA-256 changes.
     i = data.draw(st.integers(0, len(files) - 1))
     other = hashlib.sha256(files[i].encode() + b"x").hexdigest()
     changed_files = [*files[:i], other, *files[i + 1 :]]
-    assert compute_input_hash(changed_files, params, model) != base
+    assert compute_input_hash(changed_files, params, model, "gemini") != base
 
     # One parameter value changes.
     key = data.draw(st.text(min_size=1, max_size=8))
     new_params = dict(params)
     new_params[key] = ["changed", params.get(key)]
-    assert compute_input_hash(files, new_params, model) != base
+    assert compute_input_hash(files, new_params, model, "gemini") != base
 
     # The model name changes.
-    assert compute_input_hash(files, params, model + "x") != base
+    assert compute_input_hash(files, params, model + "x", "gemini") != base
 
 
 # ---------------------------------------------------------------------------
@@ -136,3 +136,42 @@ def test_extract_calendar_run_hash(
     assert _run(raw, params.model_copy(update={"source_type": other_source}), model).input_hash != a.input_hash
     other_fy = "FY2030-31" if params.compliance_year != "FY2030-31" else FY
     assert _run(raw, params.model_copy(update={"compliance_year": other_fy}), model).input_hash != a.input_hash
+
+
+# ---------------------------------------------------------------------------
+# The provider is part of the hash input (Requirement 21.12)
+# ---------------------------------------------------------------------------
+providers = st.sampled_from(["gemini", "anthropic"])
+
+
+@settings(max_examples=100, deadline=None)
+@given(file_hash_lists, param_dicts, model_names, providers)
+def test_changing_only_the_provider_changes_the_hash(
+    files: list[str], params: dict, model: str, provider: str  # type: ignore[type-arg]
+) -> None:
+    other = "anthropic" if provider == "gemini" else "gemini"
+    assert compute_input_hash(files, params, model, provider) != compute_input_hash(
+        files, params, model, other
+    )
+    assert compute_input_hash(files, params, model, provider) == compute_input_hash(
+        files, params, model, provider
+    )
+
+
+@settings(max_examples=15, deadline=None)
+@given(values_lists, calendar_params, model_names)
+def test_extract_calendar_run_hash_depends_on_the_provider(
+    values: list[int], params: CalendarParams, model: str
+) -> None:
+    raw = _csv(values)
+
+    def run_with(provider: str):  # type: ignore[no-untyped-def]
+        deps = PipelineDeps(
+            dataclasses.replace(get_settings(), model=model, provider=provider),
+            FixedModelProvider(make_function_model(ModelScript())),
+        )
+        return asyncio.run(extract_calendar(Upload("data.csv", raw), params, deps)).run
+
+    gemini, anthropic = run_with("gemini"), run_with("anthropic")
+    assert gemini.input_hash != anthropic.input_hash
+    assert gemini.input_hash == run_with("gemini").input_hash
