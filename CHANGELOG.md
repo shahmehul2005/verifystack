@@ -16,6 +16,10 @@ must say which version it bumps. Current versions:
 | Citation prompt               | `2026-09-05.cite-retrieved-only`  | `backend/domain/citations/types.ts`     |
 
 ## [Unreleased]
+
+### Truthful extractor error messages
+- **Failed classification and extraction jobs now say why.** A new `failure` field (`kind` and a sanitised `message`) on `ExtractionResult` and `BatchClassifyResult` carries the extractor client error kind (timeout, auth, model_unavailable, service, invalid_response, too_large, unsupported, unprocessable, not_configured) or `schema_validation`. `describeFailure` turns it into the text shown in `runDocument`, `classify-batch` and `documents/[id]/type`. Only a genuine validation failure is reported as a schema validation failure. Messages hold no URL, key or raw response text.
+- **`EXTRACTOR_MODEL` must match `EXTRACTOR_PROVIDER`.** Leave it empty, or use `claude-haiku-5-5` for `anthropic`. A Gemini model name with the Anthropic provider fails as a service error.
 ### Anthropic model provider for the Extractor_Service
 - **The service can call Anthropic instead of Gemini.** Set `EXTRACTOR_PROVIDER=anthropic` and `ANTHROPIC_API_KEY`
   in the service's environment. The default stays `gemini`. `EXTRACTOR_MODEL` defaults per provider

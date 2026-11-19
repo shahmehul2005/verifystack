@@ -1,0 +1,133 @@
+{
+  "ok": true,
+  "fields": [
+    {
+      "path": "supplierName",
+      "kind": "string",
+      "value": "Bharat Petroleum Corporation Ltd",
+      "unit_as_printed": null,
+      "confidence": 0.96,
+      "verified": true,
+      "needs_review": false,
+      "regulatory": false,
+      "review_reasons": [],
+      "provenance": {
+        "page": 1,
+        "bbox": {
+          "x": 0.08403361344537816,
+          "y": 0.049964370546318346,
+          "width": 0.2512773109243698,
+          "height": 0.011876484560570076
+        },
+        "sheet": null,
+        "cell": null,
+        "source_text": "Bharat Petroleum Corporation Ltd",
+        "formula": null
+      }
+    },
+    {
+      "path": "invoiceNumber",
+      "kind": "string",
+      "value": "BP/2025/00123",
+      "unit_as_printed": null,
+      "confidence": 0.96,
+      "verified": true,
+      "needs_review": false,
+      "regulatory": false,
+      "review_reasons": [],
+      "provenance": {
+        "page": 1,
+        "bbox": {
+          "x": 0.1727731092436975,
+          "y": 0.06659144893111645,
+          "width": 0.11586554621848738,
+          "height": 0.01187648456057007
+        },
+        "sheet": null,
+        "cell": null,
+        "source_text": "Invoice No: BP/2025/00123",
+        "formula": null
+      }
+    },
+    {
+      "path": "invoiceDate",
+      "kind": "date",
+      "value": "2025-05-12",
+      "unit_as_printed": null,
+      "confidence": 0.96,
+      "verified": true,
+      "needs_review": false,
+      "regulatory": false,
+      "review_reasons": [],
+      "provenance": {
+        "page": 1,
+        "bbox": {
+          "x": 0.18678991596638658,
+          "y": 0.08321852731591454,
+          "width": 0.08410084033613444,
+          "height": 0.01187648456057007
+        },
+        "sheet": null,
+        "cell": null,
+        "source_text": "Invoice Date: 12/05/2025",
+        "formula": null
+      }
+    },
+    {
+      "path": "quantity",
+      "kind": "measure",
+      "value": 12500.0,
+      "unit_as_printed": "Litres",
+      "confidence": 0.96,
+      "verified": true,
+      "needs_review": true,
+      "regulatory": true,
+      "review_reasons": [
+        "regulatory_value"
+      ],
+      "provenance": {
+        "page": 1,
+        "bbox": {
+          "x": 0.15596638655462186,
+          "y": 0.11647268408551074,
+          "width": 0.05139495798319327,
+          "height": 0.01187648456057007
+        },
+        "sheet": null,
+        "cell": null,
+        "source_text": "Quantity: 12,500 Litres",
+        "formula": null
+      }
+    },
+    {
+      "path": "calorificValue",
+      "kind": "measure",
+      "value": null,
+      "unit_as_printed": "kcal/kg",
+      "confidence": 0.5,
+      "verified": false,
+      "needs_review": true,
+      "regulatory": false,
+      "review_reasons": [
+        "unverified",
+        "value_unparsed"
+      ],
+      "provenance": {
+        "page": 1,
+        "bbox": null,
+        "sheet": null,
+        "cell": null,
+        "source_text": "GCV: n/a",
+        "formula": null
+      }
+    }
+  ],
+  "warnings": [],
+  "run": {
+    "model": "gemini-2.5-flash",
+    "model_calls": 1,
+    "prompt_version": "extractor-1",
+    "input_hash": "5533c6f55f27ecf0472f329f3852db8629ea44351acfeea8719a89f75ca122a3",
+    "duration_ms": 471
+  }
+}

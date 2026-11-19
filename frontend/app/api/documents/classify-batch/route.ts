@@ -9,6 +9,7 @@ import { isExtractorConfigured } from "@verifystack/backend/lib/supabase/configu
 import { loadPack } from "@verifystack/backend/domain/packs";
 import { inferSlot } from "@verifystack/backend/domain/deskreview";
 import { ExtractorServiceProvider } from "@verifystack/backend/domain/extraction/extractorServiceProvider";
+import { describeFailure } from "@verifystack/backend/domain/extraction/failureMessage";
 import { PageSplitError, firstEvidencePage } from "@verifystack/backend/domain/extraction/pages";
 import { CONFIDENCE_POLICY } from "@verifystack/backend/domain/extraction/schemas";
 import {
@@ -162,8 +163,9 @@ export async function POST(req: Request) {
         .then(() => undefined, () => undefined);
 
       if (!answer.ok) {
-        const message = answer.log.error ?? answer.errors[0] ?? "The model gave no usable answer.";
-        return isRetryableProviderError(message)
+        const raw = answer.log.error ?? answer.errors[0] ?? "The model gave no usable answer.";
+        const message = answer.failure ? describeFailure(answer.failure, "classification") : raw;
+        return isRetryableProviderError(raw)
           ? fail(429, "The model is busy or rate-limited. Waiting, then trying again.", true, 20)
           : fail(502, message, false);
       }

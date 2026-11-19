@@ -21,6 +21,7 @@ import {
 import { provenanceGate } from "./provenance";
 import { ExtractorServiceProvider } from "./extractorServiceProvider";
 import { insertAiLog } from "./aiLog";
+import { classificationFailureMessage, extractionFailureMessage } from "./failureMessage";
 import { isExtractorConfigured } from "@verifystack/backend/lib/supabase/configured";
 import { qualifyExtractedFieldPaths } from "./fieldPaths";
 import { registryForPack } from "../registry";
@@ -247,11 +248,12 @@ export async function runDocumentExtraction(
       );
 
       if (!classified.ok || !classified.data) {
+        const message = classificationFailureMessage(classified);
         await admin
           .from("extraction_jobs")
           .update({
             status: "failed",
-            error: classified.validationErrors?.join("; ") ?? classified.log.error ?? "classify failed",
+            error: message,
             finished_at: new Date().toISOString(),
           })
           .eq("id", job.id);
@@ -261,11 +263,7 @@ export async function runDocumentExtraction(
           extracted: 0,
           dropped: 0,
           pages: pages.length,
-          error: classified.validationErrors?.length
-            ? `Classification failed. ${classified.validationErrors.slice(0, 4).join("; ")}`
-            : classified.log.error
-              ? `Classification failed. ${classified.log.error}`
-              : "Classification failed. The model could not identify this document type.",
+          error: message,
         };
       }
 
@@ -450,14 +448,12 @@ export async function runDocumentExtraction(
 
     if (saved === 0 && extractFailures === pages.length) {
       const firstErr = pageResults.find((r) => !r.extracted.ok);
+      const message = extractionFailureMessage(firstErr?.extracted);
       await admin
         .from("extraction_jobs")
         .update({
           status: "failed",
-          error:
-            firstErr?.extracted.validationErrors?.join("; ") ??
-            firstErr?.extracted.log.error ??
-            "extract failed on every page",
+          error: message,
           finished_at: new Date().toISOString(),
         })
         .eq("id", job.id);
@@ -468,9 +464,7 @@ export async function runDocumentExtraction(
         extracted: 0,
         dropped,
         pages: pages.length,
-        error: firstErr?.extracted.validationErrors?.length
-          ? `Field extraction failed schema validation. ${firstErr.extracted.validationErrors.slice(0, 4).join("; ")}`
-          : "Field extraction failed schema validation on every page.",
+        error: message,
       };
     }
 

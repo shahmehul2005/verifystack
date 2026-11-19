@@ -184,7 +184,13 @@ export class ExtractorServiceProvider implements ExtractionProvider {
       file: fileOf(page),
       allowedDocTypes: toOptions(options?.allowedDocTypes ?? []),
     });
-    if (!res.ok) return { ok: false, log: this.failLog(base, res.error.kind, started) };
+    if (!res.ok) {
+      return {
+        ok: false,
+        failure: { kind: res.error.kind, message: res.error.message },
+        log: this.failLog(base, res.error.kind, started),
+      };
+    }
 
     const { classification, run } = res.data;
     const log = this.okLog(base, run, res.data);
@@ -225,6 +231,7 @@ export class ExtractorServiceProvider implements ExtractionProvider {
         ok: false,
         items: empty,
         errors: [res.error.message],
+        failure: { kind: res.error.kind, message: res.error.message },
         log: this.failLog(base, res.error.kind, started),
       };
     }
@@ -277,7 +284,13 @@ export class ExtractorServiceProvider implements ExtractionProvider {
       docType,
       catalogue: fieldCatalogue(schema),
     });
-    if (!res.ok) return { ok: false, log: this.failLog(base, res.error.kind, started) };
+    if (!res.ok) {
+      return {
+        ok: false,
+        failure: { kind: res.error.kind, message: res.error.message },
+        log: this.failLog(base, res.error.kind, started),
+      };
+    }
 
     const log = this.okLog(base, res.data.run, res.data);
     const payload = rebuildPayload(res.data.fields, page);

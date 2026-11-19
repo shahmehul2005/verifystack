@@ -26,6 +26,7 @@ export function validate<T extends z.ZodTypeAny>(
     return {
       ok: false,
       validationErrors: ["Model output was not valid JSON"],
+      failure: { kind: "schema_validation", message: "Model output was not valid JSON" },
       log: { ...log, ok: false, error: "invalid_json" },
     };
   }
@@ -49,11 +50,13 @@ export function validate<T extends z.ZodTypeAny>(
         },
       };
     }
+    const errors = result.error.issues.map(
+      (i) => `${i.path.join(".") || "(root)"}: ${i.message}`
+    );
     return {
       ok: false,
-      validationErrors: result.error.issues.map(
-        (i) => `${i.path.join(".") || "(root)"}: ${i.message}`
-      ),
+      validationErrors: errors,
+      failure: { kind: "schema_validation", message: errors.slice(0, 4).join("; ") },
       log: { ...log, ok: false, error: "schema_validation_failed" },
     };
   }

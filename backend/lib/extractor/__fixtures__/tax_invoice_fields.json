@@ -1,0 +1,229 @@
+{
+  "ok": true,
+  "fields": [
+    {
+      "path": "supplierName",
+      "kind": "string",
+      "value": "Sri Lakshmi Traders",
+      "unit_as_printed": null,
+      "confidence": 0.96,
+      "verified": true,
+      "needs_review": false,
+      "regulatory": false,
+      "review_reasons": [],
+      "provenance": {
+        "page": 1,
+        "bbox": {
+          "x": 0.08403361344537816,
+          "y": 0.049964370546318346,
+          "width": 0.1503529411764706,
+          "height": 0.011876484560570076
+        },
+        "sheet": null,
+        "cell": null,
+        "source_text": "Sri Lakshmi Traders",
+        "formula": null
+      }
+    },
+    {
+      "path": "supplierGstin",
+      "kind": "string",
+      "value": "29ABCDE1234F1Z5",
+      "unit_as_printed": null,
+      "confidence": 0.96,
+      "verified": true,
+      "needs_review": false,
+      "regulatory": false,
+      "review_reasons": [],
+      "provenance": {
+        "page": 1,
+        "bbox": {
+          "x": 0.14473949579831932,
+          "y": 0.06659144893111645,
+          "width": 0.15319327731092444,
+          "height": 0.01187648456057007
+        },
+        "sheet": null,
+        "cell": null,
+        "source_text": "GSTIN: 29ABCDE1234F1Z5",
+        "formula": null
+      }
+    },
+    {
+      "path": "taxableValue",
+      "kind": "measure",
+      "value": 642000.0,
+      "unit_as_printed": null,
+      "confidence": 0.96,
+      "verified": true,
+      "needs_review": false,
+      "regulatory": false,
+      "review_reasons": [],
+      "provenance": {
+        "page": 1,
+        "bbox": {
+          "x": 0.19800000000000004,
+          "y": 0.13309976247030886,
+          "width": 0.06073949579831936,
+          "height": 0.011876484560570055
+        },
+        "sheet": null,
+        "cell": null,
+        "source_text": "Taxable value: 642,000",
+        "formula": null
+      }
+    },
+    {
+      "path": "grandTotal",
+      "kind": "measure",
+      "value": 757560.0,
+      "unit_as_printed": null,
+      "confidence": 0.96,
+      "verified": true,
+      "needs_review": false,
+      "regulatory": false,
+      "review_reasons": [],
+      "provenance": {
+        "page": 1,
+        "bbox": {
+          "x": 0.17652100840336138,
+          "y": 0.14972684085510696,
+          "width": 0.06073949579831933,
+          "height": 0.011876484560570055
+        },
+        "sheet": null,
+        "cell": null,
+        "source_text": "Grand total: 757,560",
+        "formula": null
+      }
+    },
+    {
+      "path": "lines.0.description",
+      "kind": "string",
+      "value": "Steel rods",
+      "unit_as_printed": null,
+      "confidence": 0.96,
+      "verified": true,
+      "needs_review": false,
+      "regulatory": false,
+      "review_reasons": [],
+      "provenance": {
+        "page": 1,
+        "bbox": {
+          "x": 0.1260672268907563,
+          "y": 0.09984560570071264,
+          "width": 0.07566386554621851,
+          "height": 0.01187648456057007
+        },
+        "sheet": null,
+        "cell": null,
+        "source_text": "Item: Steel rods  HSN 7214",
+        "formula": null
+      }
+    },
+    {
+      "path": "lines.0.quantity",
+      "kind": "measure",
+      "value": 10.0,
+      "unit_as_printed": "MT",
+      "confidence": 0.96,
+      "verified": true,
+      "needs_review": false,
+      "regulatory": false,
+      "review_reasons": [],
+      "provenance": {
+        "page": 1,
+        "bbox": {
+          "x": 0.3287731092436975,
+          "y": 0.09984560570071264,
+          "width": 0.018689075630252128,
+          "height": 0.01187648456057007
+        },
+        "sheet": null,
+        "cell": null,
+        "source_text": "Qty 10 MT",
+        "formula": null
+      }
+    },
+    {
+      "path": "lines.0.amount",
+      "kind": "measure",
+      "value": 520000.0,
+      "unit_as_printed": null,
+      "confidence": 0.96,
+      "verified": true,
+      "needs_review": false,
+      "regulatory": false,
+      "review_reasons": [],
+      "provenance": {
+        "page": 1,
+        "bbox": {
+          "x": 0.5492436974789916,
+          "y": 0.09984560570071264,
+          "width": 0.060739495798319276,
+          "height": 0.01187648456057007
+        },
+        "sheet": null,
+        "cell": null,
+        "source_text": "Amount 520,000",
+        "formula": null
+      }
+    },
+    {
+      "path": "lines.1.description",
+      "kind": "string",
+      "value": "Binding wire",
+      "unit_as_printed": null,
+      "confidence": 0.96,
+      "verified": true,
+      "needs_review": false,
+      "regulatory": false,
+      "review_reasons": [],
+      "provenance": {
+        "page": 1,
+        "bbox": {
+          "x": 0.1260672268907563,
+          "y": 0.11647268408551074,
+          "width": 0.09152941176470589,
+          "height": 0.01187648456057007
+        },
+        "sheet": null,
+        "cell": null,
+        "source_text": "Item: Binding wire  HSN 7217",
+        "formula": null
+      }
+    },
+    {
+      "path": "lines.1.quantity",
+      "kind": "measure",
+      "value": 2.0,
+      "unit_as_printed": "MT",
+      "confidence": 0.96,
+      "verified": true,
+      "needs_review": false,
+      "regulatory": false,
+      "review_reasons": [],
+      "provenance": {
+        "page": 1,
+        "bbox": {
+          "x": 0.3446386554621849,
+          "y": 0.11647268408551074,
+          "width": 0.009344537815126064,
+          "height": 0.01187648456057007
+        },
+        "sheet": null,
+        "cell": null,
+        "source_text": "Qty 2 MT",
+        "formula": null
+      }
+    }
+  ],
+  "warnings": [],
+  "run": {
+    "model": "gemini-2.5-flash",
+    "model_calls": 1,
+    "prompt_version": "extractor-1",
+    "input_hash": "39d12b2a8e37f879c2a89c382ec6835d24df4916fa7eb9f4d7d1031d9c58ebc9",
+    "duration_ms": 58
+  }
+}

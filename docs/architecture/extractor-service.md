@@ -150,6 +150,9 @@ The web app reads `EXTRACTOR_URL` and `EXTRACTOR_API_KEY`. `http://` is accepted
 loopback hosts, redirects are refused, and the key is never sent to another origin. See
 `.env.example`.
 
+
+**Error messages.** The web app maps each client error kind to a specific message (`backend/domain/extraction/failureMessage.ts`) instead of reporting every failure as schema validation. `EXTRACTOR_MODEL` must match `EXTRACTOR_PROVIDER`: leave it empty, or set `claude-haiku-5-5` for `anthropic`. A mismatch shows up as a `service` failure.
+
 ## 6. Guarantees
 
 - Every reading carries its real source: sheet and cell for spreadsheets, page and box for

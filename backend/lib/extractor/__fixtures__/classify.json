@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "classification": {
+    "doc_type": "fuel_invoice",
+    "confidence": 0.93,
+    "reasoning": "Diesel delivery invoice."
+  },
+  "run": {
+    "model": "gemini-2.5-flash",
+    "model_calls": 1,
+    "prompt_version": "extractor-1",
+    "input_hash": "474e1ab0a8e62d65cab212688cb7da5e92cef3e9f3c83f52e0e191ecd9143d6e",
+    "duration_ms": 50
+  }
+}

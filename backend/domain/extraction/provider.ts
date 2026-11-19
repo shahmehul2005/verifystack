@@ -7,7 +7,14 @@
  */
 
 import type { z } from "zod";
+import type { ExtractorErrorKind } from "@verifystack/backend/lib/extractor/client";
 import type { Classification, DocType } from "./schemas";
+
+/** Why a call failed. `message` is already sanitised: no URL, key or raw response text. */
+export interface ProviderFailure {
+  kind: ExtractorErrorKind | "schema_validation";
+  message: string;
+}
 
 export interface DocumentPage {
   /** Content-addressed id of the parent evidence item. */
@@ -40,6 +47,8 @@ export interface ExtractionResult<T> {
   data?: T;
   /** Populated when the model output failed schema validation. */
   validationErrors?: string[];
+  /** Set when ok is false and the cause is known. */
+  failure?: ProviderFailure;
   log: AiActionLog;
 }
 
@@ -56,6 +65,8 @@ export interface BatchClassifyResult {
   items: (Classification | null)[];
   /** Why a slot is empty, or what went wrong with the call. */
   errors: string[];
+  /** Set when the whole call failed at the client. */
+  failure?: ProviderFailure;
   log: AiActionLog;
 }
 

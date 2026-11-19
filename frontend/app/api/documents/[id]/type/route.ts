@@ -8,6 +8,7 @@ import { auditEvent } from "@verifystack/backend/lib/auth/auditEvent";
 import { getEngagement } from "@verifystack/backend/lib/data/engagements";
 import { loadPack } from "@verifystack/backend/domain/packs";
 import { ExtractorServiceProvider } from "@verifystack/backend/domain/extraction/extractorServiceProvider";
+import { describeFailure } from "@verifystack/backend/domain/extraction/failureMessage";
 import { splitEvidencePages } from "@verifystack/backend/domain/extraction/pages";
 import { isExtractorConfigured } from "@verifystack/backend/lib/supabase/configured";
 
@@ -177,7 +178,9 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     if (!classified.ok || !classified.data) {
       return NextResponse.json({
         ok: false,
-        error: classified.validationErrors?.join("; ") ?? classified.log.error ?? "Classification failed",
+        error: classified.failure
+          ? describeFailure(classified.failure, "classification")
+          : classified.validationErrors?.join("; ") ?? classified.log.error ?? "Classification failed",
       }, { status: 422 });
     }
 
